@@ -87,10 +87,12 @@ class FactorCalService:
     @staticmethod
     def update_mom_factor(df: pd.DataFrame) -> pd.DataFrame:
         """动量因子：过去 N 日收益率"""
-        windows = [10, 20, 50]
+        windows = [5, 10, 20, 50]
         for w in windows:
             df[f'mom_{w}'] = df['close'] / df['close'].shift(w) - 1
         df['mom_composite'] = df[['mom_10', 'mom_20', 'mom_50']].mean(axis=1)
+        # 动量加速度
+        df['mon_acc'] = df['mon_5'] - df['mon_20'] / 4
         return df
 
     @staticmethod
