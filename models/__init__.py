@@ -240,49 +240,6 @@ class BacktestTask(db.Model):
         }
 
 
-class IndexDailyData(db.Model):
-    __tablename__ = 'index_daily_data'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    symbol = Column(String(10))
-    name = Column(String(32))
-    open = Column(Float)
-    close = Column(Float)
-    high = Column(Float)
-    low = Column(Float)
-    amplitude = Column(Float)
-    chg_pct = Column(Float)
-    rfa_amount = Column(Float)
-    turnover_rate = Column(Float)
-    turnover = Column(Float)
-    volume = Column(Float)
-    date = Column(Date)
-    market = Column(String(32))
-
-    def to_dict(self):
-        """
-        将对象的属性转换为字典
-        :return: 包含对象所有属性的字典
-        """
-        return {
-            'id': self.id,
-            'symbol': self.symbol,
-            'name': self.name,
-            'open': self.open,
-            'close': self.close,
-            'high': self.high,
-            'low': self.low,
-            'amplitude': self.amplitude,
-            'chg_pct': self.chg_pct,
-            'rfa_amount': self.rfa_amount,
-            'turnover_rate': self.turnover_rate,
-            'turnover': self.turnover,
-            'volume': self.volume,
-            'date': self.date.strftime('%Y-%m-%d') if self.date else None,  # 处理 None 值
-            'market': self.market,
-        }
-
-
 class BacktestTrade(db.Model):
     __tablename__ = 'backtest_trades'
 
@@ -914,6 +871,7 @@ class ScheduledTask(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
 
 class LlmConversationContext(Base):
     __tablename__ = 'llm_conversation_context'

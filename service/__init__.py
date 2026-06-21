@@ -13,10 +13,8 @@ from service.market_news_service import MarketNewsService
 from service.factor_service import FactorValueService
 from service.factor_selector_service import FactorSelectorService
 from service.index_constituents_service import IndexConstituentsService
-from service.future_basis_service import FuturesBasisWideService
 from service.factor_cal_service import FactorCalService
 from service.factor_desc import factor_descriptions, financial_factor_descriptions
-from service.index_daily_data_service import IndexDailyDataService
 from service.job_service import JobService
 from service.portfolio_daily_summary_service import PortfolioDailySummaryService
 from service.daily_pnl_record_service import DailyPnLRecordService

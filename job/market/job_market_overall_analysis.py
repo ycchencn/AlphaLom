@@ -7,8 +7,9 @@
 from llms import get_model_by_setting
 from pathlib import Path
 from string import Template
-from service import FactorValueService, MarketNewsService, IndexDailyDataService
+from service import FactorValueService, MarketNewsService
 from utils.common import send_feishu_markdown_message, get_date_by_n, get_today
+from utils.data_loader import databull
 
 # 获取当前 Python 文件所在目录
 CURRENT_DIR = Path(__file__).parent
@@ -26,11 +27,7 @@ def job_market_overall_analysis(send_feishu=False):
     staff.role_base = prompt_quant_decision
 
     # 获取大盘数据
-    sh_index_data = IndexDailyDataService.get_history(
-        symbol="000001",
-        start_date=get_date_by_n(-1 * 30),
-        end_date=get_today()
-    )
+    sh_index_data = databull.get_index_history("000001", get_date_by_n(-1 * 30), get_today())
 
     # 4 大模型汇总输出分析报告
     template = Template(prompt_template)

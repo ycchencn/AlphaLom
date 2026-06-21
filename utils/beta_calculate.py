@@ -6,7 +6,7 @@
 
 import numpy as np
 import pandas as pd
-from service import IndexDailyDataService, StockService
+from service import StockService
 from utils.data_loader import databull
 from utils.common import logger
 
@@ -22,7 +22,8 @@ def calculate_beta(stock_code, index_code='000001', start_date="20200101", end_d
         assert stock is not None
 
         # 获取指数价格
-        index_df = IndexDailyDataService.get_history(index_code, start_date, end_date)
+        # index_df = IndexDailyDataService.get_history(index_code, start_date, end_date)
+        index_df = databull.get_index_history(index_code, start_date, end_date)
         if index_df is None or index_df.empty:
             logger.warning(f"Index {index_code} has no data between {start_date} and {end_date}")
             return 0.0
