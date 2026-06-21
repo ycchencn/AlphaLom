@@ -94,6 +94,12 @@ class FactorCalService:
         return df
 
     @staticmethod
+    def update_closing_strength(df: pd.DataFrame) -> pd.DataFrame:
+        """收盘强度因子"""
+        df['closing_strength'] = (df['close'] - df['low']) / (df['high'] - df['low'])
+        return df
+
+    @staticmethod
     def update_vol_factor(df: pd.DataFrame) -> pd.DataFrame:
         """波动率因子：过去 N 日收益率标准差"""
         df['ret'] = df['close'].pct_change()
