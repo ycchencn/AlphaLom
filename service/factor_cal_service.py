@@ -282,6 +282,8 @@ class FactorCalService:
 
         df = cls.update_52week_range(df)
 
+        df = cls.update_closing_strength(df)
+
         # 计算ATR
         df = cls.update_atr_factor(df, window=14)
 
