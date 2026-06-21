@@ -90,9 +90,28 @@ class FactorCalService:
         windows = [5, 10, 20, 50]
         for w in windows:
             df[f'mom_{w}'] = df['close'] / df['close'].shift(w) - 1
+            # 计算日收益率（若没有）
+        if 'ret' not in df.columns:
+            df['ret'] = df['close'].pct_change()
+            # 风险调整动量：用对应窗口的波动率调整（窗口长度 w 个交易日）
+        for w in windows:
+            # 滚动标准差（注意：不要包含当天收益率，否则有未来信息嫌疑，见下文）
+            # 保守做法：用过去 w 天的日收益率标准差（不含当天）
+            roll_std = df['ret'].shift(1).rolling(w).std()  # shift(1) 排除了当日收益率
+            # 年化波动率（可选）
+            # roll_vol_ann = roll_std * np.sqrt(252)
+            # 风险调整动量 = 动量 / (波动率 * sqrt(w))
+            df[f'mom_risk_adj_{w}'] = df[f'mom_{w}'] / (roll_std * np.sqrt(w) + 1e-8)  # 避免除零
+
+        # 也可以基于动量复合指标
         df['mom_composite'] = df[['mom_10', 'mom_20', 'mom_50']].mean(axis=1)
+
         # 动量加速度
-        df['mon_acc'] = df['mon_5'] - df['mon_20'] / 4
+        df['mom_acc'] = (df['mom_5'] - ((1 + df['mom_20']) ** (1 / 4) - 1)) * 10
+
+        # 清理中间变量 tr
+        df.drop(columns=['ret'], inplace=True)
+
         return df
 
     @staticmethod
@@ -297,6 +316,7 @@ class FactorCalService:
 
         # 转为 record 格式，去除 NaN
         result = df[factor_cols].dropna().to_dict(orient='records')
+
         return result
 
     @staticmethod

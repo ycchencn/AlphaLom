@@ -26,8 +26,9 @@ class TestFactorService(unittest.TestCase):
         end_date = get_today(_format='%Y%m%d')
         cls = FactorCalService()
         df = cls._prepare_data(stock_code, start_date, end_date)
-        df = FactorCalService.update_closing_strength(df)
-        # print(df['closing_strength'])
+        df = cls.update_mom_factor(df)
+        df = cls.update_closing_strength(df)
+        cls.save_factor_records_to_db(df, stock_code)
         self.assertIsNotNone(df)
 
     def test_calculate_beta(self):
