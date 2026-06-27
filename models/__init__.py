@@ -34,11 +34,9 @@ class Stock(Base):
     name_en = Column(String(50))
     area = Column(String(50))
     industry = Column(String(50))
-    cnspell = Column(String(50))
     market = Column(String(10), default='cn')
     act_name = Column(String(50))
     act_ent_type = Column(String(50))
-    save_history = Column(Integer, default=0)
     last_update = Column(DateTime)
     exchange = Column(String(50))
     pe_ratio = Column(Float(precision=2))
@@ -68,11 +66,9 @@ class Stock(Base):
             'name_en': self.name_en,
             'area': self.area,
             'industry': self.industry,
-            'cnspell': self.cnspell,
             'market': self.market,
             'act_name': self.act_name,
             'act_ent_type': self.act_ent_type,
-            'save_history': self.save_history,
             'concepts': self.concepts,
             'last_update': self.last_update.strftime('%Y-%m-%d %H:%M:%S') if self.last_update else None,
             'exchange': self.exchange,

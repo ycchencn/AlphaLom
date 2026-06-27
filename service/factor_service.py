@@ -13,13 +13,14 @@ from datetime import date, datetime
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from utils.common import get_today
+from sqlalchemy import func
 
 
 class FactorValueService:
 
     @staticmethod
     def create(trade_date: date, ticker: str, factor_name: str, value: float = None, source: str = 'custom') -> \
-    Optional[FactorValue]:
+            Optional[FactorValue]:
         """
         创建一条因子记录。
 
@@ -308,3 +309,48 @@ class FactorValueService:
                         'source': source
                     })
         return records
+
+    @staticmethod
+    def get_latest_factors_for_stock(ticker: str) -> Dict[str, Dict[str, Any]]:
+        """
+        获取某只股票所有因子的最新值及对应交易日期。
+        原理：先用子查询求出每个因子在该股票上的最新 trade_date，
+              再关联 FactorValue 取出该日期的 value。
+        :param ticker: 股票代码，如 '600519.SH'
+        :return: 字典，key 为 factor_name，value 为包含 'value' 和 'trade_date' 的字典。
+                 示例：{'pe_ttm': {'value': 28.35, 'trade_date': datetime.date(2025,3,27)}, ...}
+        """
+        try:
+            # 子查询：取每个因子的最大 trade_date
+            subq = (
+                db_session.query(
+                    FactorValue.factor_name,
+                    func.max(FactorValue.trade_date).label('max_date')
+                )
+                .filter(FactorValue.ticker == ticker)
+                .group_by(FactorValue.factor_name)
+                .subquery()
+            )
+            # 主查询：关联原表，取出完整的 factor_name + value + trade_date
+            results = (
+                db_session.query(FactorValue)
+                .join(
+                    subq,
+                    (FactorValue.factor_name == subq.c.factor_name) &
+                    (FactorValue.trade_date == subq.c.max_date) &
+                    (FactorValue.ticker == ticker)  # 冗余条件，确保只取该 ticker
+                )
+                .filter(FactorValue.ticker == ticker)
+                .all()
+            )
+            # 组装返回结果
+            factors = {}
+            for r in results:
+                factors[r.factor_name] = {
+                    'value': float(r.value) if r.value is not None else None,
+                    'trade_date': r.trade_date
+                }
+            return factors
+        except Exception as e:
+            logger.error(f"Failed to fetch latest factors for stock {ticker}: {e}")
+            return {}

@@ -220,7 +220,7 @@ class DailyStrategySimulator:
         logger.info("-" * 80)
         logger.info(f"📈 组合总浮动盈亏: {total_unrealized_pnl:+,.2f} 元 ({total_pnl_pct:+.2f}%)")
         logger.info(f"💰 总资产: {total_value:,.2f} | 现金: {self.cash:,.2f} | 持仓市值: {total_value - self.cash:,.2f}")
-        logger.info(f"📊 仓位比例: {(total_value - self.cash) / total_value * 100:.1f}%\n")
+        logger.info(f"📊 仓位比例: {(total_value - self.cash) / total_value * 100:.1f}%")
 
         self.daily_records.extend(records)
 

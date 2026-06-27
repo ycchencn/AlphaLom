@@ -237,19 +237,8 @@ onMounted(async () => {
             labels: labels,
             datasets: [
                 {
-                    label: '累计盈亏',
-                    data: assets,
-                    backgroundColor: 'rgba(255, 71, 87, 0.8)',
-                    borderColor: 'rgba(255, 71, 87, 0.8)',
-                    pointRadius: 1,
-                    borderWidth: 2,
-                    tension: 0.3,
-                },
-                {
                     label: '当日盈亏',
                     data: daily_pnl_change,
-                    backgroundColor: '#5623eb',
-                    borderColor: '#5623eb',
                     pointRadius: 1,
                     borderWidth: 1,
                     tension: 0.3,
@@ -456,32 +445,6 @@ async function updatePortfolioPrompt() {
         <div v-if="profInfo?.position_plan" class="mb-8 space-y-5">
 
             <Card>
-                <template #title><b class="text-lg">收益走势</b></template>
-                <template #content>
-                    <Chart type="line" :data="lineData" :options="lineOptions" style="height: 300px"></Chart>
-                </template>
-            </Card>
-
-            <Card>
-                <template #title><b class="text-lg">净资产走势</b></template>
-                <template #content>
-                    <Chart type="line" :data="lineDataAssets" :options="lineOptions" style="height: 300px"></Chart>
-                </template>
-            </Card>
-
-<!--            <Card>-->
-<!--                <template #title><b class="text-lg">收益日历</b></template>-->
-<!--                <template #content>-->
-<!--                    <div style=" width: 400px;">-->
-<!--                    <ProfitLossCalendar-->
-<!--                      :profit-data="profitData"-->
-<!--                      :initial-date="new Date(2026, 0, 1)"-->
-<!--                    />-->
-<!--                    </div>-->
-<!--                </template>-->
-<!--            </Card>-->
-
-            <Card>
                 <template #title><b class="text-lg">市场点评</b></template>
                 <template #content>
                     <p class="text-gray-700 text-sm">{{ profInfo.position_plan.market_context }}</p>
@@ -501,6 +464,32 @@ async function updatePortfolioPrompt() {
                     <p class="text-gray-700 text-sm">{{ profInfo.position_plan.trading_rule_adjust }}</p>
                 </template>
             </Card>
+
+<!--            <Card>-->
+<!--                <template #title><b class="text-lg">收益走势</b></template>-->
+<!--                <template #content>-->
+<!--                    <Chart type="line" :data="lineData" :options="lineOptions" style="height: 300px"></Chart>-->
+<!--                </template>-->
+<!--            </Card>-->
+
+            <Card>
+                <template #title><b class="text-lg">净资产走势</b></template>
+                <template #content>
+                    <Chart type="line" :data="lineDataAssets" :options="lineOptions" style="height: 300px"></Chart>
+                </template>
+            </Card>
+
+<!--            <Card>-->
+<!--                <template #title><b class="text-lg">收益日历</b></template>-->
+<!--                <template #content>-->
+<!--                    <div style=" width: 400px;">-->
+<!--                    <ProfitLossCalendar-->
+<!--                      :profit-data="profitData"-->
+<!--                      :initial-date="new Date(2026, 0, 1)"-->
+<!--                    />-->
+<!--                    </div>-->
+<!--                </template>-->
+<!--            </Card>-->
 
         </div>
 

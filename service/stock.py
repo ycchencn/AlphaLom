@@ -86,7 +86,6 @@ class StockService:
         concepts: str = None,
         securities_type: str = None,
         monitoring: int = None,
-        save_history: int = None,
         page: int = 1,
         per_page: int = 50,
         fields: Optional[List[str]] = None,
@@ -101,7 +100,6 @@ class StockService:
         :param concepts: 概念
         :param securities_type: 证券类型
         :param monitoring: 个股监控标记
-        :param save_history: 个股历史数据标记
         :param page: 分页页码
         :param per_page: 每页数量
         :param fields: 指定返回的字段列表。如果为 None，返回所有字段。
@@ -125,8 +123,6 @@ class StockService:
             query = query.filter(Stock.securities_type == securities_type)
         if monitoring:
             query = query.filter(Stock.monitoring == monitoring)
-        if save_history:
-            query = query.filter(Stock.save_history == save_history)
 
         # --- 2. 字段选择 ---
         # 注意：如果指定了 order_by，建议确保排序字段包含在查询字段中，或者 SQLAlchemy 能够处理
@@ -319,11 +315,11 @@ class StockService:
             return False
 
     @staticmethod
-    def delete_stock(ts_code: str) -> bool:
-        """根据 ts_code 删除股票"""
-        stock = db_session.query(Stock).filter_by(ts_code=ts_code).first()
+    def delete_stock(symbol: str) -> bool:
+        """根据 symbol 删除股票"""
+        stock = db_session.query(Stock).filter_by(symbol=symbol).first()
         if not stock:
-            logger.warning(f"Record with ts_code {ts_code} not found for deletion")
+            logger.warning(f"Record with ts_code {symbol} not found for deletion")
             return False
         try:
             db_session.delete(stock)
@@ -331,5 +327,5 @@ class StockService:
             return True
         except Exception as e:
             db_session.rollback()
-            logger.error(f"Deletion failed for {ts_code}: {e}")
+            logger.error(f"Deletion failed for {symbol}: {e}")
             return False
