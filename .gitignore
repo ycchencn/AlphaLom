@@ -25,3 +25,4 @@ testcase/symbols_*.json
 .vscode
 service/cache
 service/df_cache
+job/private/*
