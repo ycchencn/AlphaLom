@@ -199,11 +199,23 @@ class InvestmentPortfolioService:
         return False
 
     @staticmethod
-    def get_all(enable=1):
+    def get_all(enable=1, fields=None):
         """
         获取所有投资组合
+        :param enable: 启用状态筛选
+        :param fields: 需要返回的字段列表，如 ['id', 'name', 'total_assets']，为None时返回全部字段
         """
-        stocks = db_session.query(InvestmentPortfolio).filter(
+        query = db_session.query(InvestmentPortfolio).filter(
             InvestmentPortfolio.enable == enable
-        ).all()
-        return [stock.to_dict() for stock in stocks]
+        )
+        if fields:
+            # 构建要查询的实体列表
+            columns = [getattr(InvestmentPortfolio, f) for f in fields]
+            query = query.with_entities(*columns)
+            # 执行查询，结果不再为 ORM 对象而是 Row 或 NamedTuple
+            rows = query.all()
+            # 转换为字典列表
+            return [dict(zip(fields, row)) for row in rows]
+        else:
+            stocks = query.all()
+            return [stock.to_dict() for stock in stocks]

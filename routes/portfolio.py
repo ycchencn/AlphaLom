@@ -4,7 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from datetime import datetime
+import pandas as pd
 from flask import jsonify, Blueprint, request
 from app import api_prefix, cache
 from service import InvestmentPortfolioService, PortfolioAssetsService
@@ -13,7 +13,7 @@ from service import (
     PortfolioDailySummaryService,
     PortfolioTransactionService
 )
-from utils.common import logger
+from backtest.quant_stat_report import generate_html_report_string
 
 portfolio_bp = Blueprint('portfolio', __name__)
 
@@ -69,6 +69,21 @@ def get_portfolio_transaction(portfolio_id):
     # 获取策略交易记录
     _list = PortfolioTransactionService.get_by_portfolio_id(portfolio_id)
     return jsonify(_list)
+
+@portfolio_bp.route(f'{api_prefix}/portfolio_quantstat/<string:portfolio_id>', methods=['GET'])
+def gen_quantstat(portfolio_id):
+    # 获取策略交易记录
+    summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)
+
+    # 2. 转换为 DataFrame，只取日期和总资产
+    df = pd.DataFrame(summary_list)
+    df['date'] = pd.to_datetime(df['date'])  # 确保是 datetime 格式
+    df = df.set_index('date').sort_index()  # 设为索引并按时间排序
+    equity = df['total_assets']  # 净资产序列
+
+    # 你的归一化净值序列 equity
+    html_content = generate_html_report_string(equity, title="量化策略绩效报告")
+    return html_content
 
 @portfolio_bp.route(f'{api_prefix}/portfolio/<string:portfolio_id>', methods=['PUT'])
 def update_portfolio(portfolio_id):

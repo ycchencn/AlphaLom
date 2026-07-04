@@ -4,6 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
+import pandas as pd
 from datetime import date
 from backtest.strategy.strategy_runner import DailyStrategySimulator
 from models.database import db_session
@@ -12,10 +13,13 @@ from service import (
     InvestmentPortfolioService,
     PortfolioAssetsService,
     FactorValueService,
-    PortfolioTransactionService
+    PortfolioTransactionService,
+    PortfolioDailySummaryService
 )
 from utils.common import logger, get_today, is_etf
 from utils.data_loader import databull
+from backtest.quant_stat_report import generate_html_report_string
+
 
 class StrategyRunner:
 
@@ -76,7 +80,8 @@ class StrategyRunner:
 
     def run(self):
 
-        logger.info(f"🚀 启动 {self.today} 策略模拟运行..., 策略编号：{self.portfolio_id}，策略名称：{self.investment_info.get('name')}")
+        logger.info(
+            f"🚀 启动 {self.today} 策略模拟运行..., 策略编号：{self.portfolio_id}，策略名称：{self.investment_info.get('name')}")
 
         # 1. 加载行情数据
         market_data = self._load_market_data()
@@ -107,7 +112,8 @@ class StrategyRunner:
         logger.info(f"📊 今日盈亏变化: {daily_pnl_change:+,.2f} 元")
 
         # 5. 保存统计结果
-        result = simulator.save_daily_pnl_to_db(self.trading_date_str, pnl_result['total_value'], daily_pnl_change=daily_pnl_change, overwrite=self.overwrite)
+        result = simulator.save_daily_pnl_to_db(self.trading_date_str, pnl_result['total_value'],
+                                                daily_pnl_change=daily_pnl_change, overwrite=self.overwrite)
 
         # 6. 保存交易记录
         for transaction_data in simulator.trade_log:
@@ -131,7 +137,7 @@ class StrategyRunner:
             self._update_position_info(pnl_result)
             InvestmentPortfolioService.update_by_portfolio_id(self.portfolio_id, {
                 'current_cash': self.current_cash,
-                'position_plan': {}, # 置空调仓计划
+                'position_plan': {},  # 置空调仓计划
             })
 
             # 清空0持仓的数据
@@ -223,8 +229,8 @@ class StrategyRunner:
                     self.portfolio_id, position['code'], update_data
                 )
 
-def run_daily_strategy_all(overwrite=False):
 
+def run_daily_strategy_all(overwrite=False):
     # 判断交易日
     if FactorValueService.is_trading_day() is False:
         return
@@ -240,6 +246,7 @@ def run_daily_strategy_all(overwrite=False):
             continue
         run_daily_strategy(portfolio=portfolio, trading_day=trading_day, overwrite=overwrite)
 
+
 def run_daily_strategy(portfolio, trading_day, overwrite):
     """
     运行每日策略
@@ -254,9 +261,36 @@ def run_daily_strategy(portfolio, trading_day, overwrite):
     runner.run()
 
 
+def generate_quantstat_report():
+    portfolios = InvestmentPortfolioService.get_all()
+
+    for portfolio in portfolios:
+
+        # 剔除禁用的
+        if portfolio.get('enable') == 0:
+            continue
+
+        summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio['portfolio_id'])
+
+        # 2. 转换为 DataFrame，只取日期和总资产
+        df = pd.DataFrame(summary_list)
+        df['date'] = pd.to_datetime(df['date'])  # 确保是 datetime 格式
+        df = df.set_index('date').sort_index()  # 设为索引并按时间排序
+        equity = df['total_assets']  # 净资产序列
+
+        # 你的归一化净值序列 equity
+        html_content = generate_html_report_string(equity, title="量化策略绩效报告")
+
+        InvestmentPortfolioService.update_by_portfolio_id(portfolio['portfolio_id'], {
+            'quantstat': html_content
+        })
+
+
 if __name__ == "__main__":
 
-    run_daily_strategy_all()
+    generate_quantstat_report()
+
+    # run_daily_strategy_all()
 
     # portfolio_id = 15
     # portfolio = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)

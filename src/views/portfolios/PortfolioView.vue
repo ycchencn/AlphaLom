@@ -13,7 +13,7 @@ import {
     formatHoldingDuration,
     formatDaysAgo,
     fetchPortfolioSummaryDaily,
-    fetchPortfolioTransaction
+    fetchPortfolioTransaction, fetchPortfolioQuantStat
 } from '@/utils/function.js';
 import axios from 'axios';
 import Dialog from 'primevue/dialog';
@@ -34,6 +34,8 @@ const modal_visible = ref(false);
 const code = ref(``);
 // 盈亏日历数据
 const profitData = ref({});
+const portfolio_quantstat = ref(null);
+const dcf_research_report_drawer = ref(false)
 
 // 编辑器选项对象
 const editorOptions = {
@@ -188,6 +190,9 @@ onMounted(async () => {
         // 获取统计数据
         profTransaction.value = await fetchPortfolioTransaction(portfolioId);
 
+        // 获取分析html
+        portfolio_quantstat.value = await fetchPortfolioQuantStat(portfolioId);
+
         // 获取策略信息
         const data = await fetchPortfolioInfo(portfolioId);
         enrichAssets(data); // 👈 关键：注入计算字段
@@ -320,9 +325,34 @@ async function updatePortfolioPrompt() {
 
 }
 
+const showDcfDrawer = function () {
+    // 分析数据
+    // loading.value = true;
+    dcf_research_report_drawer.value = true;
+}
+
 </script>
 
 <template>
+
+    <Drawer
+        v-model:visible="dcf_research_report_drawer"
+        header="量化策略绩效报告"
+        position="right"
+        class="!w-full md:!w-300 lg:!w-[90rem]"
+        :footer="false"
+        body-class="p-0"
+    >
+        <!-- 内容容器：使用 flex 布局以便底部固定 -->
+        <div class="flex flex-col h-full">
+
+            <!-- 滚动区域 -->
+            <div class="flex-1 overflow-y-auto">
+                <!-- Markdown 内容 -->
+                <div v-if="portfolio_quantstat" v-html="portfolio_quantstat" class="report-content" />
+            </div>
+        </div>
+    </Drawer>
 
     <Dialog v-model:visible="modal_visible" modal header="编辑模型Prompt" style="width: 950px;">
         <div class="flex items-center gap-4 mb-4">
@@ -346,6 +376,7 @@ async function updatePortfolioPrompt() {
 
         <!-- 右上角操作按钮 -->
         <div class="absolute top-8 right-8">
+            <Button label="QuantStat" size="small" class="mr-2" @click="showDcfDrawer()"></Button>
             <SplitButton label="操作" :model="items" severity="secondary" />
         </div>
 

@@ -447,6 +447,19 @@ export const fetchPortfolioTransaction = async (portfolio_id) => {
     }
 };
 
+export const fetchPortfolioQuantStat = async (portfolio_id) => {
+    try {
+        let response = await fetch(`/api/v1/portfolio_quantstat/${portfolio_id}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return await response.text();
+    } catch (error) {
+        console.error('Error fetching stock data:', error);
+        return [];
+    }
+};
+
 export const fetchPortfolioSummaryDaily = async (portfolio_id) => {
     try {
         let response = await fetch(`/api/v1/portfolio_daily_summary/` + portfolio_id);
