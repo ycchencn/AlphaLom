@@ -58,3 +58,4 @@ flask_cors
 fastapi
 aiohttp
 uvicorn
+quantstats
