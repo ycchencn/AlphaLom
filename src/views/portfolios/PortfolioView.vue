@@ -339,18 +339,21 @@ const showDcfDrawer = function () {
         v-model:visible="dcf_research_report_drawer"
         header="量化策略绩效报告"
         position="right"
-        class="!w-full md:!w-300 lg:!w-[90rem]"
+        class="!w-full md:!w-300 lg:!w-[89rem]"
         :footer="false"
         body-class="p-0"
     >
-        <!-- 内容容器：使用 flex 布局以便底部固定 -->
-        <div class="flex flex-col h-full">
-
-            <!-- 滚动区域 -->
-            <div class="flex-1 overflow-y-auto">
-                <!-- Markdown 内容 -->
-                <div v-if="portfolio_quantstat" v-html="portfolio_quantstat" class="report-content" />
-            </div>
+        <!-- iframe 替代 v-html，彻底隔离样式 -->
+        <iframe
+            v-if="portfolio_quantstat"
+            :srcdoc="portfolio_quantstat"
+            class="w-full h-full border-0"
+            sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+            title="量化报告"
+        />
+        <!-- 无数据时的占位 -->
+        <div v-else class="flex items-center justify-center h-full text-gray-400">
+            暂无报告数据
         </div>
     </Drawer>
 
