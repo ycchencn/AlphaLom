@@ -216,6 +216,6 @@ def job_position_plan_daily_all(trade_day_override=False):
 
 if __name__ == '__main__':
 
-    job_position_plan_daily_all(trade_day_override=True)
+    # job_position_plan_daily_all(trade_day_override=True)
 
-    # job_position_plan_daily(portfolio_id=9, send_feishu=False)
+    job_position_plan_daily(portfolio_id=1, send_feishu=False)

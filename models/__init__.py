@@ -42,7 +42,7 @@ class Stock(Base):
     pe_ratio = Column(Float(precision=2))
     pb_ratio = Column(Float(precision=2))
     concepts = Column(Text)
-    securities_type = Column(String(10))
+    securities_type = Column(String(10), default='stock')
     monitoring = Column(Integer, default=0)
     monitor_by = Column(String(50))
     last_update_financial_data = Column(DateTime)
