@@ -191,7 +191,7 @@ onMounted(async () => {
         profTransaction.value = await fetchPortfolioTransaction(portfolioId);
 
         // 获取分析html
-        portfolio_quantstat.value = await fetchPortfolioQuantStat(portfolioId);
+        // portfolio_quantstat.value = await fetchPortfolioQuantStat(portfolioId);
 
         // 获取策略信息
         const data = await fetchPortfolioInfo(portfolioId);
@@ -327,8 +327,12 @@ async function updatePortfolioPrompt() {
 
 const showDcfDrawer = function () {
     // 分析数据
-    // loading.value = true;
-    dcf_research_report_drawer.value = true;
+    loading.value = true;
+    axios.get(`/api/v1/portfolio_quantstat/${portfolioId}`).then(response => {
+        loading.value = false;
+        portfolio_quantstat.value = response.data;
+        dcf_research_report_drawer.value = true;
+    });
 }
 
 </script>
@@ -379,7 +383,7 @@ const showDcfDrawer = function () {
 
         <!-- 右上角操作按钮 -->
         <div class="absolute top-8 right-8">
-            <Button label="QuantStat" size="small" class="mr-2" @click="showDcfDrawer()"></Button>
+            <Button label="QuantStat" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
             <SplitButton label="操作" :model="items" severity="secondary" />
         </div>
 

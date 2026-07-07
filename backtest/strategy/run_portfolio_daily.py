@@ -288,9 +288,9 @@ def generate_quantstat_report():
 
 if __name__ == "__main__":
 
-    generate_quantstat_report()
+    # generate_quantstat_report()
 
-    # run_daily_strategy_all()
+    run_daily_strategy_all()
 
     # portfolio_id = 15
     # portfolio = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
