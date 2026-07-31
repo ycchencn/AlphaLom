@@ -23,7 +23,7 @@ class TestDatajiji(unittest.TestCase):
     def test_get_index_history(self):
         index_code = '000300'
         res = databull.get_index_history(index_code, start_date='20210101', end_date='20210115')
-        # print(res)
+        print(res)
         self.assertIsNotNone(res)
 
     def test_get_tick(self):
