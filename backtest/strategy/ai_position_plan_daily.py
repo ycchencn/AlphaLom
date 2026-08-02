@@ -112,7 +112,7 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
 
     # 1. 获取历史上下文
     history = DialogueManager.get_context(chat_id)
-    history = []
+    # history = []
 
     if len(history) == 0:
         # 用户预设 prompt

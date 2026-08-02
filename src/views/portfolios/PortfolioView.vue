@@ -545,7 +545,6 @@ const showDcfDrawer = function () {
                       class="inline-flex items-center px-3 py-1.5 bg-green-50 border border-green-200 rounded-full text-sm text-green-800"
                   ><!-- ✅ 动态 Badge：根据是否有持仓显示不同文本 -->
                     <Badge
-                        v-if="action.quantity > 0"
                         :value="action.displayType === 'add' ? '加仓' : '买入'"
                         :severity="action.displayType === 'add' ? 'warning' : 'success'"
                         class="mr-2"
@@ -581,7 +580,6 @@ const showDcfDrawer = function () {
                 </h3>
                 <div class="flex flex-wrap gap-2">
                   <span
-                      v-if="action.quantity > 0"
                       v-for="action in sellActions"
                       :key="`sell-${action.stock_code}`"
                       class="inline-flex items-center px-3 py-1.5 bg-red-50 border border-red-200 rounded-full text-sm text-red-800"
