@@ -20,7 +20,7 @@
         "monaco-editor": "^0.55.1",
         "npx": "^10.2.2",
         "primeicons": "^7.0.0",
-        "primevue": "^4.5.4",
+        "primevue": "^4.5.5",
         "update-browserslist-db": "^1.2.3",
         "vite-plugin-compression": "^0.5.1",
         "vue": "^3.5.34",
