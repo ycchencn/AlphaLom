@@ -175,8 +175,9 @@ onMounted(async () => {
 
     // 设置技术指标
     chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
+
     // 将指标叠加到蜡烛图窗口
-    chart.createIndicator('MA', {pane: {id: 'candle_pane'}, isStack: true})
+    chart.createIndicator({ name: 'MA', paneId: 'candle_pane' }, true)
 
     // 加载新闻关联数据
     axios.get('/api/v1/market/search_news?c=1&stock_code=' + stock_code).then(response => {
