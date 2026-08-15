@@ -7,8 +7,8 @@ redis
 akshare
 openai
 pytest~=9.0.3
-flask~=3.1.3
-Flask-Caching==2.4.0
+flask
+Flask-Caching
 flask-sqlalchemy
 apscheduler
 backtrader~=1.9.78.123
