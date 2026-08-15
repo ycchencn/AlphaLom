@@ -6,7 +6,7 @@
 
 import pandas as pd
 import numpy as np
-from service import FactorValueService, IndexConstituentsService, StockService
+from service import FactorValueService, StockService
 from utils.common import logger, is_etf
 
 class FactorCalService:
@@ -350,42 +350,4 @@ class FactorCalService:
 
 if __name__ == '__main__':
 
-    """
-    {
-        "date": "2025-12-19",
-        "mom_10": 0.003939489442168265,
-        "mom_20": 0.0675268096514745,
-        "mom_50": -0.01757902852737081,
-        "mom_composite": 0.017962423522090654,
-        "vol_10": 0.4306824698605903,
-        "vol_20": 0.385196546746526,
-        "vol_50": 0.5693959050336428,
-        "vol_composite": 0.4617583072135864,
-        "bias_10": 0.039230079112633695,
-        "bias_20": 0.039408103500313964,
-        "bias_50": 0.01748457243608591,
-        "bias_composite": 0.03204091834967786,
-        "rsi_14": 54.50450450450451,
-        "macd": -0.2470984452206153,
-        "macd_signal": -0.23199480292436392,
-        "macd_hist": -0.015103642296251385,
-        "turnover_5": 625900.6,
-        "turnover_10": 552588.7,
-        "turnover_20": 570809.35,
-        "turnover_composite": 583099.5499999999
-    }"""
-
-    index_code = '000016'
-
-    # 获取中证500指数成分股，刷新财务数据因子
-    _index_stock_cons = IndexConstituentsService.get_by_index_code(index_code=index_code, page_size=1000)
-
-    for stock in _index_stock_cons['items']:
-
-        stock_code = stock.get('stock_code')
-
-        # 计算所有因子
-        factors = FactorCalService.calculate_all_factors(stock_code, "20250101", "20251219")
-
-        # 2. 入库（长表）
-        FactorCalService.save_factor_records_to_db(stock_code, factors)
+    pass

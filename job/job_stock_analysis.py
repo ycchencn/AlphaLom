@@ -4,9 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-import json
 from service.stock import StockService
-from service.user_watchlist_service import UserWatchlistService
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis
 from job.job_update_stock_greedy_data import job_update_stock_greedy_data
 from job.job_check_signal import job_check_signal
@@ -39,16 +37,6 @@ def job_stock_analysis(stock_code, send_notification=False):
 
     # 技术分析
     job_check_signal(stock_code)
-
-
-def manual_analysis():
-    items = UserWatchlistService.get_all()
-    # 将对象转换为字典列表
-    watchlist = [item.to_dict() for item in items] if items else []
-    for item in watchlist:
-        # print(item['stock_code'])
-        # stock_info = StockService.get_stock_by_symbol(symbol=item['stock_code'])
-        job_stock_analysis(item['stock_code'])
 
 
 if __name__ == '__main__':
