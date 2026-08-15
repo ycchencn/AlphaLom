@@ -50,7 +50,6 @@ class Stock(Base):
     llm_analysis_interval = Column(Integer, default=1)
     company_desc = Column(Text)
     setting = Column(JSON, default={})
-    ohlc_count = Column(Integer, default=0)
     ohlc_last = Column(JSON, default={})
     instrument_detail = Column(JSON, default={})
 
@@ -83,7 +82,6 @@ class Stock(Base):
             'llm_analysis_interval': self.llm_analysis_interval,
             'company_desc': self.company_desc,
             'setting': self.setting,
-            'ohlc_count': self.ohlc_count,
             'ohlc_last': self.ohlc_last,
             'instrument_detail': self.instrument_detail
         }
