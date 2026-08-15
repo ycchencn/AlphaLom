@@ -20,24 +20,18 @@ const model = ref([
                 to: '/market/news_flow',
                 enable: true,
             },
-            {
-                label: 'ETF洞察',
-                icon: 'pi pi-fw pi-cloud-download',
-                to: '/market/etf_insight',
-                enable: true,
-            },
+            // {
+            //     label: 'ETF洞察',
+            //     icon: 'pi pi-fw pi-cloud-download',
+            //     to: '/market/etf_insight',
+            //     enable: true,
+            // },
         ]
     },
     {
         label: '投资组合',
         enable: true,
         items: [
-            {
-                label: '关注清单',
-                icon: 'pi pi-fw pi-palette',
-                to: '/user/watch_list',
-                enable: true,
-            },
             {
                 label: '股票池',
                 icon: 'pi pi-fw pi-clone',

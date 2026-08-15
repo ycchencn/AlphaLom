@@ -412,8 +412,7 @@ onUnmounted(() => {
 
         <div class="absolute top-8 right-8">
             <Button label="DCF估值分析" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
-            <Button :label="watched ? '已关注' : '关注'" size="small" class="mr-2" @click="toggleLike()"
-                    :severity="watched ? '' : 'secondary'"></Button>
+            <!-- <Button :label="watched ? '已关注' : '关注'" size="small" class="mr-2" @click="toggleLike()" :severity="watched ? '' : 'secondary'"></Button>-->
             <SplitButton label="操作" :model="items" size="small" severity="secondary"/>
         </div>
     </div>
