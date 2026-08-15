@@ -482,7 +482,7 @@ def initialize_logging(logger_name='qtrading', log_level=logging.INFO):
     console_handler.setLevel(logging.DEBUG)  # 控制台处理器的日志级别也设置为 DEBUG
 
     # 创建一个格式器（formatter），定义日志的输出格式
-    formatter = logging.Formatter('%(asctime)s - [%(name)s] - %(levelname)s - %(message)s')
+    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
     # 将格式器添加到处理器
     console_handler.setFormatter(formatter)

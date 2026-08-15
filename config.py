@@ -80,12 +80,12 @@ cache_setting = {
 # 大模型配置
 llm_model_setting = {
     'stock_dcf_analysis': {
-        'platform': 'deepseek',
-        'model': 'deepseek-v4-pro'
+        'platform': 'volcengine',
+        'model': 'doubao-seed-2-1-pro-260628'
     },
     'stock_dcf_analysis_extra': {
         'platform': 'aliyun',
-        'model': 'deepseek-v4-flash'
+        'model': 'qwen3.7-plus'
     },
     'stock_tech_analysis': {
         'platform': 'volcengine',
