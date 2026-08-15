@@ -26,6 +26,8 @@ def job_fix_ohlc_last(stock_code):
     #         "low": 6.89, "high": 6.98, "open": 6.96, "close": 6.93, "chg_pct": -0.5739
     #     }
     # })
+    if 'lastPrice' not in tick_last:
+        return
     tick_last['close'] = tick_last['lastPrice']
     tick_last['chg_pct'] = (tick_last['lastPrice'] - tick_last['lastClose']) / tick_last['lastClose'] * 100
     update_res = StockService.upsert_stock({
@@ -33,6 +35,7 @@ def job_fix_ohlc_last(stock_code):
         'ohlc_last': tick_last
     })
     logger.info(f"更新个股信息, {stock_code}, {tick_last}")
+
 
 def job_sync_data():
 
@@ -46,7 +49,10 @@ def job_sync_data():
         })
 
 
-if __name__ == '__main__':
-    # job_sync_data()
-
+def job_stock_daily_update():
+    job_sync_data()
     job_fix_ohlc_last_all()
+
+
+if __name__ == '__main__':
+    job_stock_daily_update()

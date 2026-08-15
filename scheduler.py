@@ -10,10 +10,11 @@ from utils.common import logger
 from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
+from backtest.strategy.run_portfolio_daily import run_daily_strategy_all
 from job.job_data_fix import job_update_stock_beta_all
 from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
-from job.job_sync_stock_data import job_sync_data
+from job.job_stock_daily_update import job_stock_daily_update
 from job.job_check_signal import job_check_signal_daily
 
 if __name__ == '__main__':
@@ -25,16 +26,16 @@ if __name__ == '__main__':
     beijing_tz = pytz.timezone('Asia/Shanghai')
 
     # 量化回测任务执行
-    # scheduler.add_job(run_daily_strategy_all, 'cron', hour=16, minute=15, timezone=beijing_tz)
+    scheduler.add_job(run_daily_strategy_all, 'cron', hour=16, minute=15, timezone=beijing_tz)
 
     # 量化回测任务执行，运算调仓计划
-    # scheduler.add_job(job_position_plan_daily_all, 'cron', hour=16, minute=30, timezone=beijing_tz)
+    scheduler.add_job(job_position_plan_daily_all, 'cron', hour=16, minute=30, timezone=beijing_tz)
 
     # 周日 20:30 执行运算调仓计划
     scheduler.add_job(job_position_plan_daily_all, 'cron', day_of_week='sun', hour=20, minute=30, timezone=beijing_tz, kwargs={'trade_day_override': True})
 
-    # 每周日 20:30 刷新个股信息
-    scheduler.add_job(job_sync_data, 'cron', day_of_week='sun', hour=20, minute=30, timezone=beijing_tz)
+    # 每天 刷新个股信息
+    scheduler.add_job(job_stock_daily_update, 'cron', hour=20, minute=10, timezone=beijing_tz)
 
     # 个股因子计算任务
     scheduler.add_job(job_update_stock_factor_daily, 'cron', hour=20, minute=10, timezone=beijing_tz)
