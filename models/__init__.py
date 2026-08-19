@@ -45,13 +45,10 @@ class Stock(Base):
     securities_type = Column(String(10), default='stock')
     monitoring = Column(Integer, default=0)
     monitor_by = Column(String(50))
-    last_update_financial_data = Column(DateTime)
-    last_llm_analysis = Column(DateTime)
     llm_analysis_interval = Column(Integer, default=1)
     company_desc = Column(Text)
     setting = Column(JSON, default={})
     ohlc_last = Column(JSON, default={})
-    instrument_detail = Column(JSON, default={})
 
     def __repr__(self):
         return f"<Stock(ts_code='{self.ts_code}', name='{self.name}')>"
@@ -76,14 +73,10 @@ class Stock(Base):
             'securities_type': self.securities_type,
             'monitoring': self.monitoring,
             'monitor_by': self.monitor_by,
-            'last_update_financial_data': self.last_update_financial_data,
-            'last_llm_analysis': self.last_llm_analysis.strftime(
-                '%Y-%m-%d %H:%M:%S') if self.last_llm_analysis else None,
             'llm_analysis_interval': self.llm_analysis_interval,
             'company_desc': self.company_desc,
             'setting': self.setting,
-            'ohlc_last': self.ohlc_last,
-            'instrument_detail': self.instrument_detail
+            'ohlc_last': self.ohlc_last
         }
 
 
