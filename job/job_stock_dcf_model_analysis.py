@@ -116,6 +116,9 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         logger.info(f"下一次分析间隔未到，跳过分析，{_stock_code}")
         return False
 
+    # dcf财务数据提取年数
+    finance_report_date_limit = 2
+
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
     staff.role_base = '你需要根据客户提供的资料对股票进行DCF估值分析，请使用Markdown输出'
     staff.set_response_text()
@@ -144,10 +147,10 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     relative_news = MarketNewsService.search(stock_code=_stock_code, page_size=30)
 
     # 获取财务报告数据
-    report_balance = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(-960), end_date=get_today(), report_type='Balance')
-    report_income = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(-960), end_date=get_today(), report_type='Income')
-    report_cashflow = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(-960), end_date=get_today(), report_type='CashFlow')
-    report_capital = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(-960), end_date=get_today(), report_type='Capital')
+    report_balance = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(finance_report_date_limit * 365), end_date=get_today(), report_type='Balance')
+    report_income = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(finance_report_date_limit * 365), end_date=get_today(), report_type='Income')
+    report_cashflow = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(finance_report_date_limit * 365), end_date=get_today(), report_type='CashFlow')
+    report_capital = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(finance_report_date_limit * 365), end_date=get_today(), report_type='Capital')
 
     # 4 大模型汇总输出分析报告
     template = Template(prompt_template)

@@ -84,7 +84,7 @@ CREATE TABLE IF NOT EXISTS `daily_pnl_records` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_date_portfolio_stock` (`date`,`portfolio_id`,`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=14064 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=14257 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 -- 数据导出被取消选择。
 
@@ -230,7 +230,7 @@ CREATE TABLE IF NOT EXISTS `market_news` (
   `url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   FULLTEXT KEY `digest` (`digest`)
-) ENGINE=InnoDB AUTO_INCREMENT=79309 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=80398 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 -- 数据导出被取消选择。
 
@@ -255,7 +255,7 @@ CREATE TABLE IF NOT EXISTS `portfolio_assets` (
   UNIQUE KEY `uni` (`stock_code`,`portfolio_id`) USING BTREE,
   KEY `portfolio_id` (`portfolio_id`),
   KEY `stock_code` (`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=1160 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='组合标的持仓记录表';
+) ENGINE=InnoDB AUTO_INCREMENT=1169 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='组合标的持仓记录表';
 
 -- 数据导出被取消选择。
 
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS `portfolio_daily_summary` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_date_portfolio` (`date`,`portfolio_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1131 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=1152 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 -- 数据导出被取消选择。
 
@@ -298,7 +298,7 @@ CREATE TABLE IF NOT EXISTS `portfolio_transaction` (
   KEY `idx_code` (`code`),
   KEY `idx_date` (`date`),
   KEY `idx_portfolio_id` (`portfolio_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=3495 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='投资组合交易记录表';
+) ENGINE=InnoDB AUTO_INCREMENT=3609 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='投资组合交易记录表';
 
 -- 数据导出被取消选择。
 
@@ -330,7 +330,7 @@ CREATE TABLE IF NOT EXISTS `research_reports` (
   KEY `idx_industry` (`industry_code`),
   KEY `idx_type_time` (`report_type`,`publish_time`),
   KEY `idx_stock_code` (`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=17602 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=18474 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
 
 -- 数据导出被取消选择。
 
@@ -371,7 +371,6 @@ CREATE TABLE IF NOT EXISTS `stocks` (
   `market` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `act_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `act_ent_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `circ_mv` float DEFAULT NULL,
   `securities_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'stock',
   `last_update` datetime DEFAULT NULL,
   `company_desc` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
@@ -448,7 +447,7 @@ CREATE TABLE IF NOT EXISTS `system_logs` (
   KEY `idx_module` (`module`),
   KEY `idx_request_id` (`request_id`),
   KEY `idx_log_level` (`log_level`)
-) ENGINE=InnoDB AUTO_INCREMENT=1555 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='系统日志表';
+) ENGINE=InnoDB AUTO_INCREMENT=1558 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='系统日志表';
 
 -- 数据导出被取消选择。
 
