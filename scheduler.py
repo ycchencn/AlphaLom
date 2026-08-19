@@ -11,10 +11,9 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
 from backtest.strategy.run_portfolio_daily import run_daily_strategy_all
-from job.job_data_fix import job_update_stock_beta_all
 from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
-from job.job_stock_daily_update import job_stock_daily_update
+from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_beta_all
 from job.job_check_signal import job_check_signal_daily
 
 if __name__ == '__main__':
