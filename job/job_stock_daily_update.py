@@ -19,18 +19,11 @@ def job_fix_ohlc_last_all():
 
 def job_fix_ohlc_last(stock_code):
     tick_last = databull.get_last_tick(symbol=stock_code)
-    # {'time': 1786692600001, 'lastPrice': 6.93, 'open': 6.96, 'high': 6.98, 'low': 6.89, 'lastClose': 6.97, 'amount': 231931200, 'volume': 334879}
-    # update_res = StockService.upsert_stock({
-    #     'symbol': stock_code,
-    #     'ohlc_last': {
-    #         "low": 6.89, "high": 6.98, "open": 6.96, "close": 6.93, "chg_pct": -0.5739
-    #     }
-    # })
     if 'lastPrice' not in tick_last:
         return
     tick_last['close'] = tick_last['lastPrice']
     tick_last['chg_pct'] = (tick_last['lastPrice'] - tick_last['lastClose']) / tick_last['lastClose'] * 100
-    update_res = StockService.upsert_stock({
+    StockService.upsert_stock({
         'symbol': stock_code,
         'ohlc_last': tick_last
     })
@@ -50,9 +43,10 @@ def job_sync_data():
 
 
 def job_stock_daily_update():
-    job_sync_data()
+    # job_sync_data()
     job_fix_ohlc_last_all()
 
 
 if __name__ == '__main__':
+
     job_stock_daily_update()

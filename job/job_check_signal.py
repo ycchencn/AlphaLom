@@ -104,7 +104,7 @@ def job_check_signal(_stock_code):
         value=main_force_behavior_phase_int
     )
 
-    print(content_json)
+    logger.info(content_json)
 
     # 刷新概念
     StockService.upsert_stock({

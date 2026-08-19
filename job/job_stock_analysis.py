@@ -10,10 +10,12 @@ from job.job_update_stock_greedy_data import job_update_stock_greedy_data
 from job.job_check_signal import job_check_signal
 from job.job_update_factors import job_update_stock_factor
 from utils.data_loader import databull
+from utils.common import logger
 
 
 def job_stock_analysis(stock_code, send_notification=False):
     stock_local = StockService.get_stock_by_symbol(stock_code)
+
     stock = databull.get_stock_info(stock_code, market=stock_local.get('market'))
     assert stock is not None
     if not StockService.exists(stock_code):
@@ -37,6 +39,8 @@ def job_stock_analysis(stock_code, send_notification=False):
 
     # 技术分析
     job_check_signal(stock_code)
+
+    logger.info('')
 
 
 if __name__ == '__main__':

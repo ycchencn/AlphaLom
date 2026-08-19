@@ -21,8 +21,8 @@ class FactorCalService:
         if is_etf(stock_code):
             df = databull.get_etf_history(stock_code, start_date, end_date)
         else:
-            stock = StockService.get_stock_by_symbol(stock_code)
-            assert stock is not None
+            # stock = StockService.get_stock_by_symbol(stock_code)
+            # assert stock is not None
             df = databull.get_history(stock_code, start_date, end_date, period='d', market='cn')
 
         df = df.reset_index()
