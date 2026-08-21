@@ -84,12 +84,12 @@ llm_model_setting = {
         'model': 'deepseek-v4-flash-ga-260731'
     },
     'stock_dcf_analysis_extra': {
-        'platform': 'aliyun',
-        'model': 'qwen3.7-plus'
+        'platform': 'volcengine',
+        'model': 'doubao-seed-2-0-mini-260428'
     },
     'stock_tech_analysis': {
         'platform': 'volcengine',
-        'model': 'doubao-seed-1-8-251228'
+        'model': 'deepseek-v4-flash-260425'
     },
     'news_analysis': {
         'platform': 'volcengine',
