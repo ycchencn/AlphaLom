@@ -122,3 +122,6 @@ elasticsearch_setting = {
     'username': os.getenv( 'ES_USER'),
     'password': os.getenv( 'ES_PASSWORD'),
 }
+
+# dcf财务数据提取年数
+finance_report_date_limit = 1

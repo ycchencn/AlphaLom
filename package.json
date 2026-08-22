@@ -8,7 +8,7 @@
     },
     "dependencies": {
         "@monaco-editor/loader": "^1.7.0",
-        "@primeuix/themes": "^2.0.2",
+        "@primeuix/themes": "^2.0.3",
         "@primevue/themes": "^4.2.4",
         "@vue-flow/core": "^1.42.1",
         "axios": "^1.16.1",

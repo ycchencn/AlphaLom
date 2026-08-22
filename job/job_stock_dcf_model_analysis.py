@@ -14,6 +14,7 @@ from utils.redis_obj import redis_obj
 from utils.data_loader import databull
 from pathlib import Path
 from string import Template
+from config import finance_report_date_limit
 
 # 获取当前 Python 文件所在目录
 CURRENT_DIR = Path(__file__).parent
@@ -115,9 +116,6 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     if not skip_interval and not check_analysis_interval(_stock_code, interval=1):
         logger.info(f"下一次分析间隔未到，跳过分析，{_stock_code}")
         return False
-
-    # dcf财务数据提取年数
-    finance_report_date_limit = 2
 
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
     staff.role_base = '你需要根据客户提供的资料对股票进行DCF估值分析，请使用Markdown输出'
