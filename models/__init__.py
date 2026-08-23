@@ -885,3 +885,20 @@ class LlmConversationContext(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+class AppLog(Base):
+
+    __tablename__ = 'app_logs'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    level = Column(String(16), nullable=False, index=True)
+    logger = Column(String(64))
+    message = Column(Text)
+    module = Column(String(64))
+    func = Column(String(64))
+    line = Column(Integer)
+    created_at = Column(DateTime)  # SQLAlchemy 里可以 server_default 或手动填
+
+    def __repr__(self):
+        return f"<AppLog(id={self.id}, level={self.level}, message={self.message[:30]})>"
