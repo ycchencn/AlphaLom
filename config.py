@@ -125,3 +125,6 @@ elasticsearch_setting = {
 
 # dcf财务数据提取年数
 finance_report_date_limit = 1
+
+# dcf分析日期间隔
+dcf_report_date_limit = 7

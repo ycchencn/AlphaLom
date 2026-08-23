@@ -14,7 +14,7 @@ from utils.redis_obj import redis_obj
 from utils.data_loader import databull
 from pathlib import Path
 from string import Template
-from config import finance_report_date_limit
+from config import finance_report_date_limit, dcf_report_date_limit
 
 # 获取当前 Python 文件所在目录
 CURRENT_DIR = Path(__file__).parent
@@ -113,7 +113,7 @@ def check_analysis_interval(stock_code, interval=3):
 
 
 def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notification=False):
-    if not skip_interval and not check_analysis_interval(_stock_code, interval=1):
+    if not skip_interval and not check_analysis_interval(_stock_code, interval=dcf_report_date_limit):
         logger.info(f"下一次分析间隔未到，跳过分析，{_stock_code}")
         return False
 
@@ -210,7 +210,6 @@ def job_stock_dcf_model_analysis_daily(override=False):
     # 循环对个股进行每日挖掘
     for stock in stocks:
         # 发送分析任务到MQ
-        # send_job(_stock_code=stock['symbol'])
         JobService.send_job({
             'job_func': 'job_stock_dcf_model_analysis',
             'job_args': {
