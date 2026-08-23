@@ -1,8 +1,14 @@
+"""
+ * @author Yc
+ * Chaos isn't a pit. Chaos is a ladder. - Littlefinger
+ * Copyright (c) 2025 yccheni@163.com. All rights reserved.
+"""
 
-
-# ========================= 基本面打分模块 v2 =========================
-# 适配 PershareIndex 实际字段，单表搞定
-# 放置位置：放在 get_stock_scores() 之前，与上一版函数名相同，直接覆盖
+import time
+import pandas as pd
+import numpy as np
+from typing import List, Dict, Any
+from utils.logger import logger
 
 # ---------- 基本面因子权重 ----------
 FUNDAMENTAL_WEIGHTS = {
@@ -44,7 +50,7 @@ def compute_all_fundamental_scores(
 
     @return: {stock_code: fundamental_score (0~100)}
     """
-    log("  📊 开始批量计算基本面评分（PershareIndex）...")
+    logger.info("  📊 开始批量计算基本面评分（PershareIndex）...")
     t0 = time.time()
 
     raw_factors = []
@@ -95,23 +101,20 @@ def compute_all_fundamental_scores(
             })
 
         except Exception as e:
-            log(f"    ✗ {code} 基本面计算失败: {e}")
+            logger.info(f"    ✗ {code} 基本面计算失败: {e}")
             raw_factors.append({
                 "code": code,
                 "roe": 0, "profit_growth": 0,
                 "cash_quality": 0, "pe": 999, "debt_ratio": 50,
             })
 
-        if i % 50 == 0:
-            log(f"    基本面进度: {i}/{total}")
-
     # ---------- 分位数打分 ----------
     df = pd.DataFrame(raw_factors)
     if len(df) == 0:
-        log("    ⚠ 无有效基本面数据，全部返回 50 分")
+        logger.info("    ⚠ 无有效基本面数据，全部返回 50 分")
         return {s["stock_code"]: 50.0 for s in stock_list}
 
-    log(f"  📊 对 {len(df)} 只股票进行分位数打分...")
+    logger.info(f"  📊 对 {len(df)} 只股票进行分位数打分...")
 
     df["roe_score"] = _percentile_score(df["roe"], ascending=False)
     df["growth_score"] = _percentile_score(df["profit_growth"], ascending=False)
@@ -129,9 +132,46 @@ def compute_all_fundamental_scores(
             + df["debt_score"] * w["debt_ratio"]
     ).round(2).clip(0, 100)
 
-    log(f"  ✅ 基本面评分完成，耗时 {time.time() - t0:.1f}s  "
-        f"均值={df['fundamental'].mean():.1f}  "
-        f"最高={df['fundamental'].max():.1f}  "
-        f"最低={df['fundamental'].min():.1f}")
-
     return dict(zip(df["code"], df["fundamental"]))
+
+def _percentile_score(series: pd.Series, ascending: bool = True) -> pd.Series:
+    """
+    分位数排名打分，输出 0~100
+    ascending=True  → 值越小分越低（PE、负债率）
+    ascending=False → 值越大分越高（ROE、增速）
+    自动去极值（Winsorize 3σ），NaN 填 50
+    """
+    s = series.copy().replace([np.inf, -np.inf], np.nan)
+    valid = s.dropna()
+    if len(valid) == 0:
+        return pd.Series(50.0, index=series.index)
+
+    mean, std = valid.mean(), valid.std()
+    if std > 0:
+        s = s.clip(mean - 3 * std, mean + 3 * std)
+
+    if ascending:
+        ranked = s.rank(pct=True, na_option="keep") * 100
+    else:
+        ranked = (1 - s.rank(pct=True, na_option="keep")) * 100
+
+    result = pd.Series(50.0, index=series.index)
+    result.loc[ranked.index] = ranked
+    return result
+
+def _calc_pe_from_eps(close_price: float, eps: float) -> float:
+    """
+    PE = 股价 / 每股收益
+    负值或零 → 返回 999（打分时会排到末尾）
+    """
+    if close_price is None or eps is None:
+        return 999.0
+    try:
+        close_price = float(close_price)
+        eps = float(eps)
+    except (TypeError, ValueError):
+        return 999.0
+
+    if eps <= 0 or close_price <= 0:
+        return 999.0
+    return close_price / eps
