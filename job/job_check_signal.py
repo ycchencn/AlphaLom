@@ -143,7 +143,7 @@ def job_check_signal_daily(override=False):
 
 if __name__ == '__main__':
 
-    stock_code = '000733'
-    job_check_signal(_stock_code=stock_code)
+    # stock_code = '000733'
+    # job_check_signal(_stock_code=stock_code)
 
-    # job_check_signal_daily()
+    job_check_signal_daily()
