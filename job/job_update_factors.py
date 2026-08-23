@@ -6,7 +6,7 @@
 
 import pandas as pd
 from service import FactorValueService, StockService, FactorCalService
-from utils.common import logger, get_date_by_n, get_today
+from utils.logger import logger, get_date_by_n, get_today
 from utils.financial_data import INDICATOR_NAME_MAP
 from service import JobService
 

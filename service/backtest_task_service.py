@@ -7,7 +7,7 @@
 from sqlalchemy.exc import IntegrityError
 from models.database import db_session  # 假设这是你的数据库会话
 from models import BacktestTask  # 从你的模型文件导入BacktestTask
-from utils.common import logger  # 从你的日志工具中导入logger
+from utils.logger import logger  # 从你的日志工具中导入logger
 from datetime import datetime, timedelta
 from sqlalchemy import asc, and_, desc
 

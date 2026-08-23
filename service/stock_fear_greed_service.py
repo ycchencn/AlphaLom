@@ -8,7 +8,7 @@ from models import StockFearGreed  # 请确保你的模型文件中已定义该�
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import and_
-from utils.common import logger
+from utils.logger import logger
 from datetime import date
 from typing import List, Optional, Dict, Any
 

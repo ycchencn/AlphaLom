@@ -7,7 +7,7 @@ Copyright (c) 2025 yccheni@163.com. All rights reserved.
 import json
 from datetime import datetime
 from service.llm_conversation_context import LlmConversationContextService
-from utils.common import logger
+from utils.logger import logger
 
 
 class DialogueManager:

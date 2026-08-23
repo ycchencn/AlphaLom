@@ -6,7 +6,7 @@
 
 import pytz
 
-from utils.common import logger
+from utils.logger import logger
 from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all

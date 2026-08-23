@@ -7,7 +7,7 @@
 from sqlalchemy.exc import IntegrityError
 from models import PortfolioTransaction
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 
 
 class PortfolioTransactionService:

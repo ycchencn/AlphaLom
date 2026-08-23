@@ -5,7 +5,7 @@
 """
 
 import requests
-from utils.common import logger
+from utils.logger import logger
 from bs4 import BeautifulSoup
 from datetime import datetime, timezone, timedelta
 import time

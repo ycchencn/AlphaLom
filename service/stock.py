@@ -7,7 +7,7 @@
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import Stock
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 from utils.common import get_today
 from typing import List, Optional, Dict, Any
 from sqlalchemy import func, and_

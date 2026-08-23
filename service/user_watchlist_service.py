@@ -13,7 +13,7 @@
 from sqlalchemy.exc import IntegrityError
 from models.database import db_session
 from models import UserWatchlist  # 假设模型导入路径
-from utils.common import logger
+from utils.logger import logger
 
 
 class UserWatchlistService:

@@ -7,7 +7,7 @@
 from sqlalchemy.exc import IntegrityError
 from models import DailyPnLRecord
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 from typing import Dict, Any, List, Optional
 
 

@@ -19,7 +19,7 @@ from models import IndexConstituents
 from flask import current_app
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError
-from utils.common import logger
+from utils.logger import logger
 from datetime import date
 from typing import List, Optional
 

@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_, or_, desc
 from models import SystemLog
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 
 
 class LogType:

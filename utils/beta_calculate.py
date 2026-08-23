@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 from service import StockService
 from utils.data_loader import databull
-from utils.common import logger
+from utils.logger import logger
 
 # Beta 计算函数
 def calculate_beta(stock_code, index_code='000001', start_date="20200101", end_date="20240405"):

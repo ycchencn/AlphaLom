@@ -7,7 +7,7 @@
 import re
 import pytz
 import hashlib
-import logging, requests, json
+import requests, json
 import numpy as np
 import pandas as pd
 import os
@@ -472,27 +472,6 @@ def get_date_by_months(_date=None, months=1):
     return formatted_date
 
 
-def initialize_logging(logger_name='qtrading', log_level=logging.INFO):
-    # 创建一个 logger 对象
-    logger = logging.getLogger(logger_name)
-    logger.setLevel(log_level)
-
-    # 创建一个控制台处理器（handler）
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)  # 控制台处理器的日志级别也设置为 DEBUG
-
-    # 创建一个格式器（formatter），定义日志的输出格式
-    formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-    # 将格式器添加到处理器
-    console_handler.setFormatter(formatter)
-
-    # 将处理器添加到 logger
-    logger.addHandler(console_handler)
-
-    return logger
-
-
 def half_round_to_hundred(value):
     """
     计算给定值的一半，并将结果四舍五入到最接近的100的倍数。
@@ -874,9 +853,6 @@ def fix_stock_symbol(symbol):
     # 4. 兜底
     return code
 
-
-# 初始化日志
-logger = initialize_logging()
 
 # --- 测试示例 ---
 if __name__ == "__main__":

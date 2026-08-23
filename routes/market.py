@@ -8,7 +8,7 @@ from datetime import datetime
 from flask import jsonify, Blueprint, request
 from app import api_prefix, cache, json_resp, trading_cache_key
 from service import MarketNewsService
-from utils.common import logger
+from utils.logger import logger
 from utils.data_loader import databull
 
 market_bp = Blueprint('market', __name__)

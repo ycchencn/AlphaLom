@@ -17,11 +17,12 @@ from llms import get_model_by_setting
 from service import MarketNewsService
 from service.stock_star_news import StockStarNewsScraper
 from service.wallstreet_fetcher import WallStreetCNFetcher
-from utils.common import string_to_md5, logger, timestamp_to_date
+from utils.common import string_to_md5, timestamp_to_date
 from llms.prompts import prompt_155th
 from prompts.prompt_generator import load_prompt_template
 from backtest.text_embedding import get_embedding
 from config import elasticsearch_setting
+from utils.logger import logger
 
 # ================= 配置常量 =================
 INDEX_NAME = 'news_feed_v1'

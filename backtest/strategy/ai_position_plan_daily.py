@@ -8,7 +8,7 @@ import json
 from llms import get_model_by_setting
 from service import FactorValueService
 from service import InvestmentPortfolioService, PortfolioAssetsService, StockService, MarketNewsService
-from utils.common import get_today, logger, get_date_by_n
+from utils.common import get_today, get_date_by_n
 from string import Template
 from utils.common import send_feishu_markdown_message
 from typing import List, Dict
@@ -16,6 +16,7 @@ from utils.gen_feishu_report import generate_feishu_report
 from config import strategy_setting
 from utils.data_loader import databull
 from service.dialogue_manager import DialogueManager
+from utils.logger import logger
 
 prompt_quant_decision = """
 '你现在是一名金融分析师，你对股票市场、金融市场、投资策略和财务规划有深厚的理解。'

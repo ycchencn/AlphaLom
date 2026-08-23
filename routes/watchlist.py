@@ -10,7 +10,7 @@ from service.user_watchlist_service import UserWatchlistService
 from service import StockService, FactorValueService
 from service.stock_fear_greed_service import StockFearGreedService
 from utils.data_loader import databull
-from utils.common import logger
+from utils.logger import logger
 
 # 创建蓝图
 watchlist_bp = Blueprint('watchlist', __name__)

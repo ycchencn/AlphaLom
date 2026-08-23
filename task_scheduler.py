@@ -11,7 +11,7 @@ from apscheduler.triggers.date import DateTrigger
 from apscheduler.events import EVENT_JOB_EXECUTED, EVENT_JOB_ERROR
 from service.scheduled_task_service import ScheduledTaskService
 from models import TriggerType
-from utils.common import logger
+from utils.logger import logger
 from datetime import datetime
 import pytz
 

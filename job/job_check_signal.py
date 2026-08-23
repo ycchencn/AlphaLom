@@ -9,7 +9,7 @@ from service import JobService
 from service import StockService, FactorValueService, FactorSelectorService, ResearchReportService
 from service.factor_desc import factor_descriptions
 from llms import get_model_by_setting
-from utils.common import logger, get_today
+from utils.logger import logger, get_today
 from utils.common import get_date_by_n
 from pathlib import Path
 from string import Template

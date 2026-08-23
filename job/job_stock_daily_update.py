@@ -9,7 +9,7 @@ from utils.common import get_today
 from utils.beta_calculate import calculate_beta
 from service.stock import StockService
 from utils.data_loader import databull
-from utils.common import logger
+from utils.logger import logger
 
 def job_update_stock_beta_all():
 

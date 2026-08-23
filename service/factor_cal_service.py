@@ -7,7 +7,7 @@
 import pandas as pd
 import numpy as np
 from service import FactorValueService, StockService
-from utils.common import logger, is_etf
+from utils.logger import logger, is_etf
 
 class FactorCalService:
 

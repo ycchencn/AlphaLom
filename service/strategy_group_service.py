@@ -7,7 +7,7 @@
 from models.database import db_session  # 假设这是你的数据库会话
 from sqlalchemy.exc import IntegrityError
 from models import StrategyGroup
-from utils.common import logger
+from utils.logger import logger
 
 class StrategyGroupService:
     @staticmethod

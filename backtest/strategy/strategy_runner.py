@@ -7,7 +7,7 @@
 from datetime import date
 from typing import List, Dict, Any
 from service import StockService
-from utils.common import logger
+from utils.logger import logger
 from models import PortfolioDailySummary, DailyPnLRecord
 from models.database import db_session
 

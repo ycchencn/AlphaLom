@@ -7,7 +7,7 @@ Copyright (c) 2025 yccheni@163.com. All rights reserved.
 from sqlalchemy.exc import SQLAlchemyError
 from models import LlmConversationContext
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from sqlalchemy import desc, asc

@@ -8,7 +8,7 @@ import pandas as pd
 from models import FactorValue
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError, IntegrityError
-from utils.common import logger
+from utils.logger import logger
 from datetime import date, datetime
 from typing import List, Optional, Dict, Any
 from decimal import Decimal

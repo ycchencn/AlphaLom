@@ -6,7 +6,7 @@
 import json
 
 from llms import get_model_by_setting
-from utils.common import logger
+from utils.logger import logger
 from utils.common import get_today, get_date_by_n
 from service import StockService, FactorValueService, MarketNewsService
 from service import ResearchReportService, JobService

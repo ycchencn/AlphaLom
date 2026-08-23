@@ -6,7 +6,7 @@
 
 import unittest
 import akshare as ak
-from utils.common import logger, df_cache
+from utils.logger import logger, df_cache
 from service import IndexConstituentsService, StockService
 
 @df_cache()

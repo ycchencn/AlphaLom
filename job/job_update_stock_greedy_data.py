@@ -8,9 +8,10 @@ import pandas as pd
 from service import StockService
 from service.stock_fear_greed_service import StockFearGreedService
 from job.market_fear_greed import build_fear_greed_index
-from utils.common import get_today, logger, is_etf
+from utils.common import get_today, is_etf
 from datetime import datetime
 from utils.data_loader import databull
+from utils.logger import logger
 
 def job_update_stock_greedy_data_daily(override_all=False):
     stocks = StockService.get_monitoring_stock_pool(per_page=500)

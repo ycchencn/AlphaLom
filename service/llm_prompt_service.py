@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy import and_
 from models import LlmPrompt
 from models.database import db_session
-from utils.common import logger
+from utils.logger import logger
 
 class LlmPromptService:
 

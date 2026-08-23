@@ -7,7 +7,7 @@
 from models import FactorValue
 from models.database import db_session as session
 from sqlalchemy import case, and_, func, Float
-from utils.common import logger
+from utils.logger import logger
 from datetime import date
 from typing import Optional, Dict, Any
 from service.factor_desc import ALL_FACTOR_FIELDS, technical_fields

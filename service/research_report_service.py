@@ -13,7 +13,7 @@ from sqlalchemy import and_
 # 请根据实际项目结构调整导入路径
 from models import ResearchReport
 from models.database import db_session  # 假设这是全局会话或会话工厂
-from utils.common import logger
+from utils.logger import logger
 
 
 class ResearchReportService:
