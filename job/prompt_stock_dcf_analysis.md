@@ -22,12 +22,9 @@
 
 **个股基础信息**：$stock_detail  
 
-**个股财务数据**：
+**个股基础财务数据**：
 
-$report_balance
-$report_income
-$report_capital
-$report_cashflow
+$report_pershare_index
 
 ## 输出要求
 1.  **格式**：使用 Markdown 格式，层级分明，重点数据加粗。
