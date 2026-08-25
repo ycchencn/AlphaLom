@@ -7,6 +7,7 @@
 import unittest
 from service.fundamental_service import compute_fundamental_scores
 from utils.common import get_today, get_date_by_n
+from service.stock_financial_score import StockFinancialScoreService
 
 class TestFundamentalService(unittest.TestCase):
 
@@ -14,6 +15,7 @@ class TestFundamentalService(unittest.TestCase):
         stock_code = '301308'
         res = compute_fundamental_scores(stock_code=stock_code, start_date=get_date_by_n(-365), end_date=get_today())
         print(res)
+        StockFinancialScoreService.upsert(res)
 
 if __name__ == '__main__':
     unittest.main()

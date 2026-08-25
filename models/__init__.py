@@ -902,3 +902,47 @@ class AppLog(Base):
 
     def __repr__(self):
         return f"<AppLog(id={self.id}, level={self.level}, message={self.message[:30]})>"
+
+
+class StockFinancialScore(Base):
+    __tablename__ = 'stock_financial_scores'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    code = Column(String(12), nullable=False, unique=True, index=True)
+    roe = Column(DECIMAL(10, 4), nullable=False)
+    profit_growth = Column(DECIMAL(12, 4), nullable=False)
+    cash_quality = Column(DECIMAL(8, 4), nullable=False)
+    pe = Column(DECIMAL(10, 4), nullable=False)
+    debt_ratio = Column(DECIMAL(8, 4), nullable=False)
+    roe_score = Column(DECIMAL(6, 2), nullable=False)
+    profit_growth_score = Column(DECIMAL(6, 2), nullable=False)
+    cash_quality_score = Column(DECIMAL(6, 2), nullable=False)
+    pe_score = Column(DECIMAL(6, 2), nullable=False)
+    debt_ratio_score = Column(DECIMAL(6, 2), nullable=False)
+    composite_score = Column(DECIMAL(6, 2), nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    def __repr__(self):
+        return (f"<StockFinancialScore(id={self.id}, code={self.code}, "
+                f"composite_score={self.composite_score})>")
+
+    def to_dict(self):
+        """转为 dict，方便 JSON 序列化"""
+        return {
+            'id': self.id,
+            'code': self.code,
+            'roe': float(self.roe),
+            'profit_growth': float(self.profit_growth),
+            'cash_quality': float(self.cash_quality),
+            'pe': float(self.pe),
+            'debt_ratio': float(self.debt_ratio),
+            'roe_score': float(self.roe_score),
+            'profit_growth_score': float(self.profit_growth_score),
+            'cash_quality_score': float(self.cash_quality_score),
+            'pe_score': float(self.pe_score),
+            'debt_ratio_score': float(self.debt_ratio_score),
+            'composite_score': float(self.composite_score),
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
