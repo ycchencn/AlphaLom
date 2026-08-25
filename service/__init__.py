@@ -12,7 +12,6 @@ from service.investment_portfolio import InvestmentPortfolioService
 from service.market_news_service import MarketNewsService
 from service.factor_service import FactorValueService
 from service.factor_selector_service import FactorSelectorService
-from service.index_constituents_service import IndexConstituentsService
 from service.factor_cal_service import FactorCalService
 from service.factor_desc import factor_descriptions, financial_factor_descriptions
 from service.job_service import JobService

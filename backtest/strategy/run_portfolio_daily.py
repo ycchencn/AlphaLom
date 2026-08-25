@@ -16,7 +16,8 @@ from service import (
     PortfolioTransactionService,
     PortfolioDailySummaryService
 )
-from utils.logger import logger, get_today, is_etf
+from utils.common import get_today, is_etf
+from utils.logger import logger
 from utils.data_loader import databull
 from backtest.quant_stat_report import generate_html_report_string
 
