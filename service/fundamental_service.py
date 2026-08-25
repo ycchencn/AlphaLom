@@ -131,12 +131,17 @@ def score_single_fundamental(factors: Dict[str, Any]) -> float:
     用于：实时单票评估、无法拿到全池数据时的兜底
     """
     w = FUNDAMENTAL_WEIGHTS
+    factors["roe_score"] = _absolute_score(factors["roe"], (5, 10, 15, 20), ascending=False)
+    factors["profit_growth_score"] = _absolute_score(factors["profit_growth"], (0, 10, 20, 30), ascending=False)
+    factors["cash_quality_score"] = _absolute_score(factors["cash_quality"], (0.3, 0.6, 1.0, 1.5), ascending=False)
+    factors["pe_score"] = _absolute_score(factors["pe"], (10, 20, 30, 50), ascending=True)
+    factors["debt_ratio_score"] = _absolute_score(factors["debt_ratio"], (30, 50, 70, 85), ascending=True)
     composite = (
-            _absolute_score(factors["roe"], (5, 10, 15, 20), ascending=False) * w["roe"]
-            + _absolute_score(factors["profit_growth"], (0, 10, 20, 30), ascending=False) * w["profit_growth"]
-            + _absolute_score(factors["cash_quality"], (0.3, 0.6, 1.0, 1.5), ascending=False) * w["cash_quality"]
-            + _absolute_score(factors["pe"], (10, 20, 30, 50), ascending=True) * w["pe"]
-            + _absolute_score(factors["debt_ratio"], (30, 50, 70, 85), ascending=True) * w["debt_ratio"]
+            factors["roe_score"] * w["roe"]
+            + factors["profit_growth_score"] * w["profit_growth"]
+            + factors["cash_quality_score"] * w["cash_quality"]
+            + factors["pe_score"] * w["pe"]
+            + factors["debt_ratio_score"] * w["debt_ratio"]
     )
     return round(composite, 2)
 
