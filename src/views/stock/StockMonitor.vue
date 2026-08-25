@@ -303,7 +303,7 @@ const getPhaseSeverity = (phaseInt) => {
             <Column field="name" filterField="name" header="名称">
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
-                                 :to="{ name: 'stock-monitor-detail', params: { symbol: data.symbol } }">{{ data.symbol }}
+                                 :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">{{ data.symbol }}
                     </router-link><br/>{{ data.name }}
                 </template>
             </Column>
@@ -359,7 +359,7 @@ const getPhaseSeverity = (phaseInt) => {
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
                                  target="_blank"
-                                 :to="{ name: 'stock-monitor-detail', params: { symbol: data.symbol } }">查看
+                                 :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">查看
                     </router-link>
                 </template>
             </Column>

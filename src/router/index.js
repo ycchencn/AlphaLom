@@ -76,10 +76,10 @@ const router = createRouter({
                     meta: { title: '个股监控', requiresAuth: true }
                 },
                 {
-                    path: '/quant/stock_monitor_detail/:symbol',
-                    name: 'stock-monitor-detail',
-                    component: () => import('@/views/stock/StockMonitorDetail.vue'),
-                    meta: { title: '个股监控详情', requiresAuth: true }
+                    path: '/quant/stock_detail/:symbol',
+                    name: 'stock-detail',
+                    component: () => import('@/views/stock/StockDetail.vue'),
+                    meta: { title: '个股详情', requiresAuth: true }
                 },
                 {
                     path: '/quant/etf_detail/:symbol',

@@ -24,6 +24,11 @@ import {useToast} from 'primevue/usetoast';
 import {useNotification} from '@/composables/useNotification';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import router from '@/router'
+import Tabs from 'primevue/tabs';
+import TabList from 'primevue/tablist';
+import Tab from 'primevue/tab';
+import TabPanels from 'primevue/tabpanels';
+import TabPanel from 'primevue/tabpanel';
 
 let chart = ref(null)
 const toast = useToast();
@@ -177,7 +182,7 @@ onMounted(async () => {
     chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
 
     // 将指标叠加到蜡烛图窗口
-    chart.createIndicator({ name: 'MA', paneId: 'candle_pane' }, true)
+    chart.createIndicator({name: 'MA', paneId: 'candle_pane'}, true)
 
     // 加载新闻关联数据
     axios.get('/api/v1/market/search_news?c=1&stock_code=' + stock_code).then(response => {
@@ -392,14 +397,14 @@ onUnmounted(() => {
         </div>
     </Drawer>
 
-    <div class="card relative mb-0 pb-0" style="padding-top: 20px;">
+    <div class="card relative mb-0 pb-0" style="padding: 20px 20px;">
 
         <!-- 标题 -->
         <h1 class="text-2xl font-bold mb-3 text-gray-800">
-            <span>{{ stock_info?.name || '加载中...' }} ({{ stock_code }})</span>
+            <span>{{ stock_info?.name || '加载中...' }} ({{ stock_code }})</span> <i class="text-sm font-light">{{ stock_info?.concepts || '加载中...' }}</i>
         </h1>
 
-        <h1 class="mb-3 stock-price" v-if="ohlc_data.length > 0" :class="{
+        <h1 class="stock-price" v-if="ohlc_data.length > 0" :class="{
                               'text-red-500': ohlc_last['chg_pct'] > 0,
                               'text-green-600': ohlc_last['chg_pct'] < 0,
                               }">
@@ -417,208 +422,216 @@ onUnmounted(() => {
         </div>
     </div>
 
-    <div class="pd-2-0 mt-5 flex flex-col md:flex-row gap-6">
+    <Tabs value="tab1">
+        <TabList style="border-top: 1px solid #eee;">
+            <Tab value="tab1">走势分析</Tab>
+            <Tab value="tab2">新闻动态</Tab>
+        </TabList>
+        <TabPanels>
+            <TabPanel value="tab1">
 
-        <div class="w-full md:w-2/3 flex flex-col min-h-0">
-            <div class="card p-0 mb-3">
-                <SelectButton
-                    v-model="chart_type"
-                    :options="chartFilterOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    @change="changeChartType"
-                    size="small"
-                />
-                <SelectButton
-                    v-model="chart_indicator"
-                    :options="chartIndicatorOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    @change="changeChartIndicator"
-                    data-testid="market-filter"
-                    size="small"
-                    class="ml-3"
-                />
-            </div>
-            <div id="chart"></div>
-        </div>
+                <div class="flex flex-col md:flex-row gap-6">
 
-        <div class="w-full md:w-1/3 flex flex-col min-h-0">
+                    <div class="w-full md:w-2/3 flex flex-col min-h-0">
+                        <div class="card p-0 mb-3">
+                            <SelectButton
+                                v-model="chart_type"
+                                :options="chartFilterOptions"
+                                optionLabel="label"
+                                optionValue="value"
+                                @change="changeChartType"
+                                size="small"
+                            />
+                            <SelectButton
+                                v-model="chart_indicator"
+                                :options="chartIndicatorOptions"
+                                optionLabel="label"
+                                optionValue="value"
+                                @change="changeChartIndicator"
+                                data-testid="market-filter"
+                                size="small"
+                                class="ml-3"
+                            />
+                        </div>
+                        <div id="chart"></div>
+                    </div>
 
-            <div class="flex flex-col md:flex-row gap-6">
-                <div class="w-full md:w-1/2 flex flex-col">
-                    <label class="text-sm">52周价格范围</label>
-                    <PriceRange52Week
-                        v-if="stock_info['tech_indicator'] && ohlc_data.length > 0"
-                        :low52w="stock_info['tech_indicator']['52week_low']"
-                        :high52w="stock_info['tech_indicator']['52week_high']"
-                        :currentPrice="ohlc_data[ohlc_data.length-1]['close']"
-                        style="width: 100px;"
-                        class="mb-2"
-                    />
-                </div>
-            </div>
+                    <div class="w-full md:w-1/3 flex flex-col min-h-0">
 
-            <hr class="mt-2 mb-2"/>
-
-            <div class="text-sm text-gray-500 mb-2">
-                {{ stock_info?.concepts || '加载中...' }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2">
-                {{ stock_info?.company_desc || '加载中...' }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
-                地址：{{ stock_profile?.office_address || '加载中...' }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.market === 'cn'">
-                流通市值：{{
-                    formatMarketCapToBillions(stock_info?.instrument_detail?.FloatVolume * ohlc_last['close'])
-                }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2">
-                市盈率 (TTM)：{{ stock_info?.pe_ratio }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.pb_ratio">
-                市净率：{{ stock_info?.pb_ratio }}
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.beta">
-                Beta：{{ stock_profile?.beta }}
-                <i class="pi pi-info-circle info-icon"
-                   v-tooltip.top="'Beta是衡量该股票价格波动相对于整个市场（如大盘指数）波动幅度的系数'"></i>
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
-                网站：<a :href="'https://' + stock_profile?.website"
-                        target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
-            </div>
-
-            <div class="text-sm text-gray-500 mb-2">
-                最近更新：{{ formatDaysAgo(stock_info?.last_update) || '加载中...' }}
-            </div>
-
-        </div>
-
-    </div>
-
-    <div class="pd-2-0 mt-5 flex flex-col md:flex-row gap-6">
-
-        <!-- 左侧 -->
-        <div class="w-full md:w-1/2 flex flex-col min-h-0">
-            <div class="font-semibold text-lg">
-                <i class="pi pi-chart-line text-green-500"></i> DCF估值评级
-            </div>
-            <Divider/>
-            <StockValuationChart
-                v-if="dcf_research_report?.content_json"
-                :data="dcf_research_report?.content_json"
-                :currentPrice="ohlc_last['close']"
-                title=""
-                ratingText=""
-                ratingColor="#f97316"
-                :historyData="realHistoryData"
-            />
-        </div>
-
-        <!-- 右侧 -->
-        <div class="w-full md:w-1/2 flex flex-col min-h-0">
-            <div class="font-semibold text-lg">
-                <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
-                <span v-if="greed_data.length > 0">
-                    【{{ fearGreedToText(greed_data?.[0]['fear_greed'])['advice'] }}】
-                </span>
-            </div>
-            <Divider/>
-            <div class="overflow-y-auto flex-1" v-if="greed_data">
-                <Chart type="line" :data="lineData" :options="lineOptions" style="height: 250px"></Chart>
-            </div>
-        </div>
-
-    </div>
-
-    <div class="pd-2-0 mt-5" v-if="tech_report">
-        <div class="font-semibold text-lg">
-            <i class="pi pi-sun text-orange-500"></i> 技术面深度诊断
-        </div>
-        <Divider/>
-        <div class="overflow-y-auto flex-1" v-if="greed_data">
-            <MarkdownRenderer
-                fontSize="11px"
-                :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
-            </MarkdownRenderer>
-        </div>
-    </div>
-
-    <div class="pd-2-0 mt-5">
-        <div class="font-semibold text-lg"><i class="pi pi-wave-pulse text-blue-500"></i> 事件关联</div>
-        <div class="mb-4 markdown-content">
-            <DataTable
-                tableStyle="font-size:12px"
-                :value="news"
-                :paginator="true"
-                :rows="5"
-                dataKey="id"
-                :rowHover="true"
-                filterDisplay="menu"
-                :globalFilterFields="['stock_code']"
-                :showGridlines="false"
-            >
-                <template #empty> No data found.</template>
-                <template #loading> Loading customers data. Please wait.</template>
-                <Column field="stock_name" filterField="stock_name" header="">
-                    <template #body="{ data }">
-                        <div class="news-item">
-
-                            <div class="news-time">{{ formatDaysAgo(data.news_time) }} <a v-if="data.url !== null"
-                                                                                          :href="data.url"
-                                                                                          target="_blank"><i
-                                class="pi pi-link"></i></a></div>
-                            <p class="news-digest font-semibold text-md" style="padding: 5px 0;">
-                                <Tag v-if="data.news_type === 'report'" severity="danger" class="stock-tag">研</Tag>
-                                {{ data.digest }}
-                            </p>
-
-                            <!-- 关联股票 -->
-                            <div v-if="data.relations_stocks && data.relations_stocks.length"
-                                 class="relations-stocks text-sm">
-                                <strong>关联股票：</strong>
-                                <template v-for="(stock, index) in data.relations_stocks" :key="stock.code">
-                                    <Tag v-if="stock.code === stock_code" severity="success" class="stock-tag">
-                                        {{ stock.code }} ({{ stock.name }})
-                                    </Tag>
-                                    <span v-else class="stock-tag">
-                                          {{ stock.code }} ({{ stock.name }})
-                                        </span>
-                                    <span v-if="index < data.relations_stocks.length - 1">、</span>
-                                </template>
-                            </div>
-
-                            <!-- 标签 -->
-                            <div v-if="data.tags && data.tags.length" class="tags">
-                                <strong>标签：</strong>
-                                <span
-                                    v-for="tag in data.tags"
-                                    :key="tag"
-                                    class="tag-badge"
-                                >{{ tag }}&nbsp;</span>
-                            </div>
-
-                            <div class="tags">
-                                <span v-if="data.bullish_level > 0">利多</span>
-                                <span v-if="data.bullish_level < 0">利空</span>：
-                                <Rating :modelValue="data.bullish_level / 2" readonly/>
+                        <div class="flex flex-col md:flex-row gap-6">
+                            <div class="w-full md:w-1/2 flex flex-col">
+                                <label class="text-sm">52周价格范围</label>
+                                <PriceRange52Week
+                                    v-if="stock_info['tech_indicator'] && ohlc_data.length > 0"
+                                    :low52w="stock_info['tech_indicator']['52week_low']"
+                                    :high52w="stock_info['tech_indicator']['52week_high']"
+                                    :currentPrice="ohlc_data[ohlc_data.length-1]['close']"
+                                    style="width: 100px;"
+                                    class="mb-2"
+                                />
                             </div>
                         </div>
-                    </template>
-                </Column>
-            </DataTable>
-        </div>
-    </div>
+
+                        <hr class="mt-2 mb-2"/>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            {{ stock_info?.concepts || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            {{ stock_info?.company_desc || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
+                            地址：{{ stock_profile?.office_address || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.market === 'cn'">
+                            流通市值：{{
+                                formatMarketCapToBillions(stock_info?.instrument_detail?.FloatVolume * ohlc_last['close'])
+                            }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            市盈率 (TTM)：{{ stock_info?.pe_ratio }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.pb_ratio">
+                            市净率：{{ stock_info?.pb_ratio }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.beta">
+                            Beta：{{ stock_profile?.beta }}
+                            <i class="pi pi-info-circle info-icon"
+                               v-tooltip.top="'Beta是衡量该股票价格波动相对于整个市场（如大盘指数）波动幅度的系数'"></i>
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
+                            网站：<a :href="'https://' + stock_profile?.website"
+                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            最近更新：{{ formatDaysAgo(stock_info?.last_update) || '加载中...' }}
+                        </div>
+
+                    </div>
+
+                </div>
+
+                <div class="mt-5 flex flex-col md:flex-row gap-6">
+
+                    <!-- 左侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
+                        <div class="font-semibold text-lg">
+                            <i class="pi pi-chart-line text-green-500"></i> DCF估值评级
+                        </div>
+                        <Divider/>
+                        <StockValuationChart
+                            v-if="dcf_research_report?.content_json"
+                            :data="dcf_research_report?.content_json"
+                            :currentPrice="ohlc_last['close']"
+                            title=""
+                            ratingText=""
+                            ratingColor="#f97316"
+                            :historyData="realHistoryData"
+                        />
+                    </div>
+
+                    <!-- 右侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
+                        <div class="font-semibold text-lg">
+                            <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
+                            <span v-if="greed_data.length > 0">
+                                【{{ fearGreedToText(greed_data?.[0]['fear_greed'])['advice'] }}】
+                            </span>
+                        </div>
+                        <Divider/>
+                        <div class="overflow-y-auto flex-1" v-if="greed_data">
+                            <Chart type="line" :data="lineData" :options="lineOptions" style="height: 250px"></Chart>
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="mt-5" v-if="tech_report">
+                    <div class="font-semibold text-lg">
+                        <i class="pi pi-sun text-orange-500"></i> 技术面深度诊断
+                    </div>
+                    <Divider/>
+                    <div class="overflow-y-auto flex-1" v-if="greed_data">
+                        <MarkdownRenderer
+                            fontSize="11px"
+                            :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
+                        </MarkdownRenderer>
+                    </div>
+                </div>
+
+            </TabPanel>
+            <TabPanel value="tab2">
+                <DataTable
+                    tableStyle="font-size:12px"
+                    :value="news"
+                    :paginator="true"
+                    :rows="5"
+                    dataKey="id"
+                    :rowHover="true"
+                    filterDisplay="menu"
+                    :globalFilterFields="['stock_code']"
+                    :showGridlines="false"
+                >
+                    <template #empty> No data found.</template>
+                    <template #loading> Loading customers data. Please wait.</template>
+                    <Column field="stock_name" filterField="stock_name" header="">
+                        <template #body="{ data }">
+                            <div class="news-item">
+
+                                <div class="news-time">{{ formatDaysAgo(data.news_time) }} <a v-if="data.url !== null"
+                                                                                              :href="data.url"
+                                                                                              target="_blank"><i
+                                    class="pi pi-link"></i></a></div>
+                                <p class="news-digest font-semibold text-md" style="padding: 5px 0;">
+                                    <Tag v-if="data.news_type === 'report'" severity="danger" class="stock-tag">研</Tag>
+                                    {{ data.digest }}
+                                </p>
+
+                                <!-- 关联股票 -->
+                                <div v-if="data.relations_stocks && data.relations_stocks.length"
+                                     class="relations-stocks text-sm">
+                                    <strong>关联股票：</strong>
+                                    <template v-for="(stock, index) in data.relations_stocks" :key="stock.code">
+                                        <Tag v-if="stock.code === stock_code" severity="success" class="stock-tag">
+                                            {{ stock.code }} ({{ stock.name }})
+                                        </Tag>
+                                        <span v-else class="stock-tag">
+                                              {{ stock.code }} ({{ stock.name }})
+                                            </span>
+                                        <span v-if="index < data.relations_stocks.length - 1">、</span>
+                                    </template>
+                                </div>
+
+                                <!-- 标签 -->
+                                <div v-if="data.tags && data.tags.length" class="tags">
+                                    <strong>标签：</strong>
+                                    <span
+                                        v-for="tag in data.tags"
+                                        :key="tag"
+                                        class="tag-badge"
+                                    >{{ tag }}&nbsp;</span>
+                                </div>
+
+                                <div class="tags">
+                                    <span v-if="data.bullish_level > 0">利多</span>
+                                    <span v-if="data.bullish_level < 0">利空</span>：
+                                    <Rating :modelValue="data.bullish_level / 2" readonly/>
+                                </div>
+                            </div>
+                        </template>
+                    </Column>
+                </DataTable>
+            </TabPanel>
+        </TabPanels>
+    </Tabs>
 
 </template>
 
