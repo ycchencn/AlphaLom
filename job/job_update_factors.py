@@ -9,6 +9,8 @@ from service import FactorValueService, StockService, FactorCalService
 from utils.common import get_date_by_n, get_today
 from utils.logger import logger
 from utils.financial_data import INDICATOR_NAME_MAP
+from service.stock_financial_score import StockFinancialScoreService
+from service.fundamental_service import compute_fundamental_scores
 from service import JobService
 
 
@@ -84,6 +86,14 @@ def job_update_stock_factor_daily_all():
         job_update_stock_factor(stock_code=stock['symbol'], save_last=True, time_period=-360)
 
 
+def job_update_financial_score_all():
+    stocks = StockService.search_stocks(securities_type='stock', monitoring=1, per_page=10000, market='cn')
+    # 循环对个股进行每日挖掘
+    for stock in stocks:
+        res = compute_fundamental_scores(stock_code=stock['symbol'], start_date=get_date_by_n(-365), end_date=get_today())
+        StockFinancialScoreService.upsert(res)
+        print(res)
+
 def job_update_stock_factor(stock_code, trade_date=None, save_last=False, time_period=-360):
     """
     计算个股的因子数据
@@ -115,4 +125,6 @@ if __name__ == '__main__':
 
     # job_update_stock_factor(stock_code='300750', save_last=False, time_period=-365)
 
-    job_update_stock_factor_daily_all()
+    # job_update_stock_factor_daily_all()
+
+    job_update_financial_score_all()

@@ -8,6 +8,7 @@ from flask import request, jsonify, Blueprint
 from app import api_prefix, cache, trading_cache_key
 from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
+from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
@@ -243,3 +244,11 @@ def _stock_reanalysis(symbol, sync_history=False, send_notification=False):
             'stock_code': symbol
         }
     })
+
+@stock_bp.route(f'{api_prefix}/stocks/fundamental_scores/<string:symbol>', methods=['GET'])
+def get_fundamental_scores(symbol):
+    """
+    获取个股基本面评分数据
+    """
+    fundamental_scores = StockFinancialScoreService.get_by_code(symbol)
+    return jsonify(fundamental_scores)

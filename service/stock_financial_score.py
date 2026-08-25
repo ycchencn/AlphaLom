@@ -114,9 +114,12 @@ class StockFinancialScoreService:
         按股票代码查询
         """
         try:
-            return db_session.query(StockFinancialScore).filter(
+            score = db_session.query(StockFinancialScore).filter(
                 StockFinancialScore.code == code
             ).first()
+            if not score:
+                return None
+            return score.to_dict()
         except Exception as e:
             logger.error(f"get_by_code error for '{code}': {e}")
             return None

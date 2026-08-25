@@ -61,6 +61,7 @@ def compute_fundamental_scores(
             end_date=end_date,
             report_type='PershareIndex'
         )
+        assert len(report_pershare_index['data']) > 0
         latest_report = report_pershare_index['data'][0]['report_table']
 
         if not latest_report:
