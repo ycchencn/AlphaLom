@@ -9,7 +9,6 @@ import numpy as np
 from typing import List, Dict, Any, Optional
 from utils.data_loader import databull
 from utils.logger import logger
-from utils.common import get_date_by_n, get_today
 
 # ---------- 基本面因子权重 ----------
 FUNDAMENTAL_WEIGHTS = {
@@ -38,8 +37,8 @@ PS_FIELDS = {
 
 def compute_fundamental_scores(
         stock_code: str,
-        start_time: str = "20240101",
-        end_time: str = "20251231",
+        start_date: str = "20240101",
+        end_date: str = "20251231",
         nan_replacement: Any = None,
 ) -> Dict:
     """
@@ -53,15 +52,13 @@ def compute_fundamental_scores(
     @return: {stock_code: fundamental_score (0~100)}
     """
 
-    raw_factor = {}
-
     try:
         # 只拉一张表，速度最快
         # 获取财务报告数据
         report_pershare_index = databull.get_stock_financial_data(
             symbol=stock_code,
-            start_date=get_date_by_n(-365),
-            end_date=get_today(),
+            start_date=start_date,
+            end_date=end_date,
             report_type='PershareIndex'
         )
         latest_report = report_pershare_index['data'][0]['report_table']
@@ -91,15 +88,6 @@ def compute_fundamental_scores(
         _tick = databull.get_last_tick(stock_code)
         eps = latest_report.get(PS_FIELDS["eps_basic"], 0) or 0.0
         pe = _calc_pe_from_eps(_tick['lastPrice'], eps)
-
-        logger.info({
-            "code": stock_code,
-            "roe": float(roe),
-            "profit_growth": float(profit_growth),
-            "cash_quality": float(cash_quality),
-            "pe": float(pe),
-            "debt_ratio": float(debt_ratio),
-        })
 
         raw_factor = {
             "code": stock_code,

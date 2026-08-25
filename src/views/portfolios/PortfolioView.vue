@@ -1,11 +1,11 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
-import { useRoute } from 'vue-router';
+import {ref, onMounted, computed} from 'vue';
+import {useRoute} from 'vue-router';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Card from 'primevue/card';
 import Badge from 'primevue/badge';
-import { useNotification } from '@/composables/useNotification';
+import {useNotification} from '@/composables/useNotification';
 import {
     fetchPortfolioInfo,
     setColorOptions,
@@ -18,7 +18,8 @@ import {
 import axios from 'axios';
 import Dialog from 'primevue/dialog';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
-const { showSuccess, showError } = useNotification();
+
+const {showSuccess, showError} = useNotification();
 
 // 状态
 const route = useRoute();
@@ -39,18 +40,18 @@ const dcf_research_report_drawer = ref(false)
 
 // 编辑器选项对象
 const editorOptions = {
-  minimap: { enabled: false }, // 启用缩略图
-  fontSize: 12,
-  scrollBeyondLastLine: false,
-  automaticLayout: true
+    minimap: {enabled: false}, // 启用缩略图
+    fontSize: 12,
+    scrollBeyondLastLine: false,
+    automaticLayout: true
 };
 
 // 处理编辑器挂载完成事件
 const handleEditorDidMount = (editor) => {
-  // console.log('Editor mounted!', editor);
-  // editorInstance = editor;
-  // 你可以在 editorInstance 上调用任何 Monaco Editor API
-  // 例如: editor.addAction(...)
+    // console.log('Editor mounted!', editor);
+    // editorInstance = editor;
+    // 你可以在 editorInstance 上调用任何 Monaco Editor API
+    // 例如: editor.addAction(...)
 };
 
 // 在获取 profInfo 后，为每个 asset 添加 positionPct 和 marketValue
@@ -219,18 +220,18 @@ onMounted(async () => {
 
         // 👇 2. 遍历并安全赋值
         profSummary.value.forEach(item => {
-          // 确保 item 存在，且包含必要的字段
-          if (item && item.date) {
-            // 使用 || 0 确保如果 daily_pnl_change 为 null/undefined 时，默认为 0
-            profitData.value[item.date] = item.daily_pnl_change || 0;
-          }
+            // 确保 item 存在，且包含必要的字段
+            if (item && item.date) {
+                // 使用 || 0 确保如果 daily_pnl_change 为 null/undefined 时，默认为 0
+                profitData.value[item.date] = item.daily_pnl_change || 0;
+            }
         });
 
         lineOptions.value = setColorOptions();
 
         // 按 date 排序（确保时间顺序）
         const sortedData = [...profSummary.value].sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
         );
         const labels = sortedData.map(item => item.date);
         const assets = sortedData.map(item => item.total_unrealized_pnl);
@@ -304,7 +305,7 @@ async function updatePortfolioPrompt() {
         let message = '操作失败，请重试';
         if (axios.isAxiosError(error)) {
             if (error.response) {
-                const { status, data } = error.response;
+                const {status, data} = error.response;
                 console.error('HTTP 错误:', status, data);
                 if (status === 404) {
                     message = '数据不存在';
@@ -343,7 +344,7 @@ const showDcfDrawer = function () {
         v-model:visible="dcf_research_report_drawer"
         header="量化策略绩效报告"
         position="right"
-        class="!w-full md:!w-300 lg:!w-[89rem]"
+        class="!w-full md:!w-300 lg:!w-[92rem]"
         :footer="false"
         body-class="p-0"
     >
@@ -364,13 +365,13 @@ const showDcfDrawer = function () {
     <Dialog v-model:visible="modal_visible" modal header="编辑模型Prompt" style="width: 950px;">
         <div class="flex items-center gap-4 mb-4">
             <MarkdownEditor
-              v-model="code"
-              language="markdown"
-              theme="vs-dark"
-              :options="editorOptions"
-              :closable="true"
-              :dismissableMask="true"
-              @editorDidMount="handleEditorDidMount"
+                v-model="code"
+                language="markdown"
+                theme="vs-dark"
+                :options="editorOptions"
+                :closable="true"
+                :dismissableMask="true"
+                @editorDidMount="handleEditorDidMount"
             />
         </div>
         <div class="flex justify-end gap-2">
@@ -384,7 +385,7 @@ const showDcfDrawer = function () {
         <!-- 右上角操作按钮 -->
         <div class="absolute top-8 right-8">
             <Button label="QuantStat" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
-            <SplitButton label="操作" :model="items" severity="secondary" />
+            <SplitButton label="操作" :model="items" severity="secondary"/>
         </div>
 
         <!-- 标题 -->
@@ -396,14 +397,16 @@ const showDcfDrawer = function () {
             持仓风格：{{ profInfo?.desc || '加载中...' }}
         </div>
 
-        <div class="text-sm text-gray-500 mb-3" v-if="profInfo?.llm_setting">大模型版本：{{ profInfo?.llm_setting.model || '加载中...' }}</div>
+        <div class="text-sm text-gray-500 mb-3" v-if="profInfo?.llm_setting">
+            大模型版本：{{ profInfo?.llm_setting.model || '加载中...' }}
+        </div>
 
         <!-- 组合概览卡片 -->
         <div v-if="profInfo" class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
 
             <Card>
                 <template #title>总资产</template>
-                <template #content >
+                <template #content>
                     <div class="text-xl font-semibold text-blue-700 font-mono">
                         {{ formatCurrency(profInfo.summary?.total_assets) }}
                     </div>
@@ -420,13 +423,13 @@ const showDcfDrawer = function () {
                 </template>
             </Card>
             <Card>
-              <template #title>仓位</template>
-              <template #content>
-                <div class="text-xl font-semibold text-purple-700 font-mono">
-                  {{ (profInfo.summary?.position_ratio * 100).toFixed(2) }}%
-                </div>
-                <div class="text-xs text-gray-500 mt-1">股票市值 / 总资产</div>
-              </template>
+                <template #title>仓位</template>
+                <template #content>
+                    <div class="text-xl font-semibold text-purple-700 font-mono">
+                        {{ (profInfo.summary?.position_ratio * 100).toFixed(2) }}%
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">股票市值 / 总资产</div>
+                </template>
             </Card>
             <Card>
                 <template #title>浮动盈亏</template>
@@ -445,37 +448,37 @@ const showDcfDrawer = function () {
                 </template>
             </Card>
             <Card>
-              <template #title>持仓市值</template>
-              <template #content>
-                <div class="text-xl font-semibold text-red-400 font-mono">
-                    {{ formatCurrency(profInfo.summary?.total_assets - profInfo.current_cash) }}
-                </div>
-                <div class="text-xs text-gray-500 mt-1">持仓股数 * 现价</div>
-              </template>
+                <template #title>持仓市值</template>
+                <template #content>
+                    <div class="text-xl font-semibold text-red-400 font-mono">
+                        {{ formatCurrency(profInfo.summary?.total_assets - profInfo.current_cash) }}
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">持仓股数 * 现价</div>
+                </template>
             </Card>
             <Card>
-              <template #title>夏普比率</template>
-              <template #content>
-                <div class="text-lg font-semibold text-gray-500">
-                    暂无数据
-                </div>
-              </template>
+                <template #title>夏普比率</template>
+                <template #content>
+                    <div class="text-lg font-semibold text-gray-500">
+                        暂无数据
+                    </div>
+                </template>
             </Card>
             <Card>
-              <template #title>最大回撤</template>
-              <template #content>
-                <div class="text-lg font-semibold text-gray-500">
-                    暂无数据
-                </div>
-              </template>
+                <template #title>最大回撤</template>
+                <template #content>
+                    <div class="text-lg font-semibold text-gray-500">
+                        暂无数据
+                    </div>
+                </template>
             </Card>
             <Card>
-              <template #title>年化收益率</template>
-              <template #content>
-                <div class="text-lg font-semibold text-gray-500">
-                    暂无数据
-                </div>
-              </template>
+                <template #title>年化收益率</template>
+                <template #content>
+                    <div class="text-lg font-semibold text-gray-500">
+                        暂无数据
+                    </div>
+                </template>
             </Card>
         </div>
 
@@ -503,12 +506,12 @@ const showDcfDrawer = function () {
                 </template>
             </Card>
 
-<!--            <Card>-->
-<!--                <template #title><b class="text-lg">收益走势</b></template>-->
-<!--                <template #content>-->
-<!--                    <Chart type="line" :data="lineData" :options="lineOptions" style="height: 300px"></Chart>-->
-<!--                </template>-->
-<!--            </Card>-->
+            <!--            <Card>-->
+            <!--                <template #title><b class="text-lg">收益走势</b></template>-->
+            <!--                <template #content>-->
+            <!--                    <Chart type="line" :data="lineData" :options="lineOptions" style="height: 300px"></Chart>-->
+            <!--                </template>-->
+            <!--            </Card>-->
 
             <Card>
                 <template #title><b class="text-lg">净资产走势</b></template>
@@ -517,17 +520,17 @@ const showDcfDrawer = function () {
                 </template>
             </Card>
 
-<!--            <Card>-->
-<!--                <template #title><b class="text-lg">收益日历</b></template>-->
-<!--                <template #content>-->
-<!--                    <div style=" width: 400px;">-->
-<!--                    <ProfitLossCalendar-->
-<!--                      :profit-data="profitData"-->
-<!--                      :initial-date="new Date(2026, 0, 1)"-->
-<!--                    />-->
-<!--                    </div>-->
-<!--                </template>-->
-<!--            </Card>-->
+            <!--            <Card>-->
+            <!--                <template #title><b class="text-lg">收益日历</b></template>-->
+            <!--                <template #content>-->
+            <!--                    <div style=" width: 400px;">-->
+            <!--                    <ProfitLossCalendar-->
+            <!--                      :profit-data="profitData"-->
+            <!--                      :initial-date="new Date(2026, 0, 1)"-->
+            <!--                    />-->
+            <!--                    </div>-->
+            <!--                </template>-->
+            <!--            </Card>-->
 
         </div>
 
@@ -566,7 +569,7 @@ const showDcfDrawer = function () {
                       :key="`hold-${action.stock_code}`"
                       class="inline-flex items-center px-3 py-1.5 bg-blue-50 border border-blue-200 rounded-full text-sm text-blue-800"
                   >
-                    <Badge value="持有" severity="info" class="mr-2" />
+                    <Badge value="持有" severity="info" class="mr-2"/>
                     {{ action.stock_name }}
                     <span v-if="action.reason" class="ml-2 text-xs opacity-80">{{ action.reason }}</span>
                   </span>
@@ -584,7 +587,7 @@ const showDcfDrawer = function () {
                       :key="`sell-${action.stock_code}`"
                       class="inline-flex items-center px-3 py-1.5 bg-red-50 border border-red-200 rounded-full text-sm text-red-800"
                   >
-                    <Badge value="卖出" severity="danger" class="mr-2" />
+                    <Badge value="卖出" severity="danger" class="mr-2"/>
                     {{ action.stock_name }}（{{ action.quantity }}股）
                     <span v-if="action.reason" class="ml-2 text-xs opacity-80">{{ action.reason }}</span>
                   </span>
@@ -595,7 +598,8 @@ const showDcfDrawer = function () {
         <!-- 持仓明细表格 -->
         <div v-if="profInfo && profInfo.assets.length > 0">
             <h2 class="text-xl font-semibold mb-4">持仓明细</h2>
-            <p class="mb-4 text-gray-500 text-sm">每个交易日盘后更新数据，最新数据日期：{{ formatDaysAgo(profInfo.assets[0]['last_update']) }}</p>
+            <p class="mb-4 text-gray-500 text-sm">
+                每个交易日盘后更新数据，最新数据日期：{{ formatDaysAgo(profInfo.assets[0]['last_update']) }}</p>
             <DataTable
                 :value="profInfo.assets"
                 :rows="20"
@@ -657,7 +661,7 @@ const showDcfDrawer = function () {
                 <Column field="pnl" header="浮动盈亏" style="width: 120px" sortable>
                     <template #body="slotProps">
                   <span
-                     
+
                       :class="{
                       'text-red-500': getUnrealizedPnL(slotProps.data) > 0,
                       'text-green-600': getUnrealizedPnL(slotProps.data) < 0,
@@ -671,7 +675,7 @@ const showDcfDrawer = function () {
                 <Column header="盈亏%" style="width: 100px">
                     <template #body="slotProps">
                   <span
-                     
+
                       :class="{
                       'text-red-500': getPnLPct(slotProps.data) > 0,
                       'text-green-600': getPnLPct(slotProps.data) < 0,
@@ -685,7 +689,7 @@ const showDcfDrawer = function () {
                 <Column header="最新盈亏" style="width: 100px">
                     <template #body="slotProps">
                       <span
-                         
+
                           :class="{
                           'text-red-500': slotProps.data.dailyChange > 0,
                           'text-green-600': slotProps.data.dailyChange < 0,
@@ -709,7 +713,8 @@ const showDcfDrawer = function () {
         <!-- 交易记录 -->
         <div v-if="profInfo && profInfo.assets.length > 0" class="mt-8">
             <h2 class="text-xl font-semibold mb-4">交易记录</h2>
-            <p class="mb-4 text-gray-500 text-sm">每个交易日盘后更新数据，最新数据日期：{{ formatDaysAgo(profInfo.assets[0]['last_update']) }}</p>
+            <p class="mb-4 text-gray-500 text-sm">
+                每个交易日盘后更新数据，最新数据日期：{{ formatDaysAgo(profInfo.assets[0]['last_update']) }}</p>
             <DataTable
                 :value="profTransaction"
                 :paginator="true"
@@ -764,7 +769,7 @@ const showDcfDrawer = function () {
                 <Column field="name" header="实现盈亏">
                     <template #body="slotProps">
                         <span
-                           
+
                             :class="{
                               'text-red-500': slotProps.data.realized_pnl > 0,
                               'text-green-600': slotProps.data.realized_pnl < 0,
