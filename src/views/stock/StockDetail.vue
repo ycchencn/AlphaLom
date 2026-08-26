@@ -201,13 +201,13 @@ onMounted(async () => {
     });
 
     // 获取自选股数据
-    axios.get(`/api/v1/watchlist/${stock_code}`).then(response => {
-        if (response.data.code === 404) {
-            watched.value = false;
-        } else {
-            watched.value = true;
-        }
-    });
+    // axios.get(`/api/v1/watchlist/${stock_code}`).then(response => {
+    //     if (response.data.code === 404) {
+    //         watched.value = false;
+    //     } else {
+    //         watched.value = true;
+    //     }
+    // });
 
     // 贪婪与恐惧数据
     axios.get('/api/v1/stock/greed_data/' + stock_code).then(response => {
@@ -397,7 +397,7 @@ onUnmounted(() => {
         </div>
     </Drawer>
 
-    <div class="card relative mb-0 pb-0" style="padding: 20px 20px;">
+    <div class="card relative mb-0 pb-0" style="padding: 20px 15px;">
 
         <!-- 标题 -->
         <h1 class="text-2xl font-bold mb-3 text-gray-800">
@@ -425,15 +425,15 @@ onUnmounted(() => {
     <Tabs value="tab1">
         <TabList style="border-top: 1px solid #eee;">
             <Tab value="tab1">走势分析</Tab>
-            <Tab value="tab2">新闻动态</Tab>
-            <Tab value="tab3">基本面分析</Tab>
+            <Tab value="tab2">基本面分析</Tab>
+            <Tab value="tab3">新闻动态</Tab>
         </TabList>
         <TabPanels>
             <TabPanel value="tab1">
 
                 <div class="flex flex-col md:flex-row gap-6">
 
-                    <div class="w-full md:w-2/3 flex flex-col min-h-0">
+                    <div class="w-full md:w-3/3 flex flex-col min-h-0">
                         <div class="card p-0 mb-3">
                             <SelectButton
                                 v-model="chart_type"
@@ -457,66 +457,66 @@ onUnmounted(() => {
                         <div id="chart"></div>
                     </div>
 
-                    <div class="w-full md:w-1/3 flex flex-col min-h-0">
+<!--                    <div class="w-full md:w-1/3 flex flex-col min-h-0">-->
 
-                        <div class="flex flex-col md:flex-row gap-6">
-                            <div class="w-full md:w-1/2 flex flex-col">
-                                <label class="text-sm">52周价格范围</label>
-                                <PriceRange52Week
-                                    v-if="stock_info['tech_indicator'] && ohlc_data.length > 0"
-                                    :low52w="stock_info['tech_indicator']['52week_low']"
-                                    :high52w="stock_info['tech_indicator']['52week_high']"
-                                    :currentPrice="ohlc_data[ohlc_data.length-1]['close']"
-                                    style="width: 100px;"
-                                    class="mb-2"
-                                />
-                            </div>
-                        </div>
+<!--                        <div class="flex flex-col md:flex-row gap-6">-->
+<!--                            <div class="w-full md:w-1/2 flex flex-col">-->
+<!--                                <label class="text-sm">52周价格范围</label>-->
+<!--                                <PriceRange52Week-->
+<!--                                    v-if="stock_info['tech_indicator'] && ohlc_data.length > 0"-->
+<!--                                    :low52w="stock_info['tech_indicator']['52week_low']"-->
+<!--                                    :high52w="stock_info['tech_indicator']['52week_high']"-->
+<!--                                    :currentPrice="ohlc_data[ohlc_data.length-1]['close']"-->
+<!--                                    style="width: 100px;"-->
+<!--                                    class="mb-2"-->
+<!--                                />-->
+<!--                            </div>-->
+<!--                        </div>-->
 
-                        <hr class="mt-2 mb-2"/>
+<!--                        <hr class="mt-2 mb-2"/>-->
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            {{ stock_info?.concepts || '加载中...' }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2">-->
+<!--                            {{ stock_info?.concepts || '加载中...' }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            {{ stock_info?.company_desc || '加载中...' }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2">-->
+<!--                            {{ stock_profile?.business_scope || '加载中...' }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
-                            地址：{{ stock_profile?.office_address || '加载中...' }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">-->
+<!--                            地址：{{ stock_profile?.office_address || '加载中...' }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.market === 'cn'">
-                            流通市值：{{
-                                formatMarketCapToBillions(stock_info?.instrument_detail?.FloatVolume * ohlc_last['close'])
-                            }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.market === 'cn'">-->
+<!--                            流通市值：{{-->
+<!--                                formatMarketCapToBillions(stock_info?.instrument_detail?.FloatVolume * ohlc_last['close'])-->
+<!--                            }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            市盈率 (TTM)：{{ stock_info?.pe_ratio }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2">-->
+<!--                            市盈率 (TTM)：{{ stock_info?.pe_ratio }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.pb_ratio">
-                            市净率：{{ stock_info?.pb_ratio }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.pb_ratio">-->
+<!--                            市净率：{{ stock_info?.pb_ratio }}-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.beta">
-                            Beta：{{ stock_profile?.beta }}
-                            <i class="pi pi-info-circle info-icon"
-                               v-tooltip.top="'Beta是衡量该股票价格波动相对于整个市场（如大盘指数）波动幅度的系数'"></i>
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.beta">-->
+<!--                            Beta：{{ stock_profile?.beta }}-->
+<!--                            <i class="pi pi-info-circle info-icon"-->
+<!--                               v-tooltip.top="'Beta是衡量该股票价格波动相对于整个市场（如大盘指数）波动幅度的系数'"></i>-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
-                            网站：<a :href="'https://' + stock_profile?.website"
-                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">-->
+<!--                            网站：<a :href="'https://' + stock_profile?.website"-->
+<!--                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>-->
+<!--                        </div>-->
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            最近更新：{{ formatDaysAgo(stock_info?.last_update) || '加载中...' }}
-                        </div>
+<!--                        <div class="text-sm text-gray-500 mb-2">-->
+<!--                            最近更新：{{ formatDaysAgo(stock_info?.last_update) || '加载中...' }}-->
+<!--                        </div>-->
 
-                    </div>
+<!--                    </div>-->
 
                 </div>
 
@@ -569,7 +569,7 @@ onUnmounted(() => {
                 </div>
 
             </TabPanel>
-            <TabPanel value="tab2">
+            <TabPanel value="tab3">
                 <DataTable
                     tableStyle="font-size:12px"
                     :value="news"
