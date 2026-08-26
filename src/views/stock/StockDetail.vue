@@ -426,6 +426,7 @@ onUnmounted(() => {
         <TabList style="border-top: 1px solid #eee;">
             <Tab value="tab1">走势分析</Tab>
             <Tab value="tab2">新闻动态</Tab>
+            <Tab value="tab3">基本面分析</Tab>
         </TabList>
         <TabPanels>
             <TabPanel value="tab1">

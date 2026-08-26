@@ -41,7 +41,7 @@ else:
 analysis_model = get_model_by_setting('news_analysis')
 analysis_model.set_response_json()
 prompt_template = load_prompt_template(template_path=Path(__file__).parent / "prompt_news_analysis.md")
-
+MAX_RELATIONS_STOCKS = 10
 
 def sanitize_es_doc(raw_doc: dict) -> dict:
     """
@@ -200,6 +200,22 @@ def llm_news_summarize(
     )
     raw_answer = analysis_model.ask(question_prompt)
     answer_json = _safe_extract_json(raw_answer)
+
+    relations_stocks = answer_json.get("relations_stocks")
+    if not isinstance(relations_stocks, list):
+        logger.warning(
+            "relations_stocks expected list but got %s, raw=%s",
+            type(relations_stocks).__name__,
+            raw_answer[:200],
+        )
+        answer_json["relations_stocks"] = []
+    elif len(relations_stocks) > MAX_RELATIONS_STOCKS:
+        logger.info(
+            "relations_stocks truncated from %d to %d",
+            len(relations_stocks),
+            MAX_RELATIONS_STOCKS,
+        )
+        answer_json["relations_stocks"] = relations_stocks[:MAX_RELATIONS_STOCKS]
 
     # 4. 准备入库数据
     db_payload = {
