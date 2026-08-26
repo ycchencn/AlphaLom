@@ -357,10 +357,7 @@ const getPhaseSeverity = (phaseInt) => {
             </Column>
             <Column field="verified" header="操作" dataType="boolean" bodyClass="text-center">
                 <template #body="{ data }">
-                    <router-link class="text-blue-500"
-                                 target="_blank"
-                                 :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">查看
-                    </router-link>
+                    <router-link class="text-blue-500" :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">查看</router-link>
                 </template>
             </Column>
         </DataTable>

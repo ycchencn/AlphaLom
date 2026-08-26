@@ -4,6 +4,8 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
  **/
 
+const defaultStartYear = 3
+
 // 格式化为 %Y%m%d
 const formatDate = (date) => {
     const year = date.getFullYear();
@@ -184,7 +186,7 @@ export const fetchStockProfile = async (stockCode) => {
 const getDefaultDateRange = () => {
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setFullYear(endDate.getFullYear() - 10);
+    startDate.setFullYear(endDate.getFullYear() - defaultStartYear);
     return {
         start_date: formatDate(startDate),
         end_date: formatDate(endDate)
