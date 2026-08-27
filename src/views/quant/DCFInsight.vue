@@ -95,12 +95,10 @@ function initFilters1() {
             </template>
             <template #empty> No data found.</template>
             <template #loading> Loading customers data. Please wait.</template>
-            <Column field="name" filterField="name" header="名称">
+            <Column field="name" filterField="name" header="代码">
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
-                                 :to="{ name: 'stock-monitor-detail', params: { symbol: data.symbol } }">{{
-                            data.symbol
-                        }}
+                                 :to="{ name: 'stock-monitor-detail', params: { symbol: data.symbol } }">{{data.symbol}}
                     </router-link>
                 </template>
             </Column>
