@@ -11,6 +11,7 @@ from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
 from backtest.strategy.run_portfolio_daily import run_daily_strategy_all
+from job.job_update_factors import job_update_financial_score_all
 from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
 from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_beta_all
@@ -51,6 +52,8 @@ if __name__ == '__main__':
     # 每周五晚上更新DCF数据
     scheduler.add_job(job_stock_dcf_model_analysis_daily, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)
 
+    # 每周五晚上更新基础评分
+    scheduler.add_job(job_update_financial_score_all, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)
     try:
         # 开始执行计划任务
         logger.info(f"running scheduler service")
