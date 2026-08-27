@@ -56,7 +56,7 @@ export function createChartConfig(colorMode = 'greenUp', theme = 'light') {
             }
         },
         candle: {
-            type: 'candle_down_stroke',
+            type: 'candle_solid',
             bar: {
                 compareRule: 'current_open',
                 upColor: '#2DC08E',

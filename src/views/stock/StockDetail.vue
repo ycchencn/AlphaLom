@@ -182,7 +182,7 @@ onMounted(async () => {
     chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
 
     // 将指标叠加到蜡烛图窗口
-    chart.createIndicator({name: 'MA', paneId: 'candle_pane'}, true)
+    chart.createIndicator({name: 'EMA', paneId: 'candle_pane'}, true)
 
     // 加载新闻关联数据
     axios.get('/api/v1/market/search_news?c=1&stock_code=' + stock_code).then(response => {
@@ -199,15 +199,6 @@ onMounted(async () => {
         loading.value = false;
         dcf_research_report.value = response.data
     });
-
-    // 获取自选股数据
-    // axios.get(`/api/v1/watchlist/${stock_code}`).then(response => {
-    //     if (response.data.code === 404) {
-    //         watched.value = false;
-    //     } else {
-    //         watched.value = true;
-    //     }
-    // });
 
     // 贪婪与恐惧数据
     axios.get('/api/v1/stock/greed_data/' + stock_code).then(response => {
@@ -244,7 +235,7 @@ onMounted(async () => {
 });
 
 const chartFilterOptions = [
-    {label: 'K线', value: 'candle_down_stroke'},
+    {label: 'K线', value: 'candle_solid'},
     {label: '美国线', value: 'ohlc'},
     {label: '面积图', value: 'area'},
 ];
@@ -258,13 +249,13 @@ const chartIndicatorOptions = [
     {label: 'BOLL', value: 'BOLL'},
     {label: 'KDJ', value: 'KDJ'},
     {label: 'MTM', value: 'MTM'},
-    {label: 'DMI', value: 'DMI'},
 ];
 
 const changeChartIndicator = function () {
     // 技术指标操作
     chart.removeIndicator('candle_pane_vol')
     chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
+    chart.createIndicator({name: 'EMA', paneId: 'candle_pane'}, true)
     // 关键：将当前选择的类型保存到本地存储
     localStorage.setItem(CHART_INDICATOR_STORAGE_KEY, chart_indicator.value);
 }
@@ -294,20 +285,6 @@ const showDcfDrawer = function () {
         }
         dcf_research_report_drawer.value = true;
     });
-}
-
-const toggleLike = function () {
-    if (watched.value === true) {
-        axios.delete(`/api/v1/watchlist/${stock_code}`).then(response => {
-            watched.value = false;
-        });
-    } else {
-        axios.post(`/api/v1/watchlist`, {
-            stock_code: stock_code
-        }).then(response => {
-            watched.value = true;
-        });
-    }
 }
 
 const reanalysisDcf = function () {
