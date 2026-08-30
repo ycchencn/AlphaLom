@@ -34,7 +34,7 @@ if __name__ == '__main__':
     # 周日 20:30 执行运算调仓计划
     scheduler.add_job(job_position_plan_daily_all, 'cron', day_of_week='sun', hour=20, minute=30, timezone=beijing_tz, kwargs={'trade_day_override': True})
 
-    # 每天 刷新个股信息
+    # 每天刷新个股信息
     scheduler.add_job(job_stock_daily_update, 'cron', hour=20, minute=10, timezone=beijing_tz)
 
     # 个股因子计算任务

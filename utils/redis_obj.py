@@ -8,4 +8,4 @@ import redis
 from config import redis_host, redis_port
 
 # 初始化 Redis 连接
-redis_obj = redis.Redis(host=redis_host, port=redis_port, db=0)
+redis_obj = redis.Redis(host=redis_host, port=redis_port, db=0, protocol=2)
