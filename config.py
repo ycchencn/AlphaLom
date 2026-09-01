@@ -89,7 +89,7 @@ llm_model_setting = {
     },
     'stock_tech_analysis': {
         'platform': 'volcengine',
-        'model': 'deepseek-v4-flash-260425'
+        'model': 'deepseek-v4-flash-ga-260731'
     },
     'news_analysis': {
         'platform': 'volcengine',

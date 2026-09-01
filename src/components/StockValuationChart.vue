@@ -83,16 +83,21 @@
                 现价 {{ currentPrice }}
             </text>
             <!-- 右侧外置标签，自动和对应估值线水平对齐 -->
-            <rect x="810" :y="priceToY(optimisticValue) - 13" width="100" height="24" rx="3" :fill="optimisticLineColor"/>
-            <text x="860" :y="priceToY(optimisticValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="14">
+            <rect x="810" :y="priceToY(optimisticValue) - 13" width="100" height="24" rx="3"
+                  :fill="optimisticLineColor"/>
+            <text x="860" :y="priceToY(optimisticValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff"
+                  font-size="14">
                 乐观 {{ optimisticValue.toFixed(2) }}
             </text>
             <rect x="810" :y="priceToY(neutralValue) - 14" width="100" height="24" rx="3" :fill="neutralLineColor"/>
-            <text x="860" :y="priceToY(neutralValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="14">
+            <text x="860" :y="priceToY(neutralValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff"
+                  font-size="14">
                 中性 {{ neutralValue.toFixed(2) }}
             </text>
-            <rect x="810" :y="priceToY(conservativeValue) - 14" width="100" height="24" rx="3" :fill="conservativeLineColor"/>
-            <text x="860" :y="priceToY(conservativeValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="14">
+            <rect x="810" :y="priceToY(conservativeValue) - 14" width="100" height="24" rx="3"
+                  :fill="conservativeLineColor"/>
+            <text x="860" :y="priceToY(conservativeValue)" text-anchor="middle" dominant-baseline="middle" fill="#fff"
+                  font-size="14">
                 保守 {{ conservativeValue.toFixed(2) }}
             </text>
         </svg>
@@ -219,14 +224,37 @@ const props = defineProps({
     optimisticAreaColor: {type: String, default: 'rgba(239, 68, 68, 0.15)'}
 })
 
-console.log(props.data.currentPrice)
+/** 把可能是数字 / 带单位脏字符串的值，安全转成数字 */
+function parseNumber(input, fallback = 0) {
+    if (typeof input === 'number') return Number.isFinite(input) ? input : fallback
+    if (typeof input !== 'string') return fallback
+
+    // 全角数字转半角，去掉千分位逗号和所有空白
+    const raw = input
+        .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+        .replace(/[,\s\u00A0]/g, '')
+    if (!raw) return fallback
+
+    // 抠出第一个数字（含负号、小数、科学计数法）
+    const matched = raw.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)
+    if (!matched) return fallback          // "—"、"暂无"、"" 都会走到这里
+
+    let n = Number(matched[0])
+    // 中文数量单位（长的先匹配，避免 "千万" 被拆成 "千"）
+    const unit = raw.match(/(千万|百万|十万|亿|万|千)/)
+    if (unit) {
+        const map = {千: 1e3, 万: 1e4, 十万: 1e5, 百万: 1e6, 千万: 1e7, 亿: 1e8}
+        n *= map[unit[1]]
+    }
+    return Number.isFinite(n) ? n : fallback
+}
 
 // 数据提取&容错
-const currentPrice = computed(() => Number(props.currentPrice || 0))
-const conservativeValue = computed(() => Number(props.data.每股内在价值?.保守情景 || 0))
-const neutralValue = computed(() => Number(props.data.每股内在价值?.中性情景 || 0))
-const optimisticValue = computed(() => Number(props.data.每股内在价值?.乐观情景 || 0))
-const adviceText = computed(() => props.data.估值判断 || '暂无估值建议')
+const currentPrice = computed(() => parseNumber(props.currentPrice))
+const conservativeValue = computed(() => parseNumber(props.data?.每股内在价值?.保守情景))
+const neutralValue = computed(() => parseNumber(props.data?.每股内在价值?.中性情景))
+const optimisticValue = computed(() => parseNumber(props.data?.每股内在价值?.乐观情景))
+const adviceText = computed(() => props.data?.估值判断 || '暂无估值建议')
 
 // ★ 新增：自动计算动态价格上下限，自动覆盖历史+当前+DCF估值全区间
 const dynamicMinPrice = computed(() => {

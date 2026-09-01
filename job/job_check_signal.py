@@ -106,7 +106,7 @@ def job_check_signal(_stock_code):
 
     logger.info(content_json)
 
-    # 刷新概念
+    # 刷新股票概念
     StockService.upsert_stock({
         'symbol': _stock_code,
         'concepts': content_json.get('股票概念', {}),
