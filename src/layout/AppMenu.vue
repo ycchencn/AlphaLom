@@ -16,16 +16,16 @@ const model = ref([
             },
             {
                 label: '事件驱动',
-                icon: 'pi pi-fw pi-wave-pulse',
+                icon: 'pi pi-fw pi-twitter',
                 to: '/market/news_flow',
                 enable: true,
             },
-            // {
-            //     label: 'ETF洞察',
-            //     icon: 'pi pi-fw pi-cloud-download',
-            //     to: '/market/etf_insight',
-            //     enable: true,
-            // },
+            {
+                label: 'ETF洞察',
+                icon: 'pi pi-fw pi-cloud-download',
+                to: '/market/etf_insight',
+                enable: true,
+            },
         ]
     },
     {

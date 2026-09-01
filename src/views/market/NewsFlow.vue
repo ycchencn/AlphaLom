@@ -224,11 +224,12 @@ onMounted(async () => {
                 <Column field="stock_name" header="新闻详情">
                     <template #body="{ data }">
                         <div class="news-item">
+                            <p class="news-digest leading-relaxed">{{ data.digest }}</p>
+
                             <div class="news-time text-gray-500 text-xs mb-1">
                                 {{ formatDaysAgo(data.news_time) }}
-                                <a v-if="data.url" :href="data.url" target="_blank" class="text-blue-500 hover:underline ml-2">原文</a>
+                                <a v-if="data.url" :href="data.url" target="_blank" class="text-blue-500 hover:underline ml-2">{{data.url}}</a>
                             </div>
-                            <p class="news-digest leading-relaxed">{{ data.digest }}</p>
 
                             <div v-if="data.relations_stocks?.length" class="mt-2 text-sm">
                                 <strong class="text-gray-600">关联股票：</strong>
@@ -291,7 +292,7 @@ onMounted(async () => {
 
 <style scoped>
 .news-item {
-    padding: 8px 4px;
+    padding: 4px 0;
     border-bottom: 1px dashed #f3f4f6;
 }
 
