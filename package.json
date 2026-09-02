@@ -14,7 +14,7 @@
         "axios": "^1.16.1",
         "chart.js": "^3.3.2",
         "katex": "^0.16.40",
-        "klinecharts": "^10.0.2",
+        "klinecharts": "^10.0.3",
         "marked": "^15.0.11",
         "marked-katex-extension": "^5.1.7",
         "monaco-editor": "^0.55.1",
