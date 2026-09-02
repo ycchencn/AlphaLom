@@ -308,6 +308,7 @@ class InvestmentPortfolio(Base):
     desc = Column(Text)
     enable = Column(Integer, nullable=False, default=1)
     market = Column(String(50), nullable=False, default='cn')
+    quantstat_json = Column(JSON, nullable=True)
 
     def to_dict(self):
         """将对象转换为字典格式"""
@@ -328,6 +329,7 @@ class InvestmentPortfolio(Base):
             'enable': self.enable,
             'strategy_type': int(self.strategy_type),
             'market': self.market,
+            'quantstat_json': self.quantstat_json
         }
 
 

@@ -20,7 +20,8 @@ def generate_strategy_performance_json(equity: pd.Series, title="策略报告", 
     # show sharpe ratio
     return {
         'sharpe': float(qs.stats.sharpe(equity)),
-        'max_drawdown': float(qs.stats.max_drawdown(equity))
+        'max_drawdown': float(qs.stats.max_drawdown(equity)),
+        'cagr': float(qs.stats.cagr(equity))
     }
 
 

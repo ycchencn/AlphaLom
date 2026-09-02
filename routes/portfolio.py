@@ -83,7 +83,11 @@ def gen_quantstat(portfolio_id):
 
     # 你的归一化净值序列 equity
     html_content, perf_data = generate_html_report_string(equity, title="量化策略绩效报告")
-    # print(perf_data)
+
+    InvestmentPortfolioService.update_by_portfolio_id(portfolio_id, {
+        "quantstat_json": perf_data
+    })
+
     return html_content
 
 @portfolio_bp.route(f'{api_prefix}/portfolio/<string:portfolio_id>', methods=['PUT'])
