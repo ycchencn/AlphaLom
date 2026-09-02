@@ -59,7 +59,7 @@ def __beta_task(stock, market_index, start_date, end_date, trade_date):
     if beta is None or abs(beta) > 10: # 异常值过滤，避免脏数据入库
         logger.warning(f"标的{stock_code} Beta值异常({beta})，跳过入库")
         return False
-    logger.info(f"The Beta of #({stock_code}) relative to {market_index} is: {beta:.3f}")
+    logger.debug(f"The Beta of #({stock_code}) relative to {market_index} is: {beta:.3f}")
     FactorValueService.create(
         trade_date=trade_date,
         ticker=stock_code,
@@ -125,7 +125,7 @@ def job_sync_data():
             except Exception as e:
                 stock = future_map[future]
                 logger.error(f"标的{stock['symbol']} 基础信息同步异常: {str(e)}")
-    
+
     logger.info(f"全量股票基础信息同步完成，总标的{total_cnt}，成功{success_cnt}")
 
 def __sync_single_stock(stock):
