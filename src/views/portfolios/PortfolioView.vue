@@ -458,18 +458,18 @@ const showDcfDrawer = function () {
                 </template>
             </Card>
             <Card>
-                <template #title>夏普比率</template>
+                <template #title>夏普比率 (Sharpe Ratio)</template>
                 <template #content>
                     <div class="text-lg font-semibold text-gray-500">
-                        {{ profInfo.quantstat_json.sharpe }}
+                        {{ profInfo.quantstat_json?.sharpe.toFixed(2) }}
                     </div>
                 </template>
             </Card>
             <Card>
-                <template #title>最大回撤</template>
+                <template #title>最大回撤 (Max Drawdown)</template>
                 <template #content>
                     <div class="text-lg font-semibold text-gray-500">
-                        {{ (profInfo.quantstat_json.max_drawdown * 100).toFixed(2) }} %
+                        {{ (profInfo.quantstat_json?.max_drawdown * 100).toFixed(2) }} %
                     </div>
                 </template>
             </Card>
@@ -477,7 +477,7 @@ const showDcfDrawer = function () {
                 <template #title>年化收益率（CAGR）</template>
                 <template #content>
                     <div class="text-lg font-semibold text-gray-500">
-                        {{ (profInfo.quantstat_json.cagr * 100).toFixed(2) }} %
+                        {{ (profInfo.quantstat_json?.cagr * 100).toFixed(2) }} %
                     </div>
                 </template>
             </Card>
