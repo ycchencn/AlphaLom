@@ -74,7 +74,6 @@ class Stock(Base):
             'monitoring': self.monitoring,
             'monitor_by': self.monitor_by,
             'llm_analysis_interval': self.llm_analysis_interval,
-            'company_desc': self.company_desc,
             'setting': self.setting,
             'ohlc_last': self.ohlc_last
         }

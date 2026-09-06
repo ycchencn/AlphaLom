@@ -203,6 +203,9 @@ def job_stock_dcf_model_analysis_daily(override=False):
 
     # 循环对个股进行每日挖掘
     for stock in stocks:
+        # 判断间隔
+        if not check_analysis_interval(stock['symbol'], interval=dcf_report_date_limit):
+            continue
         # 发送分析任务到MQ
         JobService.send_job({
             'job_func': 'job_stock_dcf_model_analysis',
@@ -226,6 +229,7 @@ def dcf_report_extra(_stock_code, report_content):
     staff.role_base = '你需要从dcf报告提取股价预期，使用JSON输出'
     question = f"""
     请严格输出具体的价格，不要给35-40这样子模棱两可的数据
+    价格输出不要用任何单位，就纯数字输出
     报告原文：{report_content},"""
     question += """输出JSON格式参考！
     {
