@@ -98,8 +98,15 @@ class DataBull:
         return self._request(f"{market}/stock/tick", params={"symbol": symbol, "tick_type": tick_type})
 
     def get_index_history(self, index_code: str, start_date: str, end_date: str, market: str = "cn"):
-        """获取指数历史行情 (日线/分钟线)"""
+        """获取指数历史行情 (日线)"""
         data = self._request(f"{market}/index/history", params={
+            "index_code": index_code, "start_date": start_date, "end_date": end_date
+        })
+        return self._to_dataframe(data.get("data") if isinstance(data, dict) else data)
+
+    def get_market_fear_greed(self, index_code: str, start_date: str, end_date: str, market: str = "cn"):
+        """获取指数恐惧与贪婪数据 (日线)"""
+        data = self._request(f"{market}/market/fear_greed", params={
             "index_code": index_code, "start_date": start_date, "end_date": end_date
         })
         return self._to_dataframe(data.get("data") if isinstance(data, dict) else data)
