@@ -52,8 +52,7 @@ def job_check_signal(_stock_code):
     end_date = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')
 
     # 公司基本信息
-    stock = databull.get_stock_info(_stock_code, stock_info.get('market'))
-    profile = stock.get('profile', {})
+    profile = databull.get_company(_stock_code, stock_info.get('market'))
 
     # 1 数据预处理 - 入库行情、新闻、题材、财报、技术因子、动量数据
     try:
@@ -86,8 +85,6 @@ def job_check_signal(_stock_code):
 
     content = staff.ask(question=prompt)
     content_json = json.loads(content)
-
-    # logger.info(content)
 
     # "吸筹阶段|洗盘阶段|拉升阶段|出货阶段"
     main_force_behavior_phase_str = content_json['技术面深度诊断'].get('主力行为阶段', '')
@@ -143,7 +140,7 @@ def job_check_signal_daily(override=False):
 
 if __name__ == '__main__':
 
-    # stock_code = '000733'
-    # job_check_signal(_stock_code=stock_code)
+    stock_code = '688008'
+    job_check_signal(_stock_code=stock_code)
 
-    job_check_signal_daily()
+    # job_check_signal_daily()

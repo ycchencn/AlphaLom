@@ -79,7 +79,7 @@ def update_stock(symbol):
             'ts_code': stock_api.get('ts_code'),
             'name': stock_api.get('name'),
             'market': data.get('market', 'cn'),
-            'securities_type': 'stock',
+            'securities_type': data.get('securities_type', 'stock'),
             'monitoring': 1
         })
     else:

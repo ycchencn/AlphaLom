@@ -1,13 +1,12 @@
 <script setup>
 
-import {FilterMatchMode, FilterOperator} from '@primevue/core/api';
+import {FilterMatchMode} from '@primevue/core/api';
 import {useNotification} from '@/composables/useNotification';
-import {onBeforeMount, reactive, ref} from 'vue';
+import {onBeforeMount, ref} from 'vue';
 import Dialog from 'primevue/dialog';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import {
-    formatPercentage,
     formatStockTradeAmount,
 } from '@/utils/function.js';
 
@@ -17,7 +16,6 @@ const loading1 = ref(null);
 const modal_visible = ref(false);
 const modal_stock_code = ref(null);
 const {showSuccess, showError} = useNotification();
-const dt1 = ref(null);
 const modal_analysis_interval = ref(1)
 
 function loadETFList() {
@@ -34,48 +32,10 @@ onBeforeMount(() => {
 });
 
 /**
- * 格式化金额
- * @param {Number|String} val - 需要格式化的数值
- * @param {Number} decimals - 保留小数位数，默认2位
- * @returns {String} - 格式化后的字符串
- */
-function formatMoney(val, decimals = 2) {
-    if (val === '' || val === null || val === undefined) return '--';
-
-    // 转为数字
-    const num = Number(val);
-    if (isNaN(num)) return '0.00';
-
-    // 如果数值小于 1万，直接格式化加千分位
-    if (num < 10000) {
-        return num.toLocaleString('zh-CN', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
-    }
-
-    // 定义单位和除数
-    const units = [
-        {value: 100000000, label: '亿'},
-        {value: 10000, label: '万'}
-    ];
-
-    for (let unit of units) {
-        if (num >= unit.value) {
-            const result = num / unit.value;
-            // 这里的 toLocaleString 会自动处理千分位（如果需要）和保留小数
-            return result.toLocaleString('zh-CN', {
-                minimumFractionDigits: decimals,
-                maximumFractionDigits: decimals
-            }) + unit.label;
-        }
-    }
-
-    return num.toString();
-}
-
-/**
  * 添加股票到监控列表
  * @param {string} stockCode - 股票代码（如 '600519', 'AAPL', '00700.HK' 等）
  */
-async function addStockMonitor(stockCode) {
+async function addETFMonitor(stockCode) {
     // === 1. 前置校验：stockCode 合法性 ===
     if (!stockCode) {
         showError('请输入股票代码');
@@ -105,9 +65,10 @@ async function addStockMonitor(stockCode) {
     // === 2. 发起请求 ===
     try {
         await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
-            monitoring: 1,
             llm_analysis_interval: modal_analysis_interval.value,
-            monitor_by: 'guest'
+            monitoring: 1,
+            monitor_by: 'guest',
+            securities_type: 'stock'
         });
         showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
         modal_stock_code.value = ""
@@ -115,7 +76,7 @@ async function addStockMonitor(stockCode) {
         let message = '操作失败，请重试';
         if (axios.isAxiosError(error)) {
             if (error.response) {
-                const {status, data} = error.response;
+                const { status, data } = error.response;
                 message = data.message;
                 // 可继续扩展其他业务状态码
             } else if (error.request) {

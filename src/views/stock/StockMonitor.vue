@@ -1,8 +1,8 @@
 <script setup>
 
-import { FilterMatchMode, FilterOperator } from '@primevue/core/api';
+import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
-import { onBeforeMount, reactive, ref } from 'vue';
+import { onBeforeMount, ref } from 'vue';
 import { getMarketByCode, fearGreedToText } from '@/utils/function';
 import Dialog from 'primevue/dialog';
 import axios from 'axios';
@@ -14,7 +14,6 @@ const loading1 = ref(null);
 const modal_visible = ref(false);
 const modal_stock_code = ref(null);
 const { showSuccess, showError } = useNotification();
-const dt1 = ref(null);
 const modal_analysis_interval = ref(1)
 const filter_market = ref('cn')
 
@@ -94,7 +93,8 @@ async function addStockMonitor(stockCode) {
         await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
             llm_analysis_interval: modal_analysis_interval.value,
             monitoring: 1,
-            monitor_by: 'guest'
+            monitor_by: 'guest',
+            securities_type: 'stock'
         });
         showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
         modal_stock_code.value = ""

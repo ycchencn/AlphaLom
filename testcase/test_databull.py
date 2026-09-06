@@ -14,6 +14,10 @@ class TestDatajiji(unittest.TestCase):
         res = databull.get_stock_list()
         self.assertIsNotNone(res)
 
+    def test_get_company(self):
+        res = databull.get_company('688008')
+        self.assertIsNotNone(res)
+
     def test_get_history(self):
         index_code = '603163'
         res = databull.get_history(index_code, start_date='20240101', end_date='20240115')
