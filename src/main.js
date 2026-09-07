@@ -16,6 +16,8 @@ import Tooltip from 'primevue/tooltip';
 
 import { definePreset } from '@primevue/themes';
 
+import * as echarts from 'echarts';
+
 const app = createApp(App);
 
 const MyPreset = definePreset(Aura, {
@@ -49,6 +51,8 @@ app.use(PrimeVue, {
 })
 app.use(ToastService);
 app.use(ConfirmationService);
+
+app.config.globalProperties.$echarts = echarts;
 
 // 注册 v-tooltip 全局指令
 app.directive('tooltip', Tooltip);

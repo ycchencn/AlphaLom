@@ -29,6 +29,7 @@ import TabList from 'primevue/tablist';
 import Tab from 'primevue/tab';
 import TabPanels from 'primevue/tabpanels';
 import TabPanel from 'primevue/tabpanel';
+import * as echarts from 'echarts'
 
 let chart = ref(null)
 const toast = useToast();
@@ -62,6 +63,7 @@ const dcf_research_report = ref({
 })
 const tech_report = ref(null)
 const dcf_research_report_drawer = ref(false)
+const fundamental_scores = ref(null)
 
 // 可选：真实历史价格数据
 const realHistoryData = ref([])
@@ -146,6 +148,53 @@ const items = [
     }
 ];
 
+const echart1 = ref(null)
+
+function render() {
+    let option;
+    option = {
+        title: {
+            text: ''
+        },
+        legend: {
+            data: ['d1']
+        },
+        radar: {
+            // shape: 'circle',
+            indicator: [
+                {name: '现金流质量', max: 100},
+                {name: '市盈率', max: 100},
+                {name: '资产负债比率', max: 100},
+                {name: '归母净利润', max: 100},
+                {name: '净资产收益率', max: 100}
+            ]
+        },
+        series: [
+            {
+                name: '',
+                type: 'radar',
+                data: [
+                    {
+                        value: [
+                            fundamental_scores.value['cash_quality_score'],
+                            fundamental_scores.value['pe_score'],
+                            fundamental_scores.value['debt_ratio_score'],
+                            fundamental_scores.value['profit_growth_score'],
+                            fundamental_scores.value['roe_score']
+                        ],
+                        name: ''
+                    }
+                ],
+                symbolSize: 3,
+                lineStyle: {
+                    width: 2
+                }
+            }
+        ]
+    };
+    echart1.value.setOption(option)
+}
+
 onMounted(async () => {
 
     lineOptions.value = getLineChartOptions();
@@ -198,6 +247,17 @@ onMounted(async () => {
     axios.get(`/api/v1/stock/dcf_research_report/${stock_code}`).then(response => {
         loading.value = false;
         dcf_research_report.value = response.data
+    });
+
+    // 获取基本面评分数据
+    axios.get(`/api/v1/stock/fundamental_scores/${stock_code}`).then(response => {
+        loading.value = false;
+        fundamental_scores.value = response.data
+
+        let chartDom = document.getElementById('el');
+        echart1.value = echarts.init(chartDom)
+        render()
+
     });
 
     // 贪婪与恐惧数据
@@ -378,7 +438,8 @@ onUnmounted(() => {
 
         <!-- 标题 -->
         <h1 class="text-2xl font-bold mb-3 text-gray-800">
-            <span>{{ stock_info?.name || '加载中...' }} ({{ stock_code }})</span> <i class="text-sm font-light">{{ stock_info?.concepts || '加载中...' }}</i>
+            <span>{{ stock_info?.name || '加载中...' }} ({{ stock_code }})</span> <i
+            class="text-sm font-light">{{ stock_info?.concepts || '加载中...' }}</i>
         </h1>
 
         <h1 class="stock-price" v-if="ohlc_data.length > 0" :class="{
@@ -434,67 +495,6 @@ onUnmounted(() => {
                         <div id="chart"></div>
                     </div>
 
-<!--                    <div class="w-full md:w-1/3 flex flex-col min-h-0">-->
-
-<!--                        <div class="flex flex-col md:flex-row gap-6">-->
-<!--                            <div class="w-full md:w-1/2 flex flex-col">-->
-<!--                                <label class="text-sm">52周价格范围</label>-->
-<!--                                <PriceRange52Week-->
-<!--                                    v-if="stock_info['tech_indicator'] && ohlc_data.length > 0"-->
-<!--                                    :low52w="stock_info['tech_indicator']['52week_low']"-->
-<!--                                    :high52w="stock_info['tech_indicator']['52week_high']"-->
-<!--                                    :currentPrice="ohlc_data[ohlc_data.length-1]['close']"-->
-<!--                                    style="width: 100px;"-->
-<!--                                    class="mb-2"-->
-<!--                                />-->
-<!--                            </div>-->
-<!--                        </div>-->
-
-<!--                        <hr class="mt-2 mb-2"/>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2">-->
-<!--                            {{ stock_info?.concepts || '加载中...' }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2">-->
-<!--                            {{ stock_profile?.business_scope || '加载中...' }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">-->
-<!--                            地址：{{ stock_profile?.office_address || '加载中...' }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.market === 'cn'">-->
-<!--                            流通市值：{{-->
-<!--                                formatMarketCapToBillions(stock_info?.instrument_detail?.FloatVolume * ohlc_last['close'])-->
-<!--                            }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2">-->
-<!--                            市盈率 (TTM)：{{ stock_info?.pe_ratio }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_info?.pb_ratio">-->
-<!--                            市净率：{{ stock_info?.pb_ratio }}-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.beta">-->
-<!--                            Beta：{{ stock_profile?.beta }}-->
-<!--                            <i class="pi pi-info-circle info-icon"-->
-<!--                               v-tooltip.top="'Beta是衡量该股票价格波动相对于整个市场（如大盘指数）波动幅度的系数'"></i>-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">-->
-<!--                            网站：<a :href="'https://' + stock_profile?.website"-->
-<!--                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>-->
-<!--                        </div>-->
-
-<!--                        <div class="text-sm text-gray-500 mb-2">-->
-<!--                            最近更新：{{ formatDaysAgo(stock_info?.last_update) || '加载中...' }}-->
-<!--                        </div>-->
-
-<!--                    </div>-->
-
                 </div>
 
                 <div class="mt-5 flex flex-col md:flex-row gap-6">
@@ -546,6 +546,42 @@ onUnmounted(() => {
                 </div>
 
             </TabPanel>
+
+            <TabPanel value="tab2">
+
+                <div class="mt-5 flex flex-col md:flex-row gap-6">
+
+                    <!-- 左侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
+                        <div ref="el" id="el" style="margin:0 auto; width: 350px; height: 350px"></div>
+                    </div>
+
+                    <!-- 右侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            {{ stock_profile?.company_name || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
+                            地址：{{ stock_profile?.office_address || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
+                            网站：<a :href="'https://' + stock_profile?.website"
+                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            经营范围：{{ stock_profile?.business_scope || '加载中...' }}
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </TabPanel>
+
             <TabPanel value="tab3">
                 <DataTable
                     tableStyle="font-size:12px"

@@ -226,10 +226,7 @@ def get_stock_profile(symbol):
     if not validate_stock_code(symbol):
         return jsonify({}), 500
     stock_info = StockService.get_stock_by_symbol(symbol)
-    stock_info_api = databull.get_stock_info(symbol, market=stock_info.get('market'))
-    profile = stock_info_api.get('profile', {})
-    beta = FactorValueService.get_latest_factor_value(ticker=symbol, factor_name='beta')
-    profile['beta'] = beta
+    profile = databull.get_company(symbol, market=stock_info.get('market'))
     return jsonify(profile)
 
 
@@ -245,10 +242,25 @@ def _stock_reanalysis(symbol, sync_history=False, send_notification=False):
         }
     })
 
-@stock_bp.route(f'{api_prefix}/stocks/fundamental_scores/<string:symbol>', methods=['GET'])
+
+@stock_bp.route(f'{api_prefix}/stock/fundamental_scores/<string:symbol>', methods=['GET'])
 def get_fundamental_scores(symbol):
     """
     获取个股基本面评分数据
     """
     fundamental_scores = StockFinancialScoreService.get_by_code(symbol)
     return jsonify(fundamental_scores)
+
+
+@stock_bp.route(f'{api_prefix}/stock/financial_data/<string:symbol>', methods=['GET'])
+def get_financial_data(symbol):
+    """
+    获取个股财务数据
+    """
+    report = databull.get_stock_financial_data(
+        symbol=symbol,
+        start_date=get_date_by_n(-365),
+        end_date=get_today(),
+        report_type='PershareIndex'
+    )
+    return jsonify(report)

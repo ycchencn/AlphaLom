@@ -22,7 +22,7 @@ FinFilo 是一个金融数据分析与投资组合管理平台，提供股票、
 - **后端**：Python
 - **数据库**：MySQL
 - **图表**：klinecharts
-- **数据源**：[DataBull金融数据接口]([DataBull金融数据接口](https://www.baidu.com))、Baostock、Akshare
+- **数据源**：[DataBull金融数据接口](https://www.baidu.com)、Baostock、Akshare
 
 ## 快速开始
 

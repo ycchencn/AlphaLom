@@ -1,35 +1,10 @@
 <script setup lang="ts">
 import {ref, onMounted, computed} from 'vue'
-import Chart from 'primevue/chart'
 import Card from 'primevue/card'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
 import axios from "axios";
 import ProgressBar200p from "@/components/ProgressBar200p.vue";
-
-// ========================
-// 类型定义
-// ========================
-interface IndexItem {
-    name: string
-    code: string
-    price: number
-    change: number
-    changePercent: number
-}
-
-interface SectorItem {
-    name: string
-    changePercent: number
-    leadingStock: string
-}
-
-interface StockItem {
-    name: string
-    code: string
-    price: number
-    changePercent: number
-}
 
 const indices_name = ref({
     '000001': '上证指数',
@@ -44,50 +19,6 @@ const index_last_tick = ref([])
 
 // 板块数据
 const sectors = ref([])
-
-// ========================
-// 分时图（上证指数）数据
-// ========================
-const minuteChartData = ref({
-    labels: ['9:30', '10:00', '10:30', '11:00', '11:30', '13:30', '14:00', '14:30', '15:00'],
-    datasets: [
-        {
-            label: '上证指数',
-            data: [3365, 3363, 3367, 3362, 3360, 3364, 3366, 3365, 3364],
-            borderColor: '#ef4444',
-            backgroundColor: 'rgba(239,68,68,0.1)',
-            fill: true,
-            tension: 0.4,
-            pointRadius: 0
-        }
-    ]
-})
-
-const minuteChartOptions = ref({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-        legend: {display: false},
-        tooltip: {mode: 'index', intersect: false}
-    },
-    scales: {
-        x: {grid: {display: false}},
-        y: {grid: {color: '#e5e7eb'}}
-    }
-})
-
-const limitUpDownOptions = ref({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-        legend: {position: 'top' as const},
-        tooltip: {mode: 'index'}
-    },
-    scales: {
-        x: {grid: {display: false}},
-        y: {beginAtZero: true, grid: {color: '#e5e7eb'}}
-    }
-})
 
 // ========================
 // 两市成交额图（柱状图/面积图）
@@ -206,14 +137,10 @@ onMounted(async () => {
 });
 
 // 工具方法
-const getPctColorClass = (value) => {
+const getPctColorClass = (value: number) => {
     if (value > 0) return 'text-up'
     if (value < 0) return 'text-down'
     return 'text-flat'
-}
-// 行点击事件（可自定义跳转到板块详情页）
-const handleRowClick = (rowData) => {
-    console.log('点击板块：', rowData.sector_name)
 }
 
 </script>
@@ -243,18 +170,6 @@ const handleRowClick = (rowData) => {
             </Card>
         </div>
 
-        <!-- 图表行1：分时走势 + 涨跌停家数 -->
-<!--        <div class="grid-row">-->
-<!--            <Card class="distribution-card">-->
-<!--                <template #title> 沪深涨跌分布</template>-->
-<!--                <template #content>-->
-<!--                    <div class="chart-wrapper">-->
-<!--                        <Chart type="bar" :data="distributionData" :options="distributionOptions"/>-->
-<!--                    </div>-->
-<!--                </template>-->
-<!--            </Card>-->
-<!--        </div>-->
-
         <!-- {"avg_turnover": 0.0, "bottom_stock": "浦发银行", "bottom_stock_pct": -0.89, "change_pct": 0.17, "down_count": 18, "flat_count": 4, "sector_name": "银行", "stock_count": 42, "top_stock": "重庆银行", "top_stock_pct": 3.71, "total_market_cap": 0.0, "total_trade_amount": 241.22, "up_count": 20, "up_down_ratio": 1.11} -->
         <Card class="chart-card sector-card-custom">
             <template #title> 板块涨跌幅</template>
@@ -269,7 +184,6 @@ const handleRowClick = (rowData) => {
                     sortMode="single"
                     removableSort
                     :rowHover="true"
-                    @row-click="handleRowClick"
                 >
                     <!-- 板块名称列 -->
                     <Column field="sector_name" header="板块" :filter="true" filterPlaceholder="搜索板块"/>
@@ -391,7 +305,6 @@ const handleRowClick = (rowData) => {
     margin-bottom: 1.5rem;
 
     .index-card {
-        border-radius: 2px;
         flex: 1 1 calc(16.66% - 1rem); // 6个一行，留出间距
         min-width: 160px;
         transition: all 0.2s ease;
