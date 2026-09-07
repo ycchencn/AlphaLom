@@ -454,7 +454,7 @@ onUnmounted(() => {
         </h1>
 
         <div class="absolute top-8 right-8">
-            <Button label="DCF估值分析" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
+            <Button label="AI 估值分析" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
             <!-- <Button :label="watched ? '已关注' : '关注'" size="small" class="mr-2" @click="toggleLike()" :severity="watched ? '' : 'secondary'"></Button>-->
             <SplitButton label="操作" :model="items" size="small" severity="secondary"/>
         </div>
@@ -465,6 +465,8 @@ onUnmounted(() => {
             <Tab value="tab1">技术面分析</Tab>
             <Tab value="tab2">基本面分析</Tab>
             <Tab value="tab3">新闻动态</Tab>
+            <Tab value="tab4">财务分析</Tab>
+            <Tab value="tab5">研报数据</Tab>
         </TabList>
         <TabPanels>
             <TabPanel value="tab1">
