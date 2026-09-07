@@ -20,7 +20,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue';
+import {computed} from 'vue';
 
 // 定义 Props
 const props = defineProps({
@@ -43,7 +43,7 @@ const props = defineProps({
 
 // 计算当前价格在区间中的百分比位置
 const percentage = computed(() => {
-    const { low52w, high52w, currentPrice } = props;
+    const {low52w, high52w, currentPrice} = props;
 
     // 防止除以 0 或区间为 0 的情况
     if (high52w === low52w) return 0;
@@ -58,9 +58,9 @@ const percentage = computed(() => {
 // 数字格式化（带千分位，保留两位小数，无货币符号）
 const formatCurrency = (value) => {
     return new Intl.NumberFormat('zh-CN', {
-      style: 'decimal',    // 修改这里：从 'currency' 改为 'decimal'
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+        style: 'decimal',    // 修改这里：从 'currency' 改为 'decimal'
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
     }).format(value);
 };
 </script>

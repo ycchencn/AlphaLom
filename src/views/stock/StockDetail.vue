@@ -156,15 +156,15 @@ function render() {
         title: {
             text: ''
         },
+        textStyle: {fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif', fontSize: 10, color: '#333'},
         legend: {
             data: ['d1']
         },
         radar: {
-            // shape: 'circle',
             indicator: [
                 {name: '现金流质量', max: 100},
                 {name: '市盈率', max: 100},
-                {name: '资产负债比率', max: 100},
+                {name: '资产负债', max: 100},
                 {name: '归母净利润', max: 100},
                 {name: '净资产收益率', max: 100}
             ]
@@ -462,15 +462,18 @@ onUnmounted(() => {
 
     <Tabs value="tab1">
         <TabList style="border-top: 1px solid #eee;">
-            <Tab value="tab1">走势分析</Tab>
+            <Tab value="tab1">技术面分析</Tab>
             <Tab value="tab2">基本面分析</Tab>
             <Tab value="tab3">新闻动态</Tab>
         </TabList>
         <TabPanels>
             <TabPanel value="tab1">
 
-                <div class="flex flex-col md:flex-row gap-6">
-
+                <div class="mt-5">
+                    <div class="font-semibold text-lg">
+                        <i class="pi pi-sun text-orange-500"></i> 走势图表
+                    </div>
+                    <Divider/>
                     <div class="w-full md:w-3/3 flex flex-col min-h-0">
                         <div class="card p-0 mb-3">
                             <SelectButton
@@ -492,15 +495,86 @@ onUnmounted(() => {
                                 class="ml-3"
                             />
                         </div>
-                        <div id="chart"></div>
                     </div>
-
+                    <div id="chart"></div>
                 </div>
 
                 <div class="mt-5 flex flex-col md:flex-row gap-6">
 
-                    <!-- 左侧 -->
                     <div class="w-full md:w-1/2 flex flex-col min-h-0">
+                        <div class="font-semibold text-lg">
+                            <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
+                            <span v-if="greed_data.length > 0">
+                                【{{ fearGreedToText(greed_data?.[0]['fear_greed'])['advice'] }}】
+                            </span>
+                        </div>
+                        <Divider/>
+                        <div class="overflow-y-auto flex-1" v-if="greed_data">
+                            <Chart type="line" :data="lineData" :options="lineOptions" style="height: 200px"></Chart>
+                        </div>
+                    </div>
+
+                    <div class="w-full md:w-1/2 flex flex-col min-h-0" v-if="tech_report">
+                        <div class="font-semibold text-lg">
+                            <i class="pi pi-chart-line text-green-500"></i> 技术面深度诊断
+                        </div>
+                        <Divider/>
+                        <div class="overflow-y-auto flex-1" v-if="greed_data">
+                            <MarkdownRenderer
+                                fontSize="11px"
+                                :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
+                            </MarkdownRenderer>
+                        </div>
+                    </div>
+
+                </div>
+
+            </TabPanel>
+
+            <TabPanel value="tab2">
+
+                <div class="mt-5 flex flex-col md:flex-row gap-6">
+
+                    <!-- 左侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col">
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            公司名：{{ stock_profile?.company_name || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            实控人：{{ stock_profile?.actual_controller || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
+                            地址：{{ stock_profile?.office_address || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
+                            网站：<a :href="'https://' + stock_profile?.website"
+                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            公司介绍：{{ stock_profile?.company_introduction || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            经营范围：{{ stock_profile?.business_scope || '加载中...' }}
+                        </div>
+
+                    </div>
+
+                    <!-- 右侧 -->
+                    <div class="w-full md:w-1/2 flex flex-col">
+                        <div ref="el" id="el"></div>
+                    </div>
+
+                </div>
+
+                <div class="flex flex-col md:flex-row gap-6 mt-5" v-if="dcf_research_report">
+
+                    <div class="w-full md:w-1/2 flex flex-col">
                         <div class="font-semibold text-lg">
                             <i class="pi pi-chart-line text-green-500"></i> DCF估值评级
                         </div>
@@ -516,69 +590,8 @@ onUnmounted(() => {
                         />
                     </div>
 
-                    <!-- 右侧 -->
-                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
-                        <div class="font-semibold text-lg">
-                            <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
-                            <span v-if="greed_data.length > 0">
-                                【{{ fearGreedToText(greed_data?.[0]['fear_greed'])['advice'] }}】
-                            </span>
-                        </div>
-                        <Divider/>
-                        <div class="overflow-y-auto flex-1" v-if="greed_data">
-                            <Chart type="line" :data="lineData" :options="lineOptions" style="height: 250px"></Chart>
-                        </div>
-                    </div>
-
                 </div>
 
-                <div class="mt-5" v-if="tech_report">
-                    <div class="font-semibold text-lg">
-                        <i class="pi pi-sun text-orange-500"></i> 技术面深度诊断
-                    </div>
-                    <Divider/>
-                    <div class="overflow-y-auto flex-1" v-if="greed_data">
-                        <MarkdownRenderer
-                            fontSize="11px"
-                            :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
-                        </MarkdownRenderer>
-                    </div>
-                </div>
-
-            </TabPanel>
-
-            <TabPanel value="tab2">
-
-                <div class="mt-5 flex flex-col md:flex-row gap-6">
-
-                    <!-- 左侧 -->
-                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
-                        <div ref="el" id="el" style="margin:0 auto; width: 350px; height: 350px"></div>
-                    </div>
-
-                    <!-- 右侧 -->
-                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
-
-                        <div class="text-sm text-gray-500 mb-2">
-                            {{ stock_profile?.company_name || '加载中...' }}
-                        </div>
-
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
-                            地址：{{ stock_profile?.office_address || '加载中...' }}
-                        </div>
-
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
-                            网站：<a :href="'https://' + stock_profile?.website"
-                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
-                        </div>
-
-                        <div class="text-sm text-gray-500 mb-2">
-                            经营范围：{{ stock_profile?.business_scope || '加载中...' }}
-                        </div>
-
-                    </div>
-
-                </div>
 
             </TabPanel>
 
@@ -698,6 +711,12 @@ onUnmounted(() => {
 
 .info-icon {
     font-size: 12px;
+}
+
+#el {
+    margin: 0 auto;
+    width: 300px;
+    height: 300px
 }
 
 </style>

@@ -40,7 +40,7 @@
                 font-size="12"
                 font-weight="bold"
             >
-                {{ changeRate >=0 ? '+' : '' }}{{ (changeRate * 100).toFixed(1) }}%
+                {{ changeRate >= 0 ? '+' : '' }}{{ (changeRate * 100).toFixed(1) }}%
             </text>
         </svg>
     </div>

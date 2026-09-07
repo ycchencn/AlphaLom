@@ -37,7 +37,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import {ref, computed, onMounted} from 'vue';
 
 // 接收传入的参数
 const props = defineProps({
@@ -82,7 +82,7 @@ const daysInMonth = computed(() => {
 
     // 添加上个月的空单元格
     for (let i = 0; i < firstDayOfWeek; i++) {
-        days.push({ date: null, profit: undefined });
+        days.push({date: null, profit: undefined});
     }
 
     // 添加当月的日期
@@ -103,7 +103,7 @@ const daysInMonth = computed(() => {
     const totalCells = 42; // 6行 * 7列
     const remaining = totalCells - days.length;
     for (let i = 0; i < remaining; i++) {
-        days.push({ date: null, profit: undefined });
+        days.push({date: null, profit: undefined});
     }
 
     return days;
