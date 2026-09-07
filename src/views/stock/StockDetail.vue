@@ -198,7 +198,7 @@ function render() {
 onMounted(async () => {
 
     lineOptions.value = getLineChartOptions();
-    // stock_info.value = await fetchStockInfo(stock_code);
+    stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
     // 获取日K
     ohlc_data.value = await fetchStockMarketData(stock_code);
