@@ -198,7 +198,7 @@ function render() {
 onMounted(async () => {
 
     lineOptions.value = getLineChartOptions();
-    stock_info.value = await fetchStockInfo(stock_code);
+    // stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
     // 获取日K
     ohlc_data.value = await fetchStockMarketData(stock_code);
@@ -471,7 +471,7 @@ onUnmounted(() => {
 
                 <div class="mt-5">
                     <div class="font-semibold text-lg">
-                        <i class="pi pi-sun text-orange-500"></i> 走势图表
+                        <i class="pi pi-wave-pulse text-red-400"></i> 走势图表
                     </div>
                     <Divider/>
                     <div class="w-full md:w-3/3 flex flex-col min-h-0">
@@ -540,6 +540,10 @@ onUnmounted(() => {
 
                         <div class="text-sm text-gray-500 mb-2">
                             公司名：{{ stock_profile?.company_name || '加载中...' }}
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2">
+                            行业：{{ stock_profile?.industry || '加载中...' }}
                         </div>
 
                         <div class="text-sm text-gray-500 mb-2">

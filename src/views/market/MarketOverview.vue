@@ -172,7 +172,7 @@ const getPctColorClass = (value: number) => {
 
         <!-- {"avg_turnover": 0.0, "bottom_stock": "浦发银行", "bottom_stock_pct": -0.89, "change_pct": 0.17, "down_count": 18, "flat_count": 4, "sector_name": "银行", "stock_count": 42, "top_stock": "重庆银行", "top_stock_pct": 3.71, "total_market_cap": 0.0, "total_trade_amount": 241.22, "up_count": 20, "up_down_ratio": 1.11} -->
         <Card class="chart-card sector-card-custom">
-            <template #title> 板块涨跌幅</template>
+            <template #title> 申万一级行业涨跌排行</template>
             <template #content>
                 <DataTable
                     :value="sectors"

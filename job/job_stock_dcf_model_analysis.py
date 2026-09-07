@@ -23,9 +23,7 @@ prompt_template = Path(CURRENT_DIR / './prompt_stock_dcf_analysis.md').read_text
 
 
 def get_stock_detail(_stock_code, market):
-    stock = databull.get_stock_info(_stock_code, market)
-    profile = stock.get('profile', {})
-    return profile
+    return databull.get_company(_stock_code, market)
 
 
 def check_analysis_interval(stock_code, interval=3):
@@ -249,7 +247,7 @@ def dcf_report_extra(_stock_code, report_content):
 
 if __name__ == '__main__':
 
-    # stock_code = '600667'
-    # job_stock_dcf_model_analysis(stock_code, skip_interval=True)
+    stock_code = '688072'
+    job_stock_dcf_model_analysis(stock_code, skip_interval=True)
 
-    job_stock_dcf_model_analysis_daily(override=False)
+    # job_stock_dcf_model_analysis_daily(override=False)

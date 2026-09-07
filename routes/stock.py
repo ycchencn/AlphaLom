@@ -225,8 +225,8 @@ def get_stock_profile(symbol):
     """
     if not validate_stock_code(symbol):
         return jsonify({}), 500
-    stock_info = StockService.get_stock_by_symbol(symbol)
-    profile = databull.get_company(symbol, market=stock_info.get('market'))
+    # stock_info = StockService.get_stock_by_symbol(symbol)
+    profile = databull.get_company(symbol, market='cn')
     return jsonify(profile)
 
 

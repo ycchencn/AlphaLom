@@ -14,15 +14,15 @@ from utils.logger import logger
 
 
 def job_stock_analysis(stock_code, send_notification=False):
-    stock_local = StockService.get_stock_by_symbol(stock_code)
 
-    stock = databull.get_stock_info(stock_code, market=stock_local.get('market'))
-    assert stock is not None
     if not StockService.exists(stock_code):
+        # 个股不在数据库，查询api获取
+        stock_api = databull.get_stock_info(stock_code, market='cn')
+        # 自动添加
         StockService.upsert_stock({
             'symbol': stock_code,
-            'ts_code': stock.get('ts_code'),
-            'name': stock.get('name'),
+            'ts_code': stock_api.get('ts_code'),
+            'name': stock_api.get('name'),
             'market': 'cn',
             'securities_type': 'stock',
             'monitoring': 1
@@ -46,7 +46,7 @@ def job_stock_analysis(stock_code, send_notification=False):
 if __name__ == '__main__':
 
     stock_codes = [
-
+        '300750'
     ]
 
     for stock_code in stock_codes:

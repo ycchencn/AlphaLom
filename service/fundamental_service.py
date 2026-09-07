@@ -112,6 +112,29 @@ def compute_fundamental_scores(
     return raw_factor
 
 
+# 申万一级行业PE中枢参考（可定期从Wind/聚宽/AKShare更新，这里给示例）
+# 格式：行业 -> (差, 中, 良, 优)  —— 阈值内"越低越好"
+INDUSTRY_PE_THRESHOLDS = {
+    "半导体": (30, 50, 80, 150),  # 高估值成长
+    "计算机": (30, 50, 80, 150),  # 高估值成长
+    "软件开发": (25, 45, 70, 120),  # 高估值成长
+    "电池": (20, 35, 60, 100),
+    "医药生物": (15, 25, 40, 70),
+    "消费电子": (18, 30, 50, 80),
+    "银行": (4, 6, 8, 12),
+    "房地产": (5, 8, 12, 20),
+    "钢铁": (5, 8, 15, 25),
+    # ... 其它行业
+    "__default__": (10, 20, 30, 50),  # 默认=你原来的阈值
+}
+
+
+def score_pe_absolute(pe: float, industry: str = "__default__") -> float:
+    """行业自适应PE绝对打分"""
+    thresholds = INDUSTRY_PE_THRESHOLDS.get(industry, INDUSTRY_PE_THRESHOLDS["__default__"])
+    return _absolute_score(pe, thresholds, ascending=True)
+
+
 # ---------- 2. 单只打分层（绝对阈值，不依赖全池） ----------
 def score_single_fundamental(factors: Dict[str, Any]) -> float:
     """
@@ -124,7 +147,7 @@ def score_single_fundamental(factors: Dict[str, Any]) -> float:
     factors["profit_growth_score"] = _absolute_score(factors["profit_growth"], (0, 10, 20, 30), ascending=False)
     factors["cash_quality_score"] = _absolute_score(factors["cash_quality"], (0.3, 0.6, 1.0, 1.5), ascending=False)
     factors["pe_score"] = _absolute_score(factors["pe"], (10, 20, 30, 50), ascending=True)
-    factors["debt_ratio_score"] = _absolute_score(factors["debt_ratio"], (30, 50, 70, 85), ascending=True)
+    factors["debt_ratio_score"] = score_pe_absolute(factors["debt_ratio"], '__default__')
     composite = (
             factors["roe_score"] * w["roe"]
             + factors["profit_growth_score"] * w["profit_growth"]
@@ -133,32 +156,6 @@ def score_single_fundamental(factors: Dict[str, Any]) -> float:
             + factors["debt_ratio_score"] * w["debt_ratio"]
     )
     return round(composite, 2)
-
-
-def _percentile_score(series: pd.Series, ascending: bool = True) -> pd.Series:
-    """
-    分位数排名打分，输出 0~100
-    ascending=True  → 值越小分越低（PE、负债率）
-    ascending=False → 值越大分越高（ROE、增速）
-    自动去极值（Winsorize 3σ），NaN 填 50
-    """
-    s = series.copy().replace([np.inf, -np.inf], np.nan)
-    valid = s.dropna()
-    if len(valid) == 0:
-        return pd.Series(50.0, index=series.index)
-
-    mean, std = valid.mean(), valid.std()
-    if std > 0:
-        s = s.clip(mean - 3 * std, mean + 3 * std)
-
-    if ascending:
-        ranked = s.rank(pct=True, na_option="keep") * 100
-    else:
-        ranked = (1 - s.rank(pct=True, na_option="keep")) * 100
-
-    result = pd.Series(50.0, index=series.index)
-    result.loc[ranked.index] = ranked
-    return result
 
 
 def _absolute_score(value: float, thresholds: tuple, ascending: bool = True) -> float:
