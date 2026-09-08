@@ -1,6 +1,6 @@
 <script setup>
 
-import {onMounted, onUnmounted, watch} from 'vue';
+import {computed, onMounted, onUnmounted, watch} from 'vue';
 import {init, dispose} from 'klinecharts';
 import {ref} from 'vue';
 import {useRoute} from 'vue-router';
@@ -16,7 +16,8 @@ import {
     getLineChartOptions,
     formatCurrency,
     formatPercentage,
-    formatMarketCapToBillions
+    calcDcfScore,
+    parseNumber
 } from '@/utils/function.js';
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue';
 import axios from 'axios';
@@ -67,6 +68,10 @@ const fundamental_scores = ref(null)
 
 // 可选：真实历史价格数据
 const realHistoryData = ref([])
+
+const optimistic = ref(95)
+const neutral = ref(78)
+const conservative = ref(55)
 
 const items = [
     {
@@ -151,8 +156,13 @@ const items = [
 const echart1 = ref(null)
 
 function render() {
-    let option;
-    option = {
+    const score = calcDcfScore(
+        ohlc_last.value.close,
+        optimistic.value,
+        neutral.value,
+        conservative.value
+    );
+    let option = {
         title: {
             text: ''
         },
@@ -163,7 +173,7 @@ function render() {
         radar: {
             indicator: [
                 {name: '现金流质量', max: 100},
-                {name: '市盈率', max: 100},
+                {name: 'DCF估值', max: 100},
                 {name: '资产负债', max: 100},
                 {name: '归母净利润', max: 100},
                 {name: '净资产收益率', max: 100}
@@ -177,7 +187,7 @@ function render() {
                     {
                         value: [
                             fundamental_scores.value['cash_quality_score'],
-                            fundamental_scores.value['pe_score'],
+                            score.finalScore,
                             fundamental_scores.value['debt_ratio_score'],
                             fundamental_scores.value['profit_growth_score'],
                             fundamental_scores.value['roe_score']
@@ -247,17 +257,20 @@ onMounted(async () => {
     axios.get(`/api/v1/stock/dcf_research_report/${stock_code}`).then(response => {
         loading.value = false;
         dcf_research_report.value = response.data
-    });
+        neutral.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.中性情景)
+        optimistic.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.乐观情景)
+        conservative.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.保守情景)
 
-    // 获取基本面评分数据
-    axios.get(`/api/v1/stock/fundamental_scores/${stock_code}`).then(response => {
-        loading.value = false;
-        fundamental_scores.value = response.data
+        // 获取基本面评分数据
+        axios.get(`/api/v1/stock/fundamental_scores/${stock_code}`).then(response => {
+            loading.value = false;
+            fundamental_scores.value = response.data
 
-        let chartDom = document.getElementById('el');
-        echart1.value = echarts.init(chartDom)
-        render()
+            let chartDom = document.getElementById('el');
+            echart1.value = echarts.init(chartDom)
+            render()
 
+        });
     });
 
     // 贪婪与恐惧数据
@@ -582,7 +595,7 @@ onUnmounted(() => {
 
                     <div class="w-full md:w-1/2 flex flex-col">
                         <div class="font-semibold text-lg">
-                            <i class="pi pi-chart-line text-green-500"></i> DCF估值评级
+                            <i class="pi pi-chart-line text-green-500"></i> DCF 三情景估值
                         </div>
                         <Divider/>
                         <StockValuationChart

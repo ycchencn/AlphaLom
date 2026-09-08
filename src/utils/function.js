@@ -524,3 +524,99 @@ export function formatHoldingDuration(dateString) {
         return ` ${years} 年  ${months} 月`;
     }
 }
+
+/** 把可能是数字 / 带单位脏字符串的值，安全转成数字 */
+export function parseNumber(input, fallback = 0) {
+    if (typeof input === 'number') return Number.isFinite(input) ? input : fallback
+    if (typeof input !== 'string') return fallback
+
+    // 全角数字转半角，去掉千分位逗号和所有空白
+    const raw = input
+        .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+        .replace(/[,\s\u00A0]/g, '')
+    if (!raw) return fallback
+
+    // 抠出第一个数字（含负号、小数、科学计数法）
+    const matched = raw.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)
+    if (!matched) return fallback          // "—"、"暂无"、"" 都会走到这里
+
+    let n = Number(matched[0])
+    // 中文数量单位（长的先匹配，避免 "千万" 被拆成 "千"）
+    const unit = raw.match(/(千万|百万|十万|亿|万|千)/)
+    if (unit) {
+        const map = {千: 1e3, 万: 1e4, 十万: 1e5, 百万: 1e6, 千万: 1e7, 亿: 1e8}
+        n *= map[unit[1]]
+    }
+    return Number.isFinite(n) ? n : fallback
+}
+
+
+
+/**
+ * 计算 DCF 三情景综合评分
+ * @param {number} currentPrice - 现价
+ * @param {number} optimistic - 乐观 DCF 价值
+ * @param {number} neutral - 中性 DCF 价值
+ * @param {number} conservative - 保守 DCF 价值
+ * @param {object} weights - 权重配置（可选，默认 25/50/25）
+ * @returns {object} 包含各维度分数和最终评级
+ */
+export function calcDcfScore(currentPrice, optimistic, neutral, conservative, weights = {}) {
+    // 默认权重
+    const w = {optimistic: 0.4, neutral: 0.5, conservative: 0.10, ...weights}
+
+    // 归一化权重
+    const totalW = w.optimistic + w.neutral + w.conservative
+    const nw = {
+        optimistic: w.optimistic / totalW,
+        neutral: w.neutral / totalW,
+        conservative: w.conservative / totalW,
+    }
+
+    // 上涨空间 → 映射函数
+    // +100% → 100分, -50% → 0分, 线性插值
+    const mapScore = (dcfValue) => {
+        const upside = (dcfValue - currentPrice) / currentPrice
+        const raw = (upside + 0.5) * (100 / 1.5) // 映射到 0-100
+        return Math.max(0, Math.min(100, raw))
+    }
+
+    // 各情景得分
+    const scores = {
+        optimistic: mapScore(optimistic),
+        neutral: mapScore(neutral),
+        conservative: mapScore(conservative),
+    }
+
+    // 加权综合分
+    const composite =
+        scores.optimistic * nw.optimistic +
+        scores.neutral * nw.neutral +
+        scores.conservative * nw.conservative
+
+    // 安全边际扣分：现价 > 保守价值时扣分
+    let penalty = 0
+    if (currentPrice > conservative) {
+        const overRatio = (currentPrice - conservative) / conservative
+        penalty = Math.min(15, overRatio * 100) // 最多扣 15 分
+    }
+
+    // 最终得分
+    const finalScore = Math.max(0, Math.min(100, composite - penalty))
+
+    // 评级
+    const rating = finalScore >= 80 ? '强烈买入'
+        : finalScore >= 65 ? '买入'
+            : finalScore >= 50 ? '持有'
+                : finalScore >= 35 ? '观望'
+                    : '回避'
+
+    return {
+        scores,          // 各情景原始分
+        composite,       // 加权综合分（扣分前）
+        penalty,         // 安全边际扣分
+        finalScore,      // 最终得分 0-100
+        rating,          // 评级文字
+        weights: nw,     // 实际使用的归一化权重
+    }
+}

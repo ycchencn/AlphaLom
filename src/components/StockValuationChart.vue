@@ -118,6 +118,9 @@
 
 <script setup>
 import {computed} from 'vue'
+import {
+    parseNumber
+} from '@/utils/function.js';
 
 const props = defineProps({
     /**
@@ -224,30 +227,7 @@ const props = defineProps({
     optimisticAreaColor: {type: String, default: 'rgba(239, 68, 68, 0.15)'}
 })
 
-/** 把可能是数字 / 带单位脏字符串的值，安全转成数字 */
-function parseNumber(input, fallback = 0) {
-    if (typeof input === 'number') return Number.isFinite(input) ? input : fallback
-    if (typeof input !== 'string') return fallback
 
-    // 全角数字转半角，去掉千分位逗号和所有空白
-    const raw = input
-        .replace(/[\uFF10-\uFF19]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
-        .replace(/[,\s\u00A0]/g, '')
-    if (!raw) return fallback
-
-    // 抠出第一个数字（含负号、小数、科学计数法）
-    const matched = raw.match(/-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/)
-    if (!matched) return fallback          // "—"、"暂无"、"" 都会走到这里
-
-    let n = Number(matched[0])
-    // 中文数量单位（长的先匹配，避免 "千万" 被拆成 "千"）
-    const unit = raw.match(/(千万|百万|十万|亿|万|千)/)
-    if (unit) {
-        const map = {千: 1e3, 万: 1e4, 十万: 1e5, 百万: 1e6, 千万: 1e7, 亿: 1e8}
-        n *= map[unit[1]]
-    }
-    return Number.isFinite(n) ? n : fallback
-}
 
 // 数据提取&容错
 const currentPrice = computed(() => parseNumber(props.currentPrice))
