@@ -558,12 +558,12 @@ export function parseNumber(input, fallback = 0) {
  * @param {number} optimistic - 乐观 DCF 价值
  * @param {number} neutral - 中性 DCF 价值
  * @param {number} conservative - 保守 DCF 价值
- * @param {object} weights - 权重配置（可选，默认 25/50/25）
+ * @param {object} weights - 权重配置（可选，默认 50/35/15）
  * @returns {object} 包含各维度分数和最终评级
  */
 export function calcDcfScore(currentPrice, optimistic, neutral, conservative, weights = {}) {
     // 默认权重
-    const w = {optimistic: 0.4, neutral: 0.5, conservative: 0.10, ...weights}
+    const w = {optimistic: 0.5, neutral: 0.35, conservative: 0.15, ...weights}
 
     // 归一化权重
     const totalW = w.optimistic + w.neutral + w.conservative
