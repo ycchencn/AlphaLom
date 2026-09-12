@@ -17,7 +17,6 @@ from routes.watchlist import watchlist_bp
 from routes.etf import etf_bp
 from routes.quant import quant_bp
 from routes.index import index_bp
-from service.log_service import LogService
 
 # 指定时区为北京时间
 beijing_tz = pytz.timezone('Asia/Shanghai')
@@ -37,15 +36,6 @@ def auth_login_action():
     data = request.get_json()
     """ {'username': 'admin', 'password': '123456'} """
     if data['username'] == 'guest' and data['password'] == '2PQSyHU8':
-        LogService.user_log(
-            user_id=1,
-            username='',
-            module='auth',
-            action='login',
-            ip_address=get_real_ip(),
-            content='用户登录成功',
-            user_agent=request.headers.get('User-Agent', '')
-        )
         return jsonify({
             'status': 1,
             'message': 'Login successful!',

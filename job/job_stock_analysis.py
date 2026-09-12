@@ -43,7 +43,7 @@ def job_stock_analysis(stock_code, send_notification=False):
 if __name__ == '__main__':
 
     stock_codes = [
-        '300972'
+        '600362'
     ]
 
     for stock_code in stock_codes:
