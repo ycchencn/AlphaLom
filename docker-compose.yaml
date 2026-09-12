@@ -75,3 +75,13 @@ services:
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
+
+    log_comsumer:
+        image: finfilo-service:latest
+        working_dir: /app
+        command: python3 /app/log_comsumer.py
+        environment:
+            ENV: production
+            DATABASE_CONN_STR: ${DATABASE_CONN_STR}
+            REDIS_HOST: ${REDIS_HOST}
+        restart: always

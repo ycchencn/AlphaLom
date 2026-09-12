@@ -7,26 +7,7 @@
 import json
 import logging
 from datetime import datetime
-
-logger = logging.getLogger("sqlalchemy.engine.Engine")
-logger.setLevel(logging.CRITICAL)
-logger.disabled = True
-
-logger = logging.getLogger('qtrading')
-logger.setLevel(logging.INFO)
-
-# 创建一个控制台处理器（handler）
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)  # 控制台处理器的日志级别也设置为 DEBUG
-
-# 创建一个格式器（formatter），定义日志的输出格式
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-
-# 将格式器添加到处理器
-console_handler.setFormatter(formatter)
-
-# 将处理器添加到 logger
-logger.addHandler(console_handler)
+from utils.redis_obj import redis_obj
 
 
 class RedisHandler(logging.Handler):
@@ -57,5 +38,17 @@ class RedisHandler(logging.Handler):
             pipe.ltrim(self.key, 0, self.max_len - 1)  # 只保留最近 max_len 条
             pipe.execute()
 
+            print(log_entry)
+
         except Exception:
             self.handleError(record)
+
+
+logger = logging.getLogger('qtrading')
+logger.setLevel(logging.INFO)
+
+# 创建一个格式器（formatter），定义日志的输出格式
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+
+# 将处理器添加到 logger
+logger.addHandler(RedisHandler(redis_obj))

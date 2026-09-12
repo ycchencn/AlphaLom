@@ -10,7 +10,6 @@ from job.job_update_stock_greedy_data import job_update_stock_greedy_data
 from job.job_check_signal import job_check_signal
 from job.job_update_factors import job_update_stock_factor
 from utils.data_loader import databull
-from utils.logger import logger
 
 
 def job_stock_analysis(stock_code, send_notification=False):
@@ -40,13 +39,11 @@ def job_stock_analysis(stock_code, send_notification=False):
     # 技术分析
     job_check_signal(stock_code)
 
-    logger.info('')
-
 
 if __name__ == '__main__':
 
     stock_codes = [
-
+        '300972'
     ]
 
     for stock_code in stock_codes:
