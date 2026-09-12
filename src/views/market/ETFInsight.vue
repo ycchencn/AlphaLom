@@ -119,7 +119,7 @@ function initFilters1() {
 
 <template>
     <Toast/>
-    <Dialog v-model:visible="modal_visible" modal header="添加个股监控" :style="{ width: '25rem' }">
+    <Dialog v-model:visible="modal_visible" modal header="添加ETF监控" :style="{ width: '25rem' }">
         <div class="flex flex-col gap-4">
             <!-- 股票代码 -->
             <div>
@@ -194,6 +194,14 @@ function initFilters1() {
                     </div>
                     <!-- 右侧：按钮 + 搜索框 -->
                     <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end md:justify-start">
+                        <Button
+                            type="button"
+                            icon="pi pi-plus"
+                            size="small"
+                            label="添加ETF"
+                            @click="modal_visible = true"
+                            class="whitespace-nowrap"
+                        />
                         <IconField>
                             <InputIcon>
                                 <i class="pi pi-search"/>
@@ -236,11 +244,6 @@ function initFilters1() {
             <Column field="amount" filterField="amount" header="成交">
                 <template #body="{ data }">
                     {{ formatStockTradeAmount(data.ohlc_last.amount) }}
-                </template>
-            </Column>
-            <Column field="amount" filterField="amount" header="成分股数量">
-                <template #body="{ data }">
-                    {{ data['composition'].length }}
                 </template>
             </Column>
             <Column header="52周价格范围">

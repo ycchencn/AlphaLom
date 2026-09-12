@@ -38,11 +38,11 @@ class RedisHandler(logging.Handler):
             pipe.ltrim(self.key, 0, self.max_len - 1)  # 只保留最近 max_len 条
             pipe.execute()
 
-            print(log_entry)
-
         except Exception:
             self.handleError(record)
 
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 logger = logging.getLogger('qtrading')
 logger.setLevel(logging.INFO)

@@ -4,9 +4,10 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-import logging
 from typing import Optional, Union, Dict, Any
 from urllib.parse import urljoin
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 import pandas as pd
 import requests
@@ -16,22 +17,36 @@ class DataBull:
     金融数据 API 客户端封装。支持 FinFilo 标准接口调用，内置连接池、统一异常处理与 DataFrame 自动转换。
     注意：需安装依赖：pip install pandas requests
     """
-    _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(message)s"
-
     def __init__(self, api_key: str, base_url: Optional[str] = None) -> None:
         self.base_url = (base_url or "https://api.finfilo.com").rstrip("/")
-
-        # 使用 Session 实现连接池复用，提升并发性能
-        self.session = requests.Session()
+        self.session = self._build_session()
         self.session.headers.update({
             "Authorization": f"Bearer {api_key}",
             "Accept": "application/json",
             "Content-Type": "application/json"
         })
 
-        # 配置标准日志系统（替代 print）
-        logging.basicConfig(level=logging.INFO, format=self._LOG_FORMAT)
-        self.logger = logging.getLogger(__name__)
+    def _build_session(self):
+        session = requests.Session()
+
+        # 放大连接池（按实际并发需求调整）
+        adapter = HTTPAdapter(
+            pool_connections=30,
+            pool_maxsize=30
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
+
+        # 配置重试策略（防金融接口限流/瞬时丢包）
+        retry = Retry(
+            total=3,
+            backoff_factor=1,  # 指数退避：1s -> 2s -> 4s
+            status_forcelist=[429, 500, 502, 503, 504],
+            raise_on_status=False
+        )
+        session.mount("https://", HTTPAdapter(max_retries=retry))
+
+        return session
 
     def _request(self, endpoint: str, params: Optional[Dict] = None) -> Any:
         """内部统一 HTTP GET 请求方法"""
@@ -41,15 +56,15 @@ class DataBull:
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.Timeout:
-            self.logger.warning("请求超时")
+            print("请求超时")
         except requests.exceptions.HTTPError as e:
-            self.logger.error(f"HTTP {resp.status_code}: {resp.text}")
+            print(f"HTTP {resp.status_code}: {resp.text}")
         except requests.exceptions.ConnectionError:
-            self.logger.error("网络连接失败")
+            print("网络连接失败")
         except ValueError as e:
-            self.logger.error("JSON 解析异常: ", exc_info=e)
+            print("JSON 解析异常: ", exc_info=e)
         except Exception as e:
-            self.logger.exception(f"未知请求异常: {e}")
+            print(f"未知请求异常: {e}")
         return None
 
     @staticmethod

@@ -120,11 +120,5 @@ def job_update_stock_factor(stock_code, trade_date=None, save_last=False, time_p
 
 
 if __name__ == '__main__':
-    # job_update_financial_factors_by_index_constituents(index_code='000016')
-    # df = get_financial_df(stock='600111')
-
-    # job_update_stock_factor(stock_code='300750', save_last=False, time_period=-365)
-
-    # job_update_stock_factor_daily_all()
 
     job_update_financial_score_all()
