@@ -213,7 +213,11 @@ def job_position_plan_daily_all(trade_day_override=False):
         if prof.get('position_plan') is not None and len(prof.get('position_plan')) > 0:
             logger.info(f"调仓计划已存在，跳过。#{prof.get('portfolio_id')}")
             continue
-        job_position_plan_daily(portfolio_id=prof.get('portfolio_id'))
+        try:
+            job_position_plan_daily(portfolio_id=prof.get('portfolio_id'))
+        except Exception as e:
+            logger.warn(f"调仓计划运行失败：{e}")
+            continue
 
 
 if __name__ == '__main__':
