@@ -54,16 +54,6 @@ def search_news():
         if end_time_str:
             end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
 
-        # 调用服务层搜索
-        # es_res = search_digest_keyword(keyword, top_k=page_size, sort_field="news_time.keyword", sort_order="desc")
-        # result = {
-        #     "items": es_res['hits'],
-        #     "total": es_res['total'],
-        #     "page": page,
-        #     "page_size": page_size,
-        #     "has_more": False
-        # }
-
         result = MarketNewsService.search(
             keyword=keyword,
             stock_code=stock_code,

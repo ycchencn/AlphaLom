@@ -21,99 +21,6 @@ const index_last_tick = ref([])
 const sectors = ref([])
 
 // ========================
-// 两市成交额图（柱状图/面积图）
-// ========================
-const turnoverData = ref({
-    labels: ['12/02', '12/03', '12/04', '12/05', '12/06', '12/09', '12/10'],
-    datasets: [
-        {
-            label: '成交额（亿元）',
-            data: [18542, 19021, 17896, 21034, 19875, 20321, 21560],
-            backgroundColor: 'rgba(59,130,246,0.6)',
-            borderColor: '#3b82f6',
-            borderWidth: 1,
-            borderRadius: 4
-        }
-    ]
-})
-
-const turnoverOptions = ref({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-        legend: {display: false},
-        tooltip: {mode: 'index'}
-    },
-    scales: {
-        x: {grid: {display: false}},
-        y: {beginAtZero: false, grid: {color: '#e5e7eb'}}
-    }
-})
-
-// ========================
-// 沪深涨跌分布（柱状图） - 修改为专业柱状图
-// ========================
-const distributionData = ref({
-    labels: ['<-5%', '-5%~-3%', '-3%~-1%', '-1%~0%', '0%~1%', '1%~3%', '3%~5%', '>5%'],
-    datasets: [
-        {
-            label: '家数',
-            data: [80, 200, 500, 1000, 1200, 600, 300, 120],
-            // 下跌区间（前4个）用绿色系，上涨区间（后4个）用红色系
-            backgroundColor: [
-                '#14532d', // <-5%
-                '#166534', // -5%~-3%
-                '#22c55e', // -3%~-1%
-                '#4ade80', // -1%~0%
-                '#fca5a5', // 0%~1%
-                '#ef4444', // 1%~3%
-                '#dc2626', // 3%~5%
-                '#b91c1c'  // >5%
-            ],
-            borderRadius: 4,
-            borderSkipped: false
-        }
-    ]
-})
-
-const distributionOptions = ref({
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-        legend: {
-            display: false // 单条数据，不显示图例更简洁
-        },
-        tooltip: {
-            callbacks: {
-                label: (context: any) => {
-                    const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0)
-                    const value = context.parsed.y
-                    const percent = ((value / total) * 100).toFixed(1)
-                    return `${context.label}: ${value} 家 (${percent}%)`
-                }
-            }
-        }
-    },
-    scales: {
-        x: {
-            grid: {display: false},
-            ticks: {
-                font: {size: 11},
-                maxRotation: 45
-            }
-        },
-        y: {
-            beginAtZero: true,
-            grid: {color: '#e5e7eb'},
-            title: {
-                display: true,
-                text: '家数'
-            }
-        }
-    }
-})
-
-// ========================
 // 辅助函数
 // ========================
 const getChangeColor = (val: number) => val >= 0 ? '#ef4444' : '#10b981'
@@ -121,8 +28,9 @@ const formatSign = (val: number) => val > 0 ? `+${val.toFixed(2)}` : val.toFixed
 
 // ================= 生命周期 =================
 onMounted(async () => {
+    // todo 支持切换
     const res = await axios.get('/api/v1/market/sectors', {
-        params: {sector_type: 'sw2'}
+        params: {sector_type: 'sw1'}
     });
     sectors.value = res.data;
     // 获取指数行情
@@ -250,20 +158,6 @@ const getPctColorClass = (value: number) => {
                 </DataTable>
             </template>
         </Card>
-
-        <!-- 图表行2：板块涨跌幅 + 两市成交额 -->
-        <!--        <div class="grid-row">-->
-
-        <!--            <Card class="chart-card">-->
-        <!--                <template #title> 两市成交额</template>-->
-        <!--                <template #content>-->
-        <!--                    <div class="chart-wrapper">-->
-        <!--                        <Chart type="bar" :data="turnoverData" :options="turnoverOptions"/>-->
-        <!--                    </div>-->
-        <!--                </template>-->
-        <!--            </Card>-->
-
-        <!--        </div>-->
 
     </div>
 </template>

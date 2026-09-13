@@ -45,7 +45,6 @@ class Stock(Base):
     securities_type = Column(String(10), default='stock')
     monitoring = Column(Integer, default=0)
     monitor_by = Column(String(50))
-    company_desc = Column(Text)
     setting = Column(JSON, default={})
     ohlc_last = Column(JSON, default={})
 
