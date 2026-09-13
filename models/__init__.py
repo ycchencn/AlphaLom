@@ -45,7 +45,6 @@ class Stock(Base):
     securities_type = Column(String(10), default='stock')
     monitoring = Column(Integer, default=0)
     monitor_by = Column(String(50))
-    llm_analysis_interval = Column(Integer, default=1)
     company_desc = Column(Text)
     setting = Column(JSON, default={})
     ohlc_last = Column(JSON, default={})
@@ -73,7 +72,6 @@ class Stock(Base):
             'securities_type': self.securities_type,
             'monitoring': self.monitoring,
             'monitor_by': self.monitor_by,
-            'llm_analysis_interval': self.llm_analysis_interval,
             'setting': self.setting,
             'ohlc_last': self.ohlc_last
         }

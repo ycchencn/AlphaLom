@@ -92,7 +92,6 @@ async function addStockMonitor(stockCode) {
     try {
         await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
             monitoring: 1,
-            llm_analysis_interval: modal_analysis_interval.value,
             monitor_by: 'guest'
         });
         showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
