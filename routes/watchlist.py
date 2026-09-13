@@ -34,8 +34,10 @@ def get_main_force_behavior_phase(code):
             "fear_greed": 0
         }
     # 获取 main_force_behavior_phase
-    main_force_behavior_phase = FactorValueService.get_latest_factor_value(ticker=code,
-                                                                           factor_name='main_force_behavior_phase')
+    main_force_behavior_phase = FactorValueService.get_latest_factor_value(
+        ticker=code,
+        factor_name='main_force_behavior_phase'
+    )
     return greed_data, main_force_behavior_phase
 
 
