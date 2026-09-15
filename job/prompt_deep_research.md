@@ -36,27 +36,31 @@
 - 字体使用 "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif
 - 风格：浅色背景、深色文字的研报风；首屏放 TL;DR 结论卡 + 关键 KPI（价/市值/PE/股息率等）。
 - A 股语境：红涨绿跌。
-- 图表用 ECharts（CDN 引入），至少包含：营收&净利趋势（双轴）、业务结构占比（饼）、
-  同业对比（双轴）、分红趋势；趋势类数据做成"图/表可切换"。
+- 图表用 ECharts 渲染，但**不要自己写 `<script>` 图表代码**（图表初始化脚本由系统自动注入）。
+  每个图表用一个 `<div class="chart-container" id="...">` 承载，并在该 div 上用 `data-chart` 属性写入该图的 ECharts option（JSON 字符串，属性用单引号包裹、JSON 内用双引号）。
+  示例（业务结构饼图）：
+  <div class="chart-container" id="chart-business-mix" data-chart='{"title":{"text":"2026H1 业务结构（按油气销售收入）","left":"center","textStyle":{"fontSize":14,"color":"#0a4b78"}},"tooltip":{"trigger":"item","formatter":"{b}: {c}% ({d}%)"},"series":[{"type":"pie","radius":["40%","65%"],"center":["50%","55%"],"data":[{"value":62,"name":"国内海域原油","itemStyle":{"color":"#1e7a4f"}},{"value":22,"name":"国内海域天然气","itemStyle":{"color":"#0a4b78"}},{"value":13,"name":"海外油气","itemStyle":{"color":"#c0392b"}},{"value":3,"name":"贸易及其他","itemStyle":{"color":"#d0c8b8"}}],"label":{"formatter":"{b}: {c}%","fontSize":12},"itemStyle":{"borderColor":"#faf8f2","borderWidth":2}}]}'></div>
+  - 饼图/柱图/线图/双轴图：把完整 ECharts option（title/tooltip/legend/grid/xAxis/yAxis/series）写进 data-chart；营收&净利、同业对比用双轴（两个 yAxis + series 里 yAxisIndex 区分）。
+  - PE TTM 走势图：`data-chart='{"kind":"peband","title":"PE TTM 历史走势（YYYY-MM至YYYY-MM，周频）"}'`，系统自动生成确定性示意曲线；如有真实 PE TTM 周频数据，可改为普通 line option。
+  - 某图表确无数据：`data-chart='{"empty":true,"msg":"该标的近五年分红数据未披露"}'`，并在 div 内写一句说明，不要留空白 div。
 - 图表分工：数值轴数据用 ECharts；股权/产业链关系用 SVG 或 CSS 盒子；多维对照用表格。
 - 每个图/表附近标注数据来源与时点。
-- 重要：内联 <script> 写完必须做一次 JS 语法自检（括号/引号配平，重点查箭头函数与多层 series），
-  确保图表能渲染。
+- 严禁在输出中出现 `<script>` 标签；图表数据只通过 `data-chart` 属性提供。
 - 文末固定免责声明：
   "以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。
    任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。
    过往表现不预示未来收益。"
 
-【HTML 模板（必遵，严格复用）】
+【HTML 模板（必遵，严格复用结构与样式）】
 下方 `$deep_research_template` 是一份已成型、风格统一、可直接在浏览器渲染的研报 HTML（浅米底深字、A股红涨绿跌、卡片化排版、含 ECharts 图表与图/表切换）。
 
 请把它作为**唯一模板**，严格按以下规则输出，仅替换数据：
 1. 完整保留 `<style>` 内的全部 CSS、配色变量、字体、卡片/表格/图表/标签样式，不得自行改变版式或配色；
 2. 完整保留六大章节结构（1 公司与业务结构 / 2 行业格局与公司地位 / 3 核心投资逻辑 / 4 市场共识与预期差 / 5 估值框架与位置 / 6 风险提示）、TL;DR 首屏结论卡、财务趋势与分红、免责声明；
-3. 完整保留各图表容器 id 与图表类型（业务结构饼图、同业对比双轴、营收&净利趋势双轴、分红趋势、PE TTM 走势）以及图/表切换逻辑；
-4. 将模板中属于"中国海洋石油（600938）"的**全部**文字、数字、KPI、图表 data 数组、来源注释，**全部替换为当前标的（$stock_name / $stock_code）的真实数据**；**严禁照搬示例中的任何数字**；
-5. 模板里"PE TTM 历史走势"用了模拟/随机数据占位，请改用真实 PE TTM 周频数据（无数据则显式声明"数据缺口"，不得编造或随机生成）；
+3. **只输出正文内容，从『核心结论(TL;DR)』开始到文末免责声明为止**；**不要输出** `<div class="container">`、`<header>`、`<h1>` 标题与副标题（标题块由系统在生成时统一注入，你无需写标题，也不要写 `<header>`/`<h1>`）；不要输出 `<html>` / `<head>` / `<style>` / `<script>` 标签；图表初始化脚本由系统自动注入；
+4. 保留各图表容器 id（chart-business-mix / chart-peers / chart-pe-band / chart-trend-main / chart-dividend）与图/表切换结构，并按上方【HTML 输出规范】给每个图表 `<div>` 写入对应的 `data-chart` 属性（用当前标的数据替换示例数字）；
+5. 将模板中属于"中国海洋石油（600938）"的**全部**文字、数字、KPI、来源注释，**全部替换为当前标的（$stock_name / $stock_code）的真实数据**；**严禁照搬示例中的任何数字**；正文中凡涉及公司名称之处一律使用 `$stock_name`，不得出现"中国海洋石油（600938）"等模板示例文字；
 6. 每个图表与关键数字附近保留来源 + 时点标注；文末免责声明原样保留。
 
 【交付】
-先给 200–300 字摘要（结论 + 最关键数字），再严格基于上方模板交付一份自包含 HTML（内联 CSS/JS），不要输出额外说明文字。
+先给 200–300 字摘要（结论 + 最关键数字），再严格基于上方模板交付一份 `<body>` 内部内容（含 data-chart 的研报正文，不要包含 `<html>`/`<head>`/`<script>`），不要输出额外说明文字。

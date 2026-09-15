@@ -55,6 +55,7 @@ class LLMBaseVolcEngine(LLMBase):
                 {'role': 'user', 'content': question}
             ],
             response_format={"type": self.response_format},
+            max_tokens=self.max_tokens,
             extra_body={
                 "thinking": {
                     "type": "disabled"  # 不使用深度思考能力

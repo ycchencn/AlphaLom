@@ -28,3 +28,13 @@ service/df_cache
 job/private/*
 /backtest/strategy_report.html
 job/*.xlsx
+
+# ---- Project internal / large artifacts ----
+.workbuddy/
+scraped/
+df_cache/
+
+# ---- Python / generated artifacts ----
+__pycache__/
+*.pyc
+job/*_deep_research.html

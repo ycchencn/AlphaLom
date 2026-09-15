@@ -110,10 +110,11 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
     holdings_text = format_holdings_text(holding_assets)
     stock_pool_text = format_stock_pool_text(stock_pool)
 
-    logger.info(f"#{portfolio_id}, 传入大模型进行调仓分析，大模型版本：{staff.model}")
+    logger.info(f"#{portfolio_id}, 进行调仓分析。大模型：{staff.model}")
 
     # 1. 获取历史上下文
     history = DialogueManager.get_context(chat_id)
+    history = []
 
     if len(history) == 0:
         # 用户预设 prompt
@@ -205,7 +206,7 @@ def job_position_plan_daily_all(trade_day_override=False):
 
     portfolios = InvestmentPortfolioService.get_all()
 
-    for prof in portfolios[:1]:
+    for prof in portfolios:
         # 跳过没有设置大模型的策略
         if prof.get('llm_setting') is None:
             continue
