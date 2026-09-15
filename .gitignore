@@ -38,3 +38,4 @@ df_cache/
 __pycache__/
 *.pyc
 job/*_deep_research.html
+job/*_deep_research_raw.html

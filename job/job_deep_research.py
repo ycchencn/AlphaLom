@@ -24,14 +24,18 @@ prompt_template = Path(CURRENT_DIR / './prompt_deep_research.md').read_text(enco
 # 复用已沉淀的研报 HTML 模板（样式/结构/图表设计固定，仅替换数据）
 deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').read_text(encoding='utf-8')
 
+# 注入给大模型的“结构骨架”：只给关键 class 与章节顺序，不塞整份 34k 模板，
+# 避免模型被巨型示例带偏、只产出 TL;DR 而不写六大章节。真实样式仍由上方模板在代码侧注入。
+deep_research_skeleton = Path(CURRENT_DIR / './template_deep_research_skeleton.md').read_text(encoding='utf-8')
+
 
 def job_deep_research(_stock_code):
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
     staff.role_base = '你需要根据客户提供的资料对股票进行分析'
     staff.set_response_text()
-    # 深度研究研报：模型只需输出 <body> 正文 + data-chart，无需复刻整段图表脚本，
-    # 因此输出预算无需过大；给到 16K 已绰绰有余
-    staff.set_max_tokens(16384)
+    # 深度研究研报：模型需输出 TL;DR + 六大章节 + 财务趋势 + 免责声明（含 5 个 data-chart），
+    # 给到 24K 输出预算，避免长研报被截断在章节中途。
+    staff.set_max_tokens(24576)
 
     stock_info = databull.get_company(_stock_code)
     stock_name = stock_info.get('company_name')
@@ -70,7 +74,7 @@ def job_deep_research(_stock_code):
         market_data=market_data.to_csv(),
         relative_news=relative_news,
         report_pershare_index=report_pershare_index,
-        deep_research_template=deep_research_template
+        deep_research_skeleton=deep_research_skeleton
     )
 
     logger.info(f"传入大模型进行分析：{stock_name}【{_stock_code}】，大模型版本：{staff.model}")
@@ -82,8 +86,11 @@ def job_deep_research(_stock_code):
     with open(f'{_stock_code}_deep_research.html', 'w', encoding='utf-8') as f:
         f.write(report_html)
 
+    with open(f'{_stock_code}_deep_research_raw.html', 'w', encoding='utf-8') as f:
+        f.write(content)
+
     data = {
-        "report_type": 1,
+        "report_type": 3,
         "stock_code": _stock_code,
         "stock_name": stock_name,
         "title": f"{_stock_code}-{stock_name}_deep_research.md",
@@ -185,6 +192,9 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
     # 1) 取模型内容中的 <body> 内部；若没有 <body> 标签则把整体当作正文
     m = re.search(r'<body[^>]*>(.*?)</body>', model_content, re.S)
     body = m.group(1) if m else re.sub(r'</?(?:html|head|body)[^>]*>', '', model_content, flags=re.S)
+    # 兜底：若模型在最外层夹带了说明性文字（如“以下是研报：”），丢弃正文之前的
+    # 非标签内容，避免裸文本出现在标题块与 TL;DR 之间。
+    body = re.sub(r'^\s*[^<]+', '', body)
     # 2) 去掉模型可能夹带的 <script>（图表脚本由模板统一注入）
     body = re.sub(r'<script.*?</script>', '', body, flags=re.S).strip()
     # 3) 去掉模型可能自带的标题外壳（防止与代码生成标题重复 / 照搬模板）
@@ -203,8 +213,8 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
 
 if __name__ == '__main__':
 
-    # codes = ['603195', '600938', '000001']
-    codes = ['603195']
+    codes = ['603195', '600938', '000001']
+    # codes = ['000001']
 
     for code in codes:
         job_deep_research(_stock_code=code)

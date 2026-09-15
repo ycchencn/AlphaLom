@@ -883,14 +883,13 @@ def extract_html(llm_response: str, prefer_code_block: bool = True) -> str:
     if body:
         return body.group(0)
 
-    # 最后用 BeautifulSoup 兜底，提取看起来像 HTML 的部分
-    soup = BeautifulSoup(llm_response, "html.parser")
-    # 找第一个 HTML 标签作为起点
-    for tag in soup.find_all(True):
-        if tag.name in ('html', 'body', 'div', 'main', 'section'):
-            return str(tag)
-
-    # 如果什么都没找到，返回去空白后的原文
+    # 兜底：模型直接返回了“裸 HTML 片段”（多个并列 <div>，无 <html>/<body> 包裹，
+    # 例如深度研报的 TL;DR + 多章节正文）。此时必须原样返回整段内容，
+    # 由上层 _assemble_report 负责剥离外壳/脚本/标题。
+    #
+    # 注意：切勿只截取第一个标签！多章节研报由多个并列 <div> 组成，
+    # 若只取第一个 <div>（TL;DR 卡片）会丢失后续所有章节（历史上 603195
+    # 研报只生成 TL;DR 的根因）。
     return llm_response.strip()
 
 
