@@ -65,7 +65,7 @@ def job_deep_research(_stock_code):
     staff.role_base = '你需要根据客户提供的资料对股票进行分析'
     staff.set_response_text()
     # 深度研究研报较长，显式提高输出 token 上限，避免被截断
-    staff.set_max_tokens(8192)
+    staff.set_max_tokens(8192 * 5)
 
     stock_info = databull.get_company(_stock_code)
     stock_name = stock_info.get('company_name')
@@ -109,10 +109,9 @@ def job_deep_research(_stock_code):
     logger.info(f"传入大模型进行分析：{stock_name}【{_stock_code}】，大模型版本：{staff.model}")
 
     content = staff.ask(question=prompt)
-    html = extract_html(content)
 
-    with open('rs.md', 'w', encoding='utf-8') as f:
-        f.write(content)
+    with open('rs.html', 'w', encoding='utf-8') as f:
+        f.write( extract_html(content))
 
     return True
 

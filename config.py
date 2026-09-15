@@ -81,7 +81,7 @@ cache_setting = {
 llm_model_setting = {
     'stock_dcf_analysis': {
         'platform': 'volcengine',
-        'model': 'deepseek-v4-flash-ga-260731'
+        'model': 'deepseek-v4-pro-ga-260813'
     },
     'stock_dcf_analysis_extra': {
         'platform': 'volcengine',
