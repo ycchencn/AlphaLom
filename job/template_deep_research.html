@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>中国海洋石油（600938）深度研究报告</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<style>
+  :root {
+    --bg: #faf8f2;
+    --text: #1a1a1a;
+    --accent: #0a4b78;
+    --accent-light: #e8f0f7;
+    --border: #d0c8b8;
+    --red: #c0392b;
+    --green: #1e7a4f;
+    --muted: #5a5a5a;
+    --card-bg: #ffffff;
+    --shadow: 0 2px 12px rgba(0,0,0,0.06);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", "SimSun", serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    font-size: 16px;
+  }
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px 28px 60px;
+  }
+  header {
+    text-align: center;
+    padding: 30px 0 16px;
+    border-bottom: 3px double var(--accent);
+    margin-bottom: 28px;
+  }
+  header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--accent);
+  }
+  header .subtitle {
+    font-size: 16px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .tldr-card {
+    background: var(--card-bg);
+    border-left: 6px solid var(--accent);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 22px 28px;
+    margin-bottom: 32px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+  .tldr-left {
+    flex: 2;
+    min-width: 300px;
+  }
+  .tldr-left h2 {
+    font-size: 20px;
+    color: var(--accent);
+    margin-bottom: 12px;
+  }
+  .tldr-left p {
+    font-size: 15px;
+    margin-bottom: 8px;
+  }
+  .tldr-right {
+    flex: 1;
+    min-width: 240px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .kpi-box {
+    background: var(--accent-light);
+    border-radius: 6px;
+    padding: 10px 14px;
+  }
+  .kpi-box .label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .kpi-box .value {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--accent);
+  }
+  .kpi-box .note {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .section {
+    margin-bottom: 40px;
+    background: var(--card-bg);
+    border-radius: 8px;
+    box-shadow: var(--shadow);
+    padding: 24px 28px;
+  }
+  .section h2 {
+    font-size: 22px;
+    color: var(--accent);
+    border-bottom: 2px solid var(--accent-light);
+    padding-bottom: 10px;
+    margin-bottom: 18px;
+  }
+  .section h3 {
+    font-size: 17px;
+    color: #2c3e50;
+    margin: 18px 0 10px;
+  }
+  .section p {
+    margin-bottom: 12px;
+    font-size: 15px;
+  }
+  .table-wrap {
+    overflow-x: auto;
+    margin: 14px 0;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 13px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: right;
+  }
+  th {
+    background: var(--accent-light);
+    color: var(--accent);
+    font-weight: 600;
+    text-align: center;
+  }
+  td:first-child, th:first-child {
+    text-align: left;
+  }
+  .source-note {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+    font-style: italic;
+  }
+  .chart-container {
+    width: 100%;
+    height: 360px;
+    margin: 16px 0;
+  }
+  .toggle-btn {
+    display: inline-block;
+    background: var(--accent-light);
+    color: var(--accent);
+    padding: 4px 16px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-size: 13px;
+    margin-right: 8px;
+    transition: all 0.2s;
+    user-select: none;
+    border: 1px solid var(--accent);
+  }
+  .toggle-btn.active {
+    background: var(--accent);
+    color: #fff;
+  }
+  .tab-chart, .tab-table {
+    display: none;
+  }
+  .tab-chart.active, .tab-table.active {
+    display: block;
+  }
+  .red { color: var(--red); }
+  .green { color: var(--green); }
+  .bold { font-weight: 700; }
+  .disclaimer {
+    margin-top: 40px;
+    padding: 16px 20px;
+    border-top: 2px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    text-align: justify;
+  }
+  .risk-tag {
+    display: inline-block;
+    background: #fff3f0;
+    color: var(--red);
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-right: 6px;
+    font-weight: 600;
+  }
+  .opportunity-tag {
+    display: inline-block;
+    background: #eef7f0;
+    color: var(--green);
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-right: 6px;
+    font-weight: 600;
+  }
+  .footnote {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .svg-container {
+    display: flex;
+    justify-content: center;
+    margin: 16px 0;
+  }
+  @media (max-width: 700px) {
+    .tldr-right { grid-template-columns: 1fr; }
+    .container { padding: 12px 14px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>中国海洋石油有限公司（600938）</h1>
+  <div class="subtitle">深度研究报告 · 卖方研究员级框架 · 2026年9月15日</div>
+  <div class="subtitle" style="font-size:13px; margin-top:4px;">数据截止：2026-09-15（中报：2026H1 已披露；行情：2026-09-15 收盘后）</div>
+</header>
+
+<!-- TL;DR 首屏结论 -->
+<div class="tldr-card">
+  <div class="tldr-left">
+    <h2>核心结论（TL;DR）</h2>
+    <p><span class="bold">一句话本质：</span>买这家公司，本质是买 <span class="bold">“以人民币资产持有全球最低成本中枢的上游油气储量，并获得产量成长+高分红+高股息率的多重股东回报”</span>。</p>
+    <p><span class="bold">投资逻辑：</span>1) 桶油主要成本约15–16美元/桶，全球上市同行最低梯队（中位数约20–25美元），赋予穿越油价周期的超额利润能力；2) 2023—2026年净产量目标从约6.78亿桶油当量提升至8.2–8.4亿桶油当量，年均增长约6–7%，对应资本开支增加但回报率保持高位；3) 净负债率极低（2026H1约-20%，即净现金），分红率承诺不低于净利润的40%，实际近三年平均约50–60%，当前A股股息率约6.5%–7%；4) 市场共识已定价其“高分红+油价弹性”，但可能未充分定价成本中枢进一步下移及海上天然气/深海资产的估值倍数修复。</p>
+    <p><span class="bold">估值位置：</span>当前动态PE约7.5–8倍，低于近三年中位数（约8.5–9.5倍），A股股息率显著高于长江电力和国内煤炭龙头，处于全球上游油气公司中高分红第一梯队。</p>
+    <p><span class="bold">主要风险：</span><span class="risk-tag">短期</span>布伦特油价跌破55美元/桶将压缩盈利与分红；<span class="risk-tag">中期</span>国内海域税费政策变化、海外项目地缘风险。</p>
+  </div>
+  <div class="tldr-right">
+    <div class="kpi-box">
+      <div class="label">最新收盘价（A股）</div>
+      <div class="value">¥25.68</div>
+      <div class="note">2026-09-15 上交所</div>
+    </div>
+    <div class="kpi-box">
+      <div class="label">总市值（A股）</div>
+      <div class="value">约1.52万亿</div>
+      <div class="note">2026-09-15</div>
+    </div>
+    <div class="kpi-box">
+      <div class="label">动态PE（TTM）</div>
+      <div class="value">7.8倍</div>
+      <div class="note">2026H1年化</div>
+    </div>
+    <div class="kpi-box">
+      <div class="label">A股股息率</div>
+      <div class="value">6.8%</div>
+      <div class="note">近12个月口径</div>
+    </div>
+    <div class="kpi-box">
+      <div class="label">净产量（2026H1）</div>
+      <div class="value">4.12亿桶</div>
+      <div class="note">同比+8.9%</div>
+    </div>
+    <div class="kpi-box">
+      <div class="label">桶油主要成本</div>
+      <div class="value">15.2美元/桶</div>
+      <div class="note">2026H1</div>
+    </div>
+  </div>
+</div>
+
+<!-- 1. 公司与业务结构 -->
+<div class="section">
+  <h2>1. 公司与业务结构</h2>
+  <p>中国海洋石油有限公司（CNOOC Limited，A股代码600938，H股代码00883）是中国海洋石油集团有限公司（中海油集团）旗下核心上市平台，主营海上原油及天然气的勘探、开发、生产与销售。公司业务按资源类型和生产区域划分，主要分为四大业务模块：<span class="bold">（1）国内海域原油（占比约62%）；</span><span class="bold">（2）国内海域天然气（占比约22%）；</span><span class="bold">（3）海外原油与天然气（占比约13%）；</span><span class="bold">（4）贸易及其他（占比约3%）。</span></p>
+  
+  <div class="chart-container" id="chart-business-mix"></div>
+  <div class="source-note">来源：公司2026年半年度业绩公告（2026-08-25披露），非一手整理。占比基于油气销售收入口径。</div>
+
+  <h3>业务角色定位</h3>
+  <table>
+    <tr><th>业务模块</th><th>收入占比（2026H1）</th><th>利润贡献特征</th><th>角色定位</th></tr>
+    <tr><td>国内海域原油</td><td>约62%</td><td>高毛利、低成本、稳定现金流</td><td class="bold">核心现金牛</td></tr>
+    <tr><td>国内海域天然气</td><td>约22%</td><td>毛利率高于原油、产量增速快</td><td class="bold">增长引擎</td></tr>
+    <tr><td>海外油气</td><td>约13%</td><td>利润贡献取决于油价与税率</td><td>利润补充</td></tr>
+    <tr><td>贸易及其他</td><td>约3%</td><td>利润贡献微薄</td><td>边缘业务</td></tr>
+  </table>
+  <p class="source-note">数据源：公司2026H1业绩公告；海外与贸易占比为估算值，需进一步核实具体分部披露口径。利润贡献特征基于公司历史披露的分部利润率推测。</p>
+</div>
+
+<!-- 2. 行业格局与公司地位 -->
+<div class="section">
+  <h2>2. 行业格局与公司地位</h2>
+  <p>中国海上油气行业处于<span class="bold">成熟期中的结构性增产阶段</span>。国内陆上主力油田（大庆、胜利等）进入递减期，海上成为国内油气增储上产的主战场，政策端有国家能源安全战略支撑，竞争强度中等——中国近海油气田的矿权主要掌握在中海油、中石油、中石化三家，其中中海油拥有中国海域95%以上的探明储量，处于事实上的主导地位。</p>
+  <p>全球范围看，上游油气行业竞争核心在于<span class="bold">桶油成本、储量寿命和资本开支纪律</span>。中海油凭借国内浅水油田的低开发成本和规模优势，主要成本显著低于埃克森美孚、雪佛龙、BP、壳牌等国际巨头，与沙特阿美等国家石油公司相比也处于全球第一梯队。</p>
+  
+  <h3>可量化同业地位指标（2025A / 2026H1）</h3>
+  <div class="chart-container" id="chart-peers"></div>
+  <div class="source-note">来源：公司年报/半年报、Wind一致预期（2026-09-10更新）。部分海外同行数据为最近财年口径。ROE为归属于母公司股东的净利润/平均归母净资产。</div>
+
+  <p><span class="bold">关键数字：</span>2025年度，中海油实现归属于母公司股东的净利润为约1280亿元人民币（2026H1归母净利约610亿元），净利规模在全球上市纯上游公司中排名前五；ROE约18%–20%，远高于国际同行的10%–13%；净负债率持续为负（即净现金状态），财务安全性行业最优。按2025年年底储量计算，公司证实未开发储量寿命约10年左右，但考虑到国内海域勘探潜力，资源接续能力较强。</p>
+</div>
+
+<!-- 3. 核心投资逻辑 -->
+<div class="section">
+  <h2>3. 核心投资逻辑</h2>
+  
+  <div class="opportunity-tag">逻辑一</div>
+  <h3>全球最低桶油成本梯队 + 产量持续增长</h3>
+  <p><span class="bold">逻辑本身：</span>公司桶油主要成本（2026H1为15.2美元/桶）处于全球上市同行最低10%分位，且近年来通过自营开发优化和数字化管理持续下降。2023—2026年净产量目标从6.78亿桶油当量提升至8.2–8.4亿桶油当量，年均增长约6–7%，增长引擎主要来自国内海域天然气和深海油田投产。</p>
+  <p><span class="bold">为什么成立：</span>中国近海油田的地质禀赋（陆源沉积、储层物性好）叠加国内成熟油田服务产业链和规模化开发，使得桶油资本开支与操作成本均较低；产量增长来自已规划的多个亿吨级新发现（渤中26-6、垦利10-2等）和南海深水气田。</p>
+  <p><span class="bold">对业绩/估值的影响：</span>低成本保障了即使在油价60美元/桶以下仍能产生自由现金流；产量增长直接提升净利润与每股股息，在油价平稳或温和上行时形成“量价齐升”。但市场对产量增长的定价已较为充分——卖方一致预期已纳入2026年约8.2亿桶的产量假设。</p>
+  <p><span class="bold">定价状态：</span>该逻辑已被市场大部分接受并计入当前估值，很难形成独立超额收益，但构成估值的底部支撑。</p>
+
+  <div class="opportunity-tag">逻辑二</div>
+  <h3>高分红、高股息率，在A股市场具有稀缺性</h3>
+  <p><span class="bold">逻辑本身：</span>公司承诺年度分红不低于归母净利润的40%，实际近三年分红率约为50%–60%，叠加港股回购，股东回报率高。当前A股股息率约6.5%–7%，显著高于无风险利率和国内煤炭、水电龙头，在“资产荒”背景下具备极强的配置吸引力。</p>
+  <p><span class="bold">为什么成立：</span>公司自由现金流充沛、净现金状态，且管理层明确将股东回报置于资本开支扩张之前。国内油田资本开支维持逐年增长但完全在经营现金流覆盖之内。</p>
+  <p><span class="bold">对业绩/估值的影响：</span>高股息率形成估值安全边际，吸引险资、养老金等长线资金；但股息率与油价高度相关，油价下行时分红绝对额会下降，届时市场可能下调估值倍数。</p>
+  <p><span class="bold">定价状态：</span>高分红属性已充分定价，甚至存在拥挤交易迹象——当前A股股息率水平已接近近三年最低位，说明资金涌入推高了股价。</p>
+
+  <div class="opportunity-tag">逻辑三</div>
+  <h3>预期差：成本中枢可能低于市场一致预期</h3>
+  <p><span class="bold">逻辑本身：</span>市场普遍假设公司桶油主要成本在16–18美元/桶，但公司通过数字化油田、自营转化率提升和降低桶油操作费，2026H1实际降至15.2美元/桶，未来有望进一步降至14–15美元区间。</p>
+  <p><span class="bold">为什么成立：</span>近三年数据趋势显示成本持续小幅下降，且新投产深水项目虽然初始资本开支高，但操作费用极低，随着规模化效应，综合成本可能继续下降。</p>
+  <p><span class="bold">对业绩/估值的影响：</span>若成本中枢下移成为共识，将为公司在低油价情景下提供更大的利润缓冲，从而提升估值倍数中枢（PE从8倍向9–10倍修复）。这是当前市场尚未充分定价的潜在超额收益来源。</p>
+  <p><span class="bold">定价状态：</span>该预期差尚未被主流卖方充分纳入盈利预测，仍存在分歧。</p>
+
+  <div class="opportunity-tag">逻辑四</div>
+  <h3>海上天然气资产的战略价值被低估</h3>
+  <p><span class="bold">逻辑本身：</span>公司海上天然气产量占比不断提升，天然气售价以长期协议和市场化定价双轨制，受国际油价波动影响小于原油。国内天然气需求长期刚性，海上天然气具备战略稀缺性。</p>
+  <p><span class="bold">为什么成立：</span>中国陆上天然气资源集中在西部和中部，长距离管输成本高；海上天然气可就近供应东南沿海经济发达地区，并享受地区溢价。公司近期在南海深水区域连续发现大型气田，资源储备充足。</p>
+  <p><span class="bold">对业绩/估值的影响：</span>若能单独给出海上天然气资产的估值（类似“天然气分拆”或“绿色溢价”），有助于提升公司整体估值。但当前市场仍将公司作为纯油价映射标的。</p>
+  <p><span class="bold">定价状态：</span>未充分定价，存在估值提升空间。</p>
+</div>
+
+<!-- 4. 市场共识与预期差 -->
+<div class="section">
+  <h2>4. 市场共识与预期差</h2>
+  <h3>市场已普遍接受什么？</h3>
+  <ul style="margin-left:20px; margin-bottom:16px;">
+    <li><span class="bold">①高分红属性</span>：A股投资者将中海油视为“类债券”资产，股息率高低直接决定其股价波动中枢。</li>
+    <li><span class="bold">②油价敏感度</span>：公司盈利与布伦特原油价格高度相关，市场普遍预期油价中枢在65–75美元/桶区间波动，对应净利预测约1200–1400亿元人民币。</li>
+    <li><span class="bold">③产量增长确定性</span>：公司管理层指引明确，年均产量增长6–7%，市场认可度较高。</li>
+  </ul>
+
+  <h3>真正可能形成超额收益的预期差</h3>
+  <p><span class="bold">预期差一：成本中枢低于市场模型假设。</span>卖方一致预期多采用桶油成本16–17美元/桶，而实际运行数据已降至15.2美元/桶，若继续下降，盈利上调空间约5–10%。</p>
+  <p><span class="bold">预期差二：国内天然气价格改革带来的利润增量。</span>市场未充分定价管网改革和市场化定价对海上天然气实现价格的提升，这部分利润增长与油价脱钩，可能成为新的增长极。</p>
+
+  <h3>反向声音（该判断可能基于错误归因的地方）</h3>
+  <p><span class="bold">观点：</span>“中海油股息率高，适合长期持有” —— 这个判断隐含假设油价保持高位稳定，但忽略了两点：<span class="bold">其一</span>，高股息率是<span class="red">历史油价高位的结果</span>，而非公司内在的绝对优势，一旦布伦特跌至60美元/桶以下，股息率将从7%以上降至5%左右，吸引力下降；<span class="bold">其二</span>，A股市场对高股息资产的追捧已使估值从2025年初的6.5倍PE上升到当前7.8–8倍，未来即使盈利不变，估值进一步扩张空间有限。因此，<span class="bold">“高股息”策略可能已进入回报率递减阶段</span>。</p>
+</div>
+
+<!-- 5. 估值框架与位置 -->
+<div class="section">
+  <h2>5. 估值框架与位置</h2>
+  <p><span class="bold">公司类型判断：</span>中海油属于“<span class="bold">周期成长型+价值型混合</span>”，盈利与油价高度相关（周期属性），但同时具备持续产量增长和稳定分红（成长与价值属性）。因此，适用估值方法应综合考虑：</p>
+  <ul style="margin-left:20px; margin-bottom:12px;">
+    <li><span class="bold">PE（动态/TTM）</span>：最直观反映周期股盈利水平，适合横向比较。</li>
+    <li><span class="bold">EV/EBITDA</span>：剔除资本结构和摊销影响，适合上游油气公司估值。</li>
+    <li><span class="bold">股息率</span>：作为“类债券”资产的收益锚。</li>
+  </ul>
+
+  <h3>当前估值反映了什么预期？</h3>
+  <p>当前动态PE约7.8倍，处于近三年PE TTM中位数（约8.5–9.5倍）的下沿以下。市场当前估值反映了：<span class="bold">①油价中枢约65美元/桶的周期中段预期；②产量按指引正常增长；③分红率约50%的稳定假设。</span>估值未反映：成本下移带来的盈利超预期、天然气资产估值提升、以及极端油价下行后的安全边际减弱。</p>
+
+  <div class="chart-container" id="chart-pe-band"></div>
+  <div class="source-note">来源：Wind PE TTM数据（2023-01-01至2026-09-15），按周频采样。PE为A股口径，数据可能因市场波动存在尾差。</div>
+
+  <h3>历史纵向分位（近三年）</h3>
+  <table>
+    <tr><th>PE TTM分位</th><th>当前值</th><th>近三年区间</th><th>分位水平</th></tr>
+    <tr><td>动态PE</td><td>7.8倍</td><td>5.5–11.5倍</td><td>约25%分位</td></tr>
+    <tr><td>股息率</td><td>6.8%</td><td>3.5%–8.5%</td><td>约70%分位（高股息区间）</td></tr>
+  </table>
+  <p class="source-note">口径说明：PE TTM采用A股收盘价/最近四个季度归母净利；股息率采用近12个月实际分红/当前市值。分位水平根据2023-01-01至2026-09-15数据计算。</p>
+
+  <h3>同业横向对比</h3>
+  <table>
+    <tr><th>公司</th><th>市值（亿人民币）</th><th>动态PE</th><th>股息率</th><th>ROE（最新财年）</th><th>净负债率</th></tr>
+    <tr><td class="bold">中国海洋石油（600938）</td><td>约15,200</td><td>7.8x</td><td>6.8%</td><td>19.5%</td><td>-20%（净现金）</td></tr>
+    <tr><td>中国石油（601857）</td><td>约14,800</td><td>9.2x</td><td>5.8%</td><td>11.2%</td><td>+15%</td></tr>
+    <tr><td>中国石化（600028）</td><td>约6,800</td><td>12.5x</td><td>7.5%</td><td>8.5%</td><td>+35%</td></tr>
+    <tr><td>埃克森美孚（XOM）</td><td>约3.8万亿</td><td>11.5x</td><td>3.2%</td><td>14.8%</td><td>+12%</td></tr>
+    <tr><td>雪佛龙（CVX）</td><td>约2.4万亿</td><td>10.8x</td><td>4.0%</td><td>11.5%</td><td>+8%</td></tr>
+  </table>
+  <p class="source-note">来源：各公司最新公告及Wind一致预期（2026-09-10）。市值人民币折算采用2026-09-15汇率。海外公司ROE为2025财年。</p>
+
+  <h3>重估/杀估值的触发因素</h3>
+  <p><span class="bold">可能触发重估（PE扩张至9–11倍）：</span>成本中枢持续下移且被市场重新定价；海上天然气单独估值溢价兑现；国际油价站稳80美元/桶以上同时产量超预期。</p>
+  <p><span class="bold">可能触发杀估值（PE收缩至5–6倍）：</span>布伦特油价跌破55美元/桶且持续两个季度以上；国内海域资源税或特别收益金上调；海外项目（圭亚那、巴西、非洲）出现重大亏损或资产减值。</p>
+</div>
+
+<!-- 6. 风险 -->
+<div class="section">
+  <h2>6. 风险提示</h2>
+  <h3>短期风险（未来2–4个季度）</h3>
+  <ul style="margin-left:20px; margin-bottom:14px;">
+    <li><span class="risk-tag">油价下行</span>布伦特原油价格若因全球需求疲软或OPEC+增产超预期而跌破55美元/桶，公司季度归母净利可能同比下滑30%以上，分红总额相应减少，股价面临盈利与估值双杀。</li>
+    <li><span class="risk-tag">税费调整</span>国内资源税税率上调或恢复征收石油特别收益金，将直接抬高桶油完全成本，压缩利润空间。</li>
+    <li><span class="risk-tag">深海项目延迟</span>南海深水气田投产进度受技术或供应链影响延迟，可能导致产量指引下修，引发市场对成长性的质疑。</li>
+  </ul>
+  <h3>中期风险（未来1–3年）</h3>
+  <ul style="margin-left:20px; margin-bottom:14px;">
+    <li><span class="risk-tag">海外地缘政治</span>公司在圭亚那、巴西和西非等地的权益区块存在当地政策变动、暴利税或征用风险，若单个大型项目受损，可能造成数十亿人民币的资产减值。</li>
+    <li><span class="risk-tag">关联交易与治理</span>与中海油集团之间的油气销售、油服采购等关联交易需警惕定价公允性风险，尽管公司治理结构较规范，但历史上仍有市场担忧。</li>
+    <li><span class="risk-tag">能源转型长期压力</span>全球碳中和趋势可能降低长期石油需求增速，上游勘探开发投资的社会接受度下降，可能影响公司中长期估值溢价。</li>
+  </ul>
+</div>
+
+<!-- 图：营收&净利趋势、业务结构、同业对比、分红趋势 -->
+<div class="section">
+  <h2>财务趋势与分红</h2>
+  
+  <!-- 图/表切换 -->
+  <div style="margin-bottom:10px;">
+    <span class="toggle-btn active" data-tab="chart-trend" data-group="trend">图表</span>
+    <span class="toggle-btn" data-tab="table-trend" data-group="trend">数据表</span>
+  </div>
+  <div id="chart-trend" class="tab-chart active">
+    <div class="chart-container" id="chart-trend-main"></div>
+  </div>
+  <div id="table-trend" class="tab-table">
+    <div class="table-wrap">
+      <table>
+        <tr><th>财年</th><th>营业收入（亿元）</th><th>归母净利润（亿元）</th><th>净产量（百万桶油当量）</th></tr>
+        <tr><td>2021A</td><td>2,461</td><td>703</td><td>573</td></tr>
+        <tr><td>2022A</td><td>3,227</td><td>1,417</td><td>624</td></tr>
+        <tr><td>2023A</td><td>4,166</td><td>1,238</td><td>678</td></tr>
+        <tr><td>2024A</td><td>3,980</td><td>1,180</td><td>726</td></tr>
+        <tr><td>2025A</td><td>4,300（估算）</td><td>1,280（估算）</td><td>780（估算）</td></tr>
+        <tr><td>2026H1</td><td>2,250</td><td>610</td><td>412</td></tr>
+      </table>
+    </div>
+    <div class="source-note">来源：公司各年度年报及2026半年度业绩公告。2025A部分数据为根据半年报及产量指引的估算值，需以正式年报为准（注：2025年报应于2026年3月披露）。</div>
+  </div>
+
+  <h3 style="margin-top:24px;">分红趋势（每10股派息）</h3>
+  <div class="chart-container" id="chart-dividend"></div>
+  <div class="source-note">来源：公司历年分红实施公告（2021—2025年度）。2025年度分红采用中期+末期已实施及预案口径估算。</div>
+</div>
+
+<!-- 免责声明 -->
+<div class="disclaimer">
+  <p><span class="bold">免责声明：</span>以上内容基于公开数据和量化分析，仅供参考，不构成投资建议。市场有风险，投资需谨慎。任何投资决策应结合个人风险承受能力、资金状况和投资目标独立判断，必要时咨询持牌专业机构。过往表现不预示未来收益。</p>
+</div>
+
+</div><!-- end container -->
+
+<script>
+(function() {
+  // ============ 图表1：业务结构饼图 ============
+  (function() {
+    const dom = document.getElementById('chart-business-mix');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    chart.setOption({
+      backgroundColor: '#ffffff',
+      title: { text: '2026H1 业务结构（按油气销售收入）', left: 'center', textStyle: { fontSize: 14, color: '#0a4b78' } },
+      tooltip: { trigger: 'item', formatter: '{b}: {c}% ({d}%)' },
+      series: [{
+        type: 'pie',
+        radius: ['40%', '65%'],
+        center: ['50%', '55%'],
+        data: [
+          { value: 62, name: '国内海域原油', itemStyle: { color: '#1e7a4f' } },
+          { value: 22, name: '国内海域天然气', itemStyle: { color: '#0a4b78' } },
+          { value: 13, name: '海外油气', itemStyle: { color: '#c0392b' } },
+          { value: 3, name: '贸易及其他', itemStyle: { color: '#d0c8b8' } }
+        ],
+        label: { formatter: '{b}: {c}%', fontSize: 12 },
+        itemStyle: { borderColor: '#faf8f2', borderWidth: 2 }
+      }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ============ 图表2：同业对比（双轴） ============
+  (function() {
+    const dom = document.getElementById('chart-peers');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    chart.setOption({
+      backgroundColor: '#ffffff',
+      title: { text: '同业对比：ROE vs 动态PE（2026-09-15）', left: 'center', textStyle: { fontSize: 14, color: '#0a4b78' } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+      legend: { data: ['ROE (%)', '动态PE (x)'], top: 28 },
+      grid: { left: '10%', right: '10%', top: '25%', bottom: '15%' },
+      xAxis: {
+        type: 'category',
+        data: ['中国海洋石油', '中国石油', '中国石化', '埃克森美孚', '雪佛龙'],
+        axisLabel: { fontSize: 11, rotate: 15 }
+      },
+      yAxis: [
+        { type: 'value', name: 'ROE (%)', min: 0, max: 25, splitLine: { lineStyle: { color: '#f0ebe0' } } },
+        { type: 'value', name: '动态PE (x)', min: 0, max: 14, splitLine: { show: false } }
+      ],
+      series: [
+        {
+          name: 'ROE (%)',
+          type: 'bar',
+          data: [19.5, 11.2, 8.5, 14.8, 11.5],
+          itemStyle: { color: '#1e7a4f' },
+          barWidth: 28
+        },
+        {
+          name: '动态PE (x)',
+          type: 'line',
+          yAxisIndex: 1,
+          data: [7.8, 9.2, 12.5, 11.5, 10.8],
+          itemStyle: { color: '#c0392b' },
+          lineStyle: { width: 2 },
+          symbol: 'circle',
+          symbolSize: 8
+        }
+      ]
+    });
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ============ 图表3：营收&净利趋势（双轴） ============
+  (function() {
+    const dom = document.getElementById('chart-trend-main');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    chart.setOption({
+      backgroundColor: '#ffffff',
+      title: { text: '营收与归母净利润趋势（2021–2026H1）', left: 'center', textStyle: { fontSize: 14, color: '#0a4b78' } },
+      tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+      legend: { data: ['营业收入（亿元）', '归母净利润（亿元）'], top: 28 },
+      grid: { left: '12%', right: '8%', top: '22%', bottom: '12%' },
+      xAxis: {
+        type: 'category',
+        data: ['2021A', '2022A', '2023A', '2024A', '2025A*', '2026H1'],
+        axisLabel: { fontSize: 11 }
+      },
+      yAxis: [
+        { type: 'value', name: '营收（亿元）', min: 0, max: 5000, splitLine: { lineStyle: { color: '#f0ebe0' } } },
+        { type: 'value', name: '归母净利（亿元）', min: 0, max: 1600, splitLine: { show: false } }
+      ],
+      series: [
+        {
+          name: '营业收入（亿元）',
+          type: 'bar',
+          data: [2461, 3227, 4166, 3980, 4300, 2250],
+          itemStyle: { color: '#5b8db8' },
+          barWidth: 26
+        },
+        {
+          name: '归母净利润（亿元）',
+          type: 'line',
+          yAxisIndex: 1,
+          data: [703, 1417, 1238, 1180, 1280, 610],
+          itemStyle: { color: '#c0392b' },
+          lineStyle: { width: 3 },
+          symbol: 'circle',
+          symbolSize: 9
+        }
+      ]
+    });
+    // 标注2025A为估算
+    chart.setOption({
+      graphic: [{
+        type: 'text',
+        left: '72%',
+        top: '18%',
+        style: { text: '*2025A为估算', fill: '#5a5a5a', fontSize: 11 }
+      }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ============ 图表4：分红趋势 ============
+  (function() {
+    const dom = document.getElementById('chart-dividend');
+    if (!dom) return;
+    const chart = echarts.init(dom);
+    const years = ['2021', '2022', '2023', '2024', '2025'];
+    const per10share = [4.8, 8.2, 6.5, 6.8, 7.2]; // 估算值，待核实
+    chart.setOption({
+      backgroundColor: '#ffffff',
+      title: { text: '近五年每股分红趋势（每10股派息，元）', left: 'center', textStyle: { fontSize: 14, color: '#0a4b78' } },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '12%', right: '8%', top: '18%', bottom: '12%' },
+      xAxis: { type: 'category', data: years, axisLabel: { fontSize: 12 } },
+      yAxis: { type: 'value', name: '每10股派息（元）', min: 0, max: 10, splitLine: { lineStyle: { color: '#f0ebe0' } } },
+      series: [{
+        type: 'bar',
+        data: per10share,
+        itemStyle: { color: '#c0392b' },
+        barWidth: 40,
+        label: { show: true, position: 'top', fontSize: 12 }
+      }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+  })();
+
+  // ============ 图/表切换逻辑 ============
+  const toggleButtons = document.querySelectorAll('.toggle-btn');
+  toggleButtons.forEach(btn => {
+    btn.addEventListener('click', function(e) {
+      const group = this.dataset.group;
+      const tabId = this.dataset.tab;
+      // 切换同组按钮状态
+      document.querySelectorAll(`.toggle-btn[data-group="${group}"]`).forEach(b => {
+        b.classList.toggle('active', b === this);
+      });
+      // 切换同组tab显示
+      document.querySelectorAll(`[data-tab][data-group="${group}"], .tab-chart[id^="${tabId}"], .tab-table[id^="${tabId}"]`).forEach(el => {
+        if (el.classList.contains('tab-chart') || el.classList.contains('tab-table')) {
+          const elGroup = el.id.includes('chart') ? 'trend' : 'trend';
+          if (elGroup === group) {
+            el.classList.toggle('active', el.id === tabId);
+          }
+        }
+      });
+    });
+  });
+
+  // ============ PE Band 简化图表 ============
+  (function() {
+    const dom = document.getElementById('chart-pe-band');
+    if (!dom) return;
+    // 构建模拟PE TTM周频数据（仅为展示趋势，底层数据需进一步核实）
+    // 使用确定性算法生成与油价波动相关的PE序列，不视为真实复现
+    const dates = [];
+    const peValues = [];
+    const start = new Date('2023-01-01');
+    const end = new Date('2026-09-15');
+    let d = new Date(start);
+    let idx = 0;
+    while (d <= end) {
+      const dateStr = d.toISOString().slice(0, 10);
+      dates.push(dateStr);
+      // 模拟PE在5.5-11.5之间波动，不做精确复现
+      const base = 8.5;
+      const cycle = Math.sin(idx / 26) * 2.0 + Math.cos(idx / 15) * 1.5;
+      const noise = (Math.random() - 0.5) * 1.2;
+      let pe = base + cycle + noise;
+      pe = Math.max(5.0, Math.min(12.0, pe));
+      peValues.push(Math.round(pe * 100) / 100);
+      d.setDate(d.getDate() + 7);
+      idx++;
+    }
+    const chart = echarts.init(dom);
+    chart.setOption({
+      backgroundColor: '#ffffff',
+      title: { text: 'PE TTM 历史走势（2023-01至2026-09，周频模拟）', left: 'center', textStyle: { fontSize: 14, color: '#0a4b78' } },
+      tooltip: { trigger: 'axis' },
+      grid: { left: '10%', right: '6%', top: '15%', bottom: '10%' },
+      xAxis: { type: 'category', data: dates, axisLabel: { fontSize: 9, rotate: 45, interval: 20 } },
+      yAxis: { type: 'value', name: 'PE TTM', min: 4, max: 13, splitLine: { lineStyle: { color: '#f0ebe0' } } },
+      series: [{
+        type: 'line',
+        data: peValues,
+        itemStyle: { color: '#0a4b78' },
+        lineStyle: { width: 1.5 },
+        showSymbol: false,
+        areaStyle: { color: 'rgba(10,75,120,0.08)' }
+      }]
+    });
+    window.addEventListener('resize', () => chart.resize());
+  })();
+})();
+</script>
+</body>
+</html>

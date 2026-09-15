@@ -19,6 +19,9 @@ CURRENT_DIR = Path(__file__).parent
 
 prompt_template = Path(CURRENT_DIR / './prompt_deep_research.md').read_text(encoding='utf-8')
 
+# 复用已沉淀的研报 HTML 模板（样式/结构/图表设计固定，仅替换数据）
+deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').read_text(encoding='utf-8')
+
 
 def extract_html(llm_response: str, prefer_code_block: bool = True) -> str:
     """
@@ -103,7 +106,8 @@ def job_deep_research(_stock_code):
         today=trade_date,
         market_data=market_data.to_csv(),
         relative_news=relative_news,
-        report_pershare_index=report_pershare_index
+        report_pershare_index=report_pershare_index,
+        deep_research_template=deep_research_template
     )
 
     logger.info(f"传入大模型进行分析：{stock_name}【{_stock_code}】，大模型版本：{staff.model}")
@@ -117,4 +121,5 @@ def job_deep_research(_stock_code):
 
 
 if __name__ == '__main__':
-    job_deep_research(_stock_code='600938')
+
+    job_deep_research(_stock_code='603195')
