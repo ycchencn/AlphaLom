@@ -3,12 +3,11 @@
  * Chaos isn't a pit. Chaos is a ladder. - Littlefinger
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
-import json, re
-from bs4 import BeautifulSoup
+
 from llms import get_model_by_setting
 from utils.logger import logger
-from utils.common import get_today, get_date_by_n
-from service import StockService, FactorValueService, MarketNewsService
+from utils.common import get_today, get_date_by_n, extract_html
+from service import FactorValueService, MarketNewsService
 from utils.data_loader import databull
 from pathlib import Path
 from string import Template
@@ -21,45 +20,6 @@ prompt_template = Path(CURRENT_DIR / './prompt_deep_research.md').read_text(enco
 
 # 复用已沉淀的研报 HTML 模板（样式/结构/图表设计固定，仅替换数据）
 deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').read_text(encoding='utf-8')
-
-
-def extract_html(llm_response: str, prefer_code_block: bool = True) -> str:
-    """
-    从大模型回复中提取 HTML 内容
-
-    Args:
-        llm_response: 大模型的原始回复文本
-        prefer_code_block: 是否优先提取 ```html 代码块
-    """
-    if prefer_code_block:
-        # 优先匹配 ```html 代码块
-        pattern = r"```\s*(?:html)?\s*\n?(.*?)```"
-        match = re.search(pattern, llm_response, re.DOTALL | re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-
-    # 尝试匹配完整 HTML 文档
-    full_html = re.search(
-        r"(<!DOCTYPE[^>]*>\s*)?<html[^>]*>.*?</html>",
-        llm_response, re.DOTALL | re.IGNORECASE
-    )
-    if full_html:
-        return full_html.group(0)
-
-    # 尝试匹配 <body>...</body>
-    body = re.search(r"<body[^>]*>.*?</body>", llm_response, re.DOTALL | re.IGNORECASE)
-    if body:
-        return body.group(0)
-
-    # 最后用 BeautifulSoup 兜底，提取看起来像 HTML 的部分
-    soup = BeautifulSoup(llm_response, "html.parser")
-    # 找第一个 HTML 标签作为起点
-    for tag in soup.find_all(True):
-        if tag.name in ('html', 'body', 'div', 'main', 'section'):
-            return str(tag)
-
-    # 如果什么都没找到，返回去空白后的原文
-    return llm_response.strip()
 
 
 def job_deep_research(_stock_code):
@@ -115,11 +75,10 @@ def job_deep_research(_stock_code):
     content = staff.ask(question=prompt)
 
     with open('rs.html', 'w', encoding='utf-8') as f:
-        f.write( extract_html(content))
+        f.write(extract_html(content))
 
     return True
 
 
 if __name__ == '__main__':
-
     job_deep_research(_stock_code='603195')

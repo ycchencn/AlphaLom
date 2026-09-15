@@ -29,8 +29,6 @@ class LLMBaseVolcEngine(LLMBase):
 
     response_format = 'text'
 
-    tools = []
-
     def set_model(self, model):
         self.model = model
 
@@ -52,13 +50,11 @@ class LLMBaseVolcEngine(LLMBase):
         # 调用方舟模型生成响应
         completion = self.client.chat.completions.create(
             model=self.model,
-            tools=self.tools,
             messages=[
                 {'role': 'system', 'content': self.role_base},
                 {'role': 'user', 'content': question}
             ],
             response_format={"type": self.response_format},
-            max_tokens=self.max_tokens,
             extra_body={
                 "thinking": {
                     "type": "disabled"  # 不使用深度思考能力

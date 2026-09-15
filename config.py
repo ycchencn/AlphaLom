@@ -128,3 +128,6 @@ finance_report_date_limit = 1
 
 # dcf分析日期间隔
 dcf_report_date_limit = 7
+
+# 最大上下文
+llm_max_tokens = 32768

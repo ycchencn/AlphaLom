@@ -58,7 +58,7 @@ class DialogueManager:
         messages.extend(new_messages)
 
         # 3. 控制上下文长度（滑动窗口 + 保留system消息）
-        # messages = DialogueManager._truncate_context(messages, max_tokens)
+        messages = DialogueManager._truncate_context(messages, max_tokens)
 
         # 4. 序列化
         context_str = json.dumps(messages, ensure_ascii=False)

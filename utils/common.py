@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, date
 from config import feishu_webhook_url
 from typing import Any, Callable
 from typing import Optional
+from bs4 import BeautifulSoup
 
 
 def validate_stock_code(code: str) -> bool:
@@ -852,6 +853,45 @@ def fix_stock_symbol(symbol):
 
     # 4. 兜底
     return code
+
+
+def extract_html(llm_response: str, prefer_code_block: bool = True) -> str:
+    """
+    从大模型回复中提取 HTML 内容
+
+    Args:
+        llm_response: 大模型的原始回复文本
+        prefer_code_block: 是否优先提取 ```html 代码块
+    """
+    if prefer_code_block:
+        # 优先匹配 ```html 代码块
+        pattern = r"```\s*(?:html)?\s*\n?(.*?)```"
+        match = re.search(pattern, llm_response, re.DOTALL | re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+
+    # 尝试匹配完整 HTML 文档
+    full_html = re.search(
+        r"(<!DOCTYPE[^>]*>\s*)?<html[^>]*>.*?</html>",
+        llm_response, re.DOTALL | re.IGNORECASE
+    )
+    if full_html:
+        return full_html.group(0)
+
+    # 尝试匹配 <body>...</body>
+    body = re.search(r"<body[^>]*>.*?</body>", llm_response, re.DOTALL | re.IGNORECASE)
+    if body:
+        return body.group(0)
+
+    # 最后用 BeautifulSoup 兜底，提取看起来像 HTML 的部分
+    soup = BeautifulSoup(llm_response, "html.parser")
+    # 找第一个 HTML 标签作为起点
+    for tag in soup.find_all(True):
+        if tag.name in ('html', 'body', 'div', 'main', 'section'):
+            return str(tag)
+
+    # 如果什么都没找到，返回去空白后的原文
+    return llm_response.strip()
 
 
 # --- 测试示例 ---

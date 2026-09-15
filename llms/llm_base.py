@@ -28,7 +28,7 @@ class LLMBase:
     # 单次回答最大输出 token 数。
     # 注意：不显式设置时，部分 OpenAI 兼容接口（如火山方舟）会默认一个很小的上限（约 1024），
     # 导致长输出（如深度研究 HTML 研报）被截断。这里给一个较宽松的默认上限。
-    max_tokens = 8192
+    max_tokens = 32768
 
     # MCP服务配置（可根据环境修改）
     mcp_base_url = mcp_host

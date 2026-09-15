@@ -17,6 +17,7 @@ from config import strategy_setting
 from utils.data_loader import databull
 from service.dialogue_manager import DialogueManager
 from utils.logger import logger
+from config import llm_max_tokens
 
 prompt_quant_decision = """
 '你现在是一名金融分析师，你对股票市场、金融市场、投资策略和财务规划有深厚的理解。'
@@ -113,7 +114,6 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
 
     # 1. 获取历史上下文
     history = DialogueManager.get_context(chat_id)
-    # history = []
 
     if len(history) == 0:
         # 用户预设 prompt
@@ -148,10 +148,9 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
         {"role": "user", "content": prompt},
         {"role": "assistant", "content": reply_content}
     ]
-    # messages.append({"role": "assistant", "content": reply_content})
 
     # 记录上下文
-    DialogueManager.append_messages(chat_id, new_messages)
+    DialogueManager.append_messages(chat_id, new_messages, max_tokens=llm_max_tokens)
 
     ai_ans = reply_content.replace("```json", "")
     ai_ans = ai_ans.replace("```", "")
@@ -206,7 +205,7 @@ def job_position_plan_daily_all(trade_day_override=False):
 
     portfolios = InvestmentPortfolioService.get_all()
 
-    for prof in portfolios:
+    for prof in portfolios[:1]:
         # 跳过没有设置大模型的策略
         if prof.get('llm_setting') is None:
             continue
