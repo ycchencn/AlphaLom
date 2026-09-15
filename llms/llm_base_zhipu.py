@@ -55,7 +55,7 @@ class LLMBaseZhipu(LLMBase):
             thinking={
                 "type": self.thinking,  # 启用深度思考模式
             },
-            max_tokens=65536,  # 最大输出 tokens
+            max_tokens=self.max_tokens,
             temperature=1.0  # 控制输出的随机性
         )
         return completion.choices[0].message.content

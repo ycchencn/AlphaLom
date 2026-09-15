@@ -25,6 +25,11 @@ class LLMBase:
 
     response_format = 'json_object'
 
+    # 单次回答最大输出 token 数。
+    # 注意：不显式设置时，部分 OpenAI 兼容接口（如火山方舟）会默认一个很小的上限（约 1024），
+    # 导致长输出（如深度研究 HTML 研报）被截断。这里给一个较宽松的默认上限。
+    max_tokens = 8192
+
     # MCP服务配置（可根据环境修改）
     mcp_base_url = mcp_host
 
@@ -46,6 +51,10 @@ class LLMBase:
     def set_model(self, model):
         self.model = model
 
+    def set_max_tokens(self, max_tokens: int):
+        """设置单次回答最大输出 token 数，用于避免长输出被截断"""
+        self.max_tokens = max_tokens
+
     def ask(self, question):
         """
         ask ai
@@ -64,6 +73,7 @@ class LLMBase:
                 {'role': 'user', 'content': question}
             ],
             response_format={"type": self.response_format},
+            max_tokens=self.max_tokens,
             extra_body={"enable_search": self.enable_search}
         )
         self._print_token_usage(completion.usage)
@@ -82,6 +92,7 @@ class LLMBase:
             model=self.model,
             messages=messages,
             response_format={"type": self.response_format},
+            max_tokens=self.max_tokens,
             extra_body={"enable_search": self.enable_search}
         )
 
@@ -145,6 +156,7 @@ class LLMBase:
                 response_format={"type": self.response_format},
                 tools=mcp_tools,
                 tool_choice="auto" if mcp_tools else "none",
+                max_tokens=self.max_tokens,
                 extra_body={"enable_search": self.enable_search},
                 stream=False
             )

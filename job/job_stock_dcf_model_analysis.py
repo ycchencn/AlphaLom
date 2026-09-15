@@ -121,6 +121,8 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
 
     trade_date = FactorValueService.get_latest_trading_date()
     stock_info = StockService.get_stock_by_symbol(symbol=_stock_code)
+    assert stock_info is not None
+
     stock_name = stock_info.get('name')
     start_date = get_date_by_n(-120, _format='%Y%m%d')  # 获取120天的行情
     end_date = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')

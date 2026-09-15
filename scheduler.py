@@ -54,6 +54,7 @@ if __name__ == '__main__':
 
     # 每周五晚上更新基础评分
     scheduler.add_job(job_update_financial_score_all, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)
+
     try:
         # 开始执行计划任务
         logger.info(f"running scheduler service")
