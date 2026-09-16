@@ -30,7 +30,8 @@ deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').rea
 deep_research_skeleton = Path(CURRENT_DIR / './template_deep_research_skeleton.md').read_text(encoding='utf-8')
 
 
-def job_deep_research(_stock_code):
+def job_deep_research(_stock_code, save_local_html=False):
+
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
     staff.role_base = '你需要根据客户提供的资料对股票进行分析'
     staff.set_response_text()
@@ -84,11 +85,11 @@ def job_deep_research(_stock_code):
 
     report_html = _assemble_report(extract_html(content), stock_name, _stock_code, trade_date)
 
-    with open(f'{_stock_code}_deep_research.html', 'w', encoding='utf-8') as f:
-        f.write(report_html)
-
-    with open(f'{_stock_code}_deep_research_raw.html', 'w', encoding='utf-8') as f:
-        f.write(content)
+    if save_local_html:
+        with open(f'{_stock_code}_deep_research.html', 'w', encoding='utf-8') as f:
+            f.write(report_html)
+        with open(f'{_stock_code}_deep_research_raw.html', 'w', encoding='utf-8') as f:
+            f.write(content)
 
     data = {
         "report_type": 3,
