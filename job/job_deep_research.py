@@ -272,8 +272,8 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
 if __name__ == '__main__':
 
     # codes = ['603195', '600938', '000001']
-    job_deep_research(_stock_code='000001')
+    # job_deep_research(_stock_code='000001')
 
-    # stocks = StockService.get_monitoring_stock_pool(market='cn', per_page=10000)
-    # for s in stocks:
-    #     job_deep_research(_stock_code=s['symbol'])
+    stocks = StockService.get_monitoring_stock_pool(market='cn', per_page=10000)
+    for s in stocks:
+        job_deep_research(_stock_code=s['symbol'])

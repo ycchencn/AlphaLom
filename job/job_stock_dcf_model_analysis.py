@@ -26,93 +26,14 @@ def get_stock_detail(_stock_code, market):
     return databull.get_company(_stock_code, market)
 
 
-def check_analysis_interval(stock_code, interval=3):
-    """
-    @brief 检查指定个股的分析间隔是否满足要求
-
-    @param stock_code: 个股代码，如"600519.SH"
-    @type stock_code: str
-    @param interval: 最小分析间隔天数，默认3天
-    @type interval: int
-
-    @return: 如果可以进行分析返回True，否则返回False
-    @rtype: bool
-
-    @throws: ValueError: 当stock_code为空或interval<=0时抛出
-
-    @example:
-        # 检查贵州茅台是否可以进行新一轮分析（间隔至少3天）
-        if check_analysis_interval("600519.SH", interval=3):
-            logger.info("可以进行DCF分析")
-        else:
-            logger.info("上次分析时间未满3天，暂缓分析")
-    """
-    # 参数校验
-    if not stock_code or not isinstance(stock_code, str):
-        raise ValueError("个股代码不能为空，且必须为字符串类型")
-    if interval <= 0:
-        raise ValueError(f"分析间隔必须大于0，当前值: {interval}")
-
-    try:
-        # 查询该个股最近一次的分析报告
-        report = ResearchReportService.get_by_code(stock_code=stock_code, report_type=1)
-
-        # 如果没有历史报告，说明从未分析过，可以进行分析
-        if report is None or report.get('content_json') is None:
-            logger.info(f"[{stock_code}] 无历史分析记录，允许进行分析")
-            return True
-
-        # 处理时间字段为空的情况
-        if not report.get('created_at'):
-            logger.info(f"[{stock_code}] 历史分析记录缺少创建时间，视为无有效记录，允许进行分析")
-            return True
-
-        # 解析时间字符串
-        created_at_str = report['created_at']  # 格式: '2026-05-17T12:27:21'
-        try:
-            from datetime import datetime
-
-            # 处理多种日期格式
-            if 'T' in created_at_str:
-                # ISO 8601格式: 2026-05-17T12:27:21
-                last_analysis_time = datetime.fromisoformat(created_at_str)
-            elif ' ' in created_at_str:
-                # 常见格式: 2026-05-17 12:27:21
-                last_analysis_time = datetime.strptime(created_at_str, '%Y-%m-%d %H:%M:%S')
-            else:
-                # 纯日期格式: 2026-05-17
-                last_analysis_time = datetime.strptime(created_at_str, '%Y-%m-%d')
-        except (ValueError, TypeError) as e:
-            logger.info(f"[{stock_code}] 时间格式解析失败: {created_at_str}, 错误: {e}")
-            # 如果解析失败，为了安全起见，允许进行分析
-            return True
-
-        # 计算时间差
-        now = datetime.now()
-        time_diff = now - last_analysis_time
-
-        # 检查是否超过指定间隔天数
-        if time_diff.days >= interval:
-            logger.info(f"[{stock_code}] 距上次分析已过去{time_diff.days}天(≥{interval}天)，允许进行分析")
-            return True
-        else:
-            # 计算还需等待的天数
-            remaining_days = interval - time_diff.days
-            remaining_hours = int((interval - time_diff.days) * 24 - time_diff.seconds / 3600)
-            logger.info(
-                f"[{stock_code}] 距上次分析仅{time_diff.days}天(<{interval}天)，还需等待{remaining_days}天{remaining_hours}小时")
-            return False
-
-    except Exception as e:
-        # 捕获其他未预期的异常，记录日志并返回True（允许分析，避免阻塞流程）
-        logger.info(f"[{stock_code}] 检查分析间隔时出现异常: {e}")
-        # 可在此处添加日志记录到文件
-        return True
-
-
 def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notification=False):
-    if not skip_interval and not check_analysis_interval(_stock_code, interval=dcf_report_date_limit):
-        logger.info(f"下一次分析间隔未到，跳过分析，{_stock_code}")
+    # 分析间隔控制：非强制(force)时，若该股票近 interval_days 天内已生成过同类型深度研报，
+    # 则跳过整段分析，避免重复消耗大模型算力（默认每月仅分析一次）。
+    if not skip_interval and ResearchReportService.has_recent_report(_stock_code, report_type=1, days=dcf_report_date_limit):
+        logger.info(
+            f"[{_stock_code}] 近 {dcf_report_date_limit} 天内已生成深度研报，本次跳过"
+            f"（如需强制刷新请传 force=True）。"
+        )
         return False
 
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
@@ -144,7 +65,9 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     relative_news = MarketNewsService.search(stock_code=_stock_code, page_size=30)
 
     # 获取财务报告数据
-    report_pershare_index = databull.get_stock_financial_data(symbol=_stock_code, start_date=get_date_by_n(finance_report_date_limit * 365), end_date=get_today(), report_type='PershareIndex')
+    report_pershare_index = databull.get_stock_financial_data(symbol=_stock_code,
+                                                              start_date=get_date_by_n(finance_report_date_limit * 365),
+                                                              end_date=get_today(), report_type='PershareIndex')
 
     # 4 大模型汇总输出分析报告
     template = Template(prompt_template)
@@ -194,7 +117,6 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
 
 
 def job_stock_dcf_model_analysis_daily(override=False):
-
     # 删除dcf的缓存
     redis_obj.delete('dcf_valuation_report')
 
@@ -202,9 +124,6 @@ def job_stock_dcf_model_analysis_daily(override=False):
 
     # 循环对个股进行每日挖掘
     for stock in stocks:
-        # 判断间隔
-        if not check_analysis_interval(stock['symbol'], interval=dcf_report_date_limit):
-            continue
         # 发送分析任务到MQ
         JobService.send_job({
             'job_func': 'job_stock_dcf_model_analysis',
@@ -247,7 +166,6 @@ def dcf_report_extra(_stock_code, report_content):
 
 
 if __name__ == '__main__':
-
     stock_code = '600549'
     job_stock_dcf_model_analysis(stock_code, skip_interval=True)
 
