@@ -5,6 +5,7 @@
 """
 
 import re
+import json
 
 from llms import get_model_by_setting
 from utils.logger import logger
@@ -179,6 +180,48 @@ def _strip_model_shell(body):
     return body
 
 
+def _repair_json(raw):
+    """对括号做容错重平衡：丢弃无法配对的闭合括号，再按剩余未闭合括号逆序补齐。
+    用于修复模型偶尔输出的『少写/错位括号』（如 series 数组漏了 ']'）。"""
+    stack = []
+    out = []
+    for ch in raw:
+        if ch in '[{':
+            stack.append(ch)
+            out.append(ch)
+        elif ch in ']}':
+            if stack and ((ch == ']' and stack[-1] == '[') or (ch == '}' and stack[-1] == '{')):
+                stack.pop()
+                out.append(ch)
+            # 无法配对的闭合括号直接丢弃
+        else:
+            out.append(ch)
+    while stack:
+        o = stack.pop()
+        out.append(']' if o == '[' else '}')
+    return ''.join(out)
+
+
+def _safe_chart_json(raw):
+    """校验并尽力修复模型输出的 data-chart JSON。
+
+    模型偶尔会漏写/错位括号（如 series 数组少了 ']'），导致前端 JSON.parse 抛错、
+    图表显示『解析失败』。这里先尝试直接解析；失败则用 _repair_json 容错重平衡；
+    若仍无法解析，降级为 empty，由渲染器显示『暂无数据』而非报错。
+    """
+    try:
+        json.loads(raw)
+        return raw  # 已是合法 JSON，原样返回
+    except Exception:
+        pass
+    try:
+        repaired = _repair_json(raw)
+        json.loads(repaired)
+        return repaired
+    except Exception:
+        return '{"empty":true,"msg":"图表数据生成异常，已跳过渲染"}'
+
+
 def _assemble_report(model_content, stock_name, stock_code, trade_date):
     """将模型生成的研报正文与模板的静态外壳（<head> 样式 + 图表渲染脚本）合并为完整 HTML。
 
@@ -206,6 +249,11 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
     # 5) 双重保险：确保 container 与 header 一定存在
     body = _ensure_container(body)
     body = _ensure_header_wrapper(body)
+    # 5.5) 校验并尽力修复模型输出中损坏的 data-chart JSON（模型偶尔漏写/错位括号），
+    # 避免前端 JSON.parse 抛错显示『解析失败』；无法修复的降级为 empty 由渲染器显示『暂无数据』。
+    body = re.sub(r"data-chart='([^']*)'",
+                  lambda m: "data-chart='" + _safe_chart_json(m.group(1)) + "'",
+                  body)
     # 6) 模板的 <head>（含 <style> 与 ECharts CDN）与通用渲染脚本
     head = re.search(r'<head>.*?</head>', template, re.S).group(0)
     renderer = re.search(r'<script id="chart-renderer">.*?</script>', template, re.S).group(0)
