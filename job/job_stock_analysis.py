@@ -9,6 +9,7 @@ from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis
 from job.job_update_stock_greedy_data import job_update_stock_greedy_data
 from job.job_check_signal import job_check_signal
 from job.job_update_factors import job_update_stock_factor
+from job.job_stock_daily_update import job_fix_ohlc_last
 from utils.data_loader import databull
 
 
@@ -38,6 +39,9 @@ def job_stock_analysis(stock_code, send_notification=False):
 
     # 技术分析
     job_check_signal(stock_code)
+
+    # 最新报价
+    job_fix_ohlc_last(stock_code)
 
 
 if __name__ == '__main__':
