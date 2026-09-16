@@ -14,6 +14,7 @@ from utils.data_loader import databull
 from pathlib import Path
 from string import Template
 from service.research_report_service import ResearchReportService
+from service.stock import StockService
 from config import finance_report_date_limit
 
 # 获取当前 Python 文件所在目录
@@ -213,8 +214,9 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
 
 if __name__ == '__main__':
 
-    codes = ['603195', '600938', '000001']
-    # codes = ['000001']
+    # codes = ['603195', '600938', '000001']
 
-    for code in codes:
-        job_deep_research(_stock_code=code)
+    stocks = StockService.get_monitoring_stock_pool(market='cn', per_page=10000)
+
+    for s in stocks:
+        job_deep_research(_stock_code=s['symbol'])
