@@ -31,7 +31,15 @@ deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').rea
 deep_research_skeleton = Path(CURRENT_DIR / './template_deep_research_skeleton.md').read_text(encoding='utf-8')
 
 
-def job_deep_research(_stock_code, save_local_html=False):
+def job_deep_research(_stock_code, save_local_html=False, force=False, interval_days=30):
+    # 分析间隔控制：非强制(force)时，若该股票近 interval_days 天内已生成过同类型深度研报，
+    # 则跳过整段分析，避免重复消耗大模型算力（默认每月仅分析一次）。
+    if not force and ResearchReportService.has_recent_report(_stock_code, report_type=3, days=interval_days):
+        logger.info(
+            f"[{_stock_code}] 近 {interval_days} 天内已生成深度研报，本次跳过"
+            f"（如需强制刷新请传 force=True）。"
+        )
+        return False
 
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
     staff.role_base = '你需要根据客户提供的资料对股票进行分析'
@@ -264,8 +272,8 @@ def _assemble_report(model_content, stock_name, stock_code, trade_date):
 if __name__ == '__main__':
 
     # codes = ['603195', '600938', '000001']
+    job_deep_research(_stock_code='000001')
 
-    stocks = StockService.get_monitoring_stock_pool(market='cn', per_page=10000)
-
-    for s in stocks:
-        job_deep_research(_stock_code=s['symbol'])
+    # stocks = StockService.get_monitoring_stock_pool(market='cn', per_page=10000)
+    # for s in stocks:
+    #     job_deep_research(_stock_code=s['symbol'])

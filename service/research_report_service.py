@@ -5,7 +5,7 @@
 """
 
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy import and_
 
@@ -109,6 +109,32 @@ class ResearchReportService:
             return count > 0
         except Exception as e:
             logger.error(f"Error checking hash existence: {e}")
+            return False
+
+    @staticmethod
+    def has_recent_report(stock_code: str, report_type: int, days: int = 30) -> bool:
+        """
+        分析间隔控制：判断该股票在最近 days 天内是否已有同类型研报。
+
+        调用方在触发耗时的大模型分析前先调用本方法；若存在近期同类型研报则跳过，
+        避免重复消耗算力（典型用法：深度研报每月仅分析一次，days=30）。
+        :param stock_code: 股票代码
+        :param report_type: 研报类型（深度研报固定为 3）
+        :param days: 间隔天数，默认 30（约一个月）
+        :return: 存在近期研报返回 True，否则 False
+        """
+        if not stock_code:
+            return False
+        try:
+            since = datetime.now() - timedelta(days=days)
+            count = db_session.query(ResearchReport).filter(
+                ResearchReport.stock_code == stock_code,
+                ResearchReport.report_type == report_type,
+                ResearchReport.created_at >= since
+            ).count()
+            return count > 0
+        except Exception as e:
+            logger.error(f"Error checking recent report for {stock_code}: {e}")
             return False
 
     @staticmethod
