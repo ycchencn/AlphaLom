@@ -6,56 +6,33 @@
 
 from openai import OpenAI
 from config import siliconflow_apikey
+from llms.llm_base import LLMBase
 
-# 定义系统提示词
-system_prompt = """
-你是一个量化交易金融机构的专家，负责解答用户的各种问题。
-"""
 
-class LLMBaseSiliconflow:
+class LLMBaseSiliconflow(LLMBase):
+    """SiliconFlow LLM 实现"""
 
-    role_base = system_prompt
-
-    client = OpenAI(
-        # 从环境变量中获取 API Key
-        api_key=siliconflow_apikey,
-        base_url="https://api.siliconflow.cn",
+    role_base = (
+        '你是一个量化交易金融机构的专家，擅长解答股票、基金、金融市场相关问题。'
+        '当需要获取实时数据时，请严格调用提供的工具，不要编造信息。'
+        '请根据工具返回的结果，用自然语言整理成清晰易懂的回答。'
     )
 
     model = "MiniMaxAI/MiniMax-M2.5"
-
     enable_search = True
-
     response_format = 'text'
 
-    def set_model(self, model):
-        self.model = model
-
-    def set_response_json(self):
-        self.response_format = 'json_object'
-
-    def set_response_text(self):
-        self.response_format = 'text'
-
-    def ask(self, question):
-        """
-        ask ai
-        :param question:
-        :return:
-        """
-        # 调用方舟模型生成响应
-        completion = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {'role': 'system', 'content': self.role_base},
-                {'role': 'user', 'content': question}
-            ],
-            response_format={"type": self.response_format},
-            extra_body={
-                "thinking": {
-                    "type": "disabled"  # 不使用深度思考能力
-                    # "type": "enabled" # 使用深度思考能力
-                }
-            },
+    def __init__(self):
+        client = OpenAI(
+            api_key=siliconflow_apikey,
+            base_url="https://api.siliconflow.cn",
         )
-        return completion.choices[0].message.content
+        super().__init__(client)
+
+    def _build_extra_body(self):
+        """SiliconFlow 使用 thinking 参数控制深度思考"""
+        return {
+            "thinking": {
+                "type": "disabled"  # 不使用深度思考能力
+            }
+        }
