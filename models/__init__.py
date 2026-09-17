@@ -27,26 +27,26 @@ class TriggerType(str, Enum):
 class Stock(Base):
     __tablename__ = 'stocks'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    ts_code = Column(String(25), unique=True)
-    symbol = Column(String(25))
-    name = Column(String(50))
-    name_en = Column(String(50))
-    area = Column(String(50))
-    industry = Column(String(50))
-    market = Column(String(10), default='cn')
-    act_name = Column(String(50))
-    act_ent_type = Column(String(50))
-    last_update = Column(DateTime)
-    exchange = Column(String(50))
-    pe_ratio = Column(Float(precision=2))
-    pb_ratio = Column(Float(precision=2))
-    concepts = Column(Text)
-    securities_type = Column(String(10), default='stock')
-    monitoring = Column(Integer, default=0)
-    monitor_by = Column(String(50))
-    setting = Column(JSON, default={})
-    ohlc_last = Column(JSON, default={})
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    ts_code = Column(String(25), unique=True, comment='交易所标准代码，如 000001.SZ / 600519.SH')
+    symbol = Column(String(25), comment='股票代码，如 000001 / 600519')
+    name = Column(String(50), comment='股票名称')
+    name_en = Column(String(50), comment='英文名称')
+    area = Column(String(50), comment='地区')
+    industry = Column(String(50), comment='所属行业')
+    market = Column(String(10), default='cn', comment='市场：cn-沪深, hk-港股, us-美股')
+    act_name = Column(String(50), comment='曾用名')
+    act_ent_type = Column(String(50), comment='公司类型')
+    last_update = Column(DateTime, comment='最后更新时间')
+    exchange = Column(String(50), comment='交易所')
+    pe_ratio = Column(Float(precision=2), comment='市盈率 PE')
+    pb_ratio = Column(Float(precision=2), comment='市净率 PB')
+    concepts = Column(Text, comment='概念板块标签（文本）')
+    securities_type = Column(String(10), default='stock', comment='证券类型：stock/etf/fund 等')
+    monitoring = Column(Integer, default=0, comment='是否纳入监控：0-否, 1-是')
+    monitor_by = Column(String(50), comment='监控创建人/来源')
+    setting = Column(JSON, default={}, comment='扩展设置（JSON）')
+    ohlc_last = Column(JSON, default={}, comment='最近 OHLC 行情快照（JSON）')
 
     def __repr__(self):
         return f"<Stock(ts_code='{self.ts_code}', name='{self.name}')>"
@@ -80,50 +80,50 @@ class Stock(Base):
 class StockNews(db.Model):
     __tablename__ = 'stock_news'
 
-    news_id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_code = Column(String(10))
-    title = Column(Text)
-    content = Column(Text)
-    source = Column(String(255))
-    publish_time = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    news_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    stock_code = Column(String(10), comment='关联股票代码')
+    title = Column(Text, comment='新闻标题')
+    content = Column(Text, comment='新闻正文')
+    source = Column(String(255), comment='新闻来源')
+    publish_time = Column(DateTime, comment='新闻发布时间')
+    created_at = Column(DateTime, default=datetime.now, comment='入库时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
 # 股票基本面表
 class StockFundamentals(db.Model):
     __tablename__ = 'stock_fundamentals'
 
-    fundamental_id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_code = Column(String(10))
-    date = Column(DateTime)
-    open_price = Column(Float(precision=2))
-    close_price = Column(Float(precision=2))
-    high_price = Column(Float(precision=2))
-    low_price = Column(Float(precision=2))
-    volume = Column(BigInteger)
-    pe_ratio = Column(Float(precision=2))
-    pb_ratio = Column(Float(precision=2))
-    eps = Column(Float(precision=2))
-    dividend_yield = Column(Float(precision=2))
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    fundamental_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    stock_code = Column(String(10), comment='股票代码')
+    date = Column(DateTime, comment='数据日期')
+    open_price = Column(Float(precision=2), comment='开盘价')
+    close_price = Column(Float(precision=2), comment='收盘价')
+    high_price = Column(Float(precision=2), comment='最高价')
+    low_price = Column(Float(precision=2), comment='最低价')
+    volume = Column(BigInteger, comment='成交量')
+    pe_ratio = Column(Float(precision=2), comment='市盈率 PE')
+    pb_ratio = Column(Float(precision=2), comment='市净率 PB')
+    eps = Column(Float(precision=2), comment='每股收益 EPS')
+    dividend_yield = Column(Float(precision=2), comment='股息率')
+    created_at = Column(DateTime, default=datetime.now, comment='入库时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
 
 # 自选股表
 class UserWatchlist(db.Model):
     __tablename__ = 'user_watchlist'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    stock_code = Column(String(10))
-    stock_name = Column(String(25))
-    topic = Column(String(50))
-    desc = Column(String(255))
-    from_ai = Column(Integer, default=0)
-    price = Column(Float(precision=2), default=0)
-    diff = Column(Float(precision=2), default=0)
-    created_at = Column(DateTime, default=datetime.now)
-    securities_type = Column(String(50))
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    stock_code = Column(String(10), comment='股票代码')
+    stock_name = Column(String(25), comment='股票名称')
+    topic = Column(String(50), comment='所属主题/题材')
+    desc = Column(String(255), comment='备注说明')
+    from_ai = Column(Integer, default=0, comment='是否由 AI 推荐加入：0-否, 1-是')
+    price = Column(Float(precision=2), default=0, comment='加入时价格')
+    diff = Column(Float(precision=2), default=0, comment='涨跌幅（%）')
+    created_at = Column(DateTime, default=datetime.now, comment='加入时间')
+    securities_type = Column(String(50), comment='证券类型：stock/etf 等')
 
     def to_dict(self):
         """
@@ -147,10 +147,10 @@ class UserWatchlist(db.Model):
 class StrategyGroup(db.Model):
     __tablename__ = 'strategy_group'
 
-    group_id = Column(Integer, primary_key=True, autoincrement=True)
-    group_name = Column(String(255))
-    created_at = Column(DateTime, default=datetime.now)
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+    group_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    group_name = Column(String(255), comment='策略组名称')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
 
     def to_dict(self):
         return {
@@ -164,31 +164,31 @@ class StrategyGroup(db.Model):
 class BacktestTask(db.Model):
     __tablename__ = 'backtest_tasks'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)  # 自增主键
-    backtest_id = Column(String(64))
-    portfolio_id = Column(Integer, nullable=False)  # 投资组合编号
-    stock_code = Column(String(20), nullable=False)  # 资产代码
-    stock_name = Column(String(20), nullable=False)  # 资产名称
-    securities_type = Column(String(20), nullable=False)  # 资产类型
-    buy_volume = Column(Integer, nullable=False)  # 买入量
-    sell_volume = Column(Integer, nullable=False)  # 卖出量
-    start_date = Column(Date, nullable=False)  # 开始日期
-    end_date = Column(Date, nullable=False)  # 结束日期
-    start_value = Column(DECIMAL(15, 2), nullable=False)  # 初始资金
-    end_value = Column(DECIMAL(15, 2), nullable=False)  # 结束时的资金
-    annualized_return = Column(DECIMAL(6, 4))  # 年化收益率
-    sharp_ratio = Column(DECIMAL(15, 2))  # 夏普比率
-    calmar_ratio = Column(DECIMAL(6, 4))  # 卡尔马比率
-    profit = Column(DECIMAL(15, 2), nullable=False)  # 净利润
-    max_drawdown = Column(DECIMAL(10, 8))  # 最大回撤
-    stock_trading_config = Column(JSON, nullable=False)  # 交易配置，以JSON格式存储
-    ai_audit_comment = Column(JSON)  # AI 评估意见
-    created_at = Column(DateTime, default=datetime.now)
-    trade_signal_match = Column(Integer, nullable=False)  # 是否触发当日信号
-    last_signal_date = Column(Date, default=None)  # 最近信号触发日期
-    last_signal_trade_type = Column(String(32), nullable=False)  # 最近信号触发交易类型
-    strategy_code = Column(String(32), nullable=True)  # 策略代码
-    finished = Column(Integer, default=0)
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')  # 自增主键
+    backtest_id = Column(String(64), comment='回测唯一ID')
+    portfolio_id = Column(Integer, nullable=False, comment='投资组合编号')  # 投资组合编号
+    stock_code = Column(String(20), nullable=False, comment='资产代码')  # 资产代码
+    stock_name = Column(String(20), nullable=False, comment='资产名称')  # 资产名称
+    securities_type = Column(String(20), nullable=False, comment='资产类型')  # 资产类型
+    buy_volume = Column(Integer, nullable=False, comment='买入量')  # 买入量
+    sell_volume = Column(Integer, nullable=False, comment='卖出量')  # 卖出量
+    start_date = Column(Date, nullable=False, comment='开始日期')  # 开始日期
+    end_date = Column(Date, nullable=False, comment='结束日期')  # 结束日期
+    start_value = Column(DECIMAL(15, 2), nullable=False, comment='初始资金')  # 初始资金
+    end_value = Column(DECIMAL(15, 2), nullable=False, comment='结束时的资金')  # 结束时的资金
+    annualized_return = Column(DECIMAL(6, 4), comment='年化收益率')  # 年化收益率
+    sharp_ratio = Column(DECIMAL(15, 2), comment='夏普比率')  # 夏普比率
+    calmar_ratio = Column(DECIMAL(6, 4), comment='卡尔马比率')  # 卡尔马比率
+    profit = Column(DECIMAL(15, 2), nullable=False, comment='净利润')  # 净利润
+    max_drawdown = Column(DECIMAL(10, 8), comment='最大回撤')  # 最大回撤
+    stock_trading_config = Column(JSON, nullable=False, comment='交易配置（JSON）')  # 交易配置，以JSON格式存储
+    ai_audit_comment = Column(JSON, comment='AI 评估意见')  # AI 评估意见
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    trade_signal_match = Column(Integer, nullable=False, comment='是否触发当日信号：0-否, 1-是')  # 是否触发当日信号
+    last_signal_date = Column(Date, default=None, comment='最近信号触发日期')  # 最近信号触发日期
+    last_signal_trade_type = Column(String(32), nullable=False, comment='最近信号触发交易类型')  # 最近信号触发交易类型
+    strategy_code = Column(String(32), nullable=True, comment='策略代码')  # 策略代码
+    finished = Column(Integer, default=0, comment='回测是否完成：0-进行中, 1-已完成')
 
     def to_dict(self):
         """
@@ -226,14 +226,14 @@ class BacktestTask(db.Model):
 class BacktestTrade(db.Model):
     __tablename__ = 'backtest_trades'
 
-    id = Column(Integer, primary_key=True)
-    backtest_id = Column(String(64), nullable=False)
-    portfolio_id = Column(Integer)
-    trade_type = Column(String(16), nullable=False)  # 'buy' or 'sell'
-    symbol = Column(String(16), nullable=False)
-    size = Column(Float, nullable=False)
-    price = Column(Float, nullable=False)
-    created_at = Column(DateTime, default=datetime.now)
+    id = Column(Integer, primary_key=True, comment='自增主键')
+    backtest_id = Column(String(64), nullable=False, comment='关联回测ID')
+    portfolio_id = Column(Integer, comment='投资组合编号')
+    trade_type = Column(String(16), nullable=False, comment='交易类型：buy-买入, sell-卖出')  # 'buy' or 'sell'
+    symbol = Column(String(16), nullable=False, comment='标的代码')
+    size = Column(Float, nullable=False, comment='成交数量')
+    price = Column(Float, nullable=False, comment='成交价格')
+    created_at = Column(DateTime, default=datetime.now, comment='成交时间')
 
     def to_dict(self):
         """
@@ -263,13 +263,13 @@ class BacktestTrade(db.Model):
 class MarketDailyLimit(Base):
     __tablename__ = 'market_daily_limit'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, nullable=False, unique=True)
-    rising = Column(Integer, nullable=False)
-    limit_up = Column(Integer, nullable=False)
-    falling = Column(Integer, nullable=False)
-    limit_down = Column(Integer, nullable=False)
-    flat = Column(BigInteger, nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    date = Column(Date, nullable=False, unique=True, comment='交易日期')
+    rising = Column(Integer, nullable=False, comment='上涨家数')
+    limit_up = Column(Integer, nullable=False, comment='涨停家数')
+    falling = Column(Integer, nullable=False, comment='下跌家数')
+    limit_down = Column(Integer, nullable=False, comment='跌停家数')
+    flat = Column(BigInteger, nullable=False, comment='平盘家数')
 
     def to_dict(self):
         """将对象转换为字典格式"""
@@ -291,20 +291,20 @@ class InvestmentPortfolio(Base):
     strategy_type = Column(Integer, nullable=False, default=1, comment='策略类型')
     total_position_pct = Column(DECIMAL(5, 2), nullable=False, comment='总仓位百分比')
     base_currency = Column(String(10), default='USD', comment='基准货币')
-    position_plan = Column(JSON, nullable=True)
-    position_plan_reason = Column(Text, nullable=True)
-    init_cash = Column(DECIMAL(5, 2), nullable=False)
-    current_cash = Column(DECIMAL(5, 2), nullable=False)
+    position_plan = Column(JSON, nullable=True, comment='仓位计划（JSON）')
+    position_plan_reason = Column(Text, nullable=True, comment='仓位计划理由')
+    init_cash = Column(DECIMAL(5, 2), nullable=False, comment='初始资金')
+    current_cash = Column(DECIMAL(5, 2), nullable=False, comment='当前资金')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     update_time = Column(DateTime, onupdate=datetime.now, comment='更新时间')
-    llm_prompt = Column(Text, default='')
-    llm_setting = Column(JSON, nullable=True)
+    llm_prompt = Column(Text, default='', comment='大模型提示词')
+    llm_setting = Column(JSON, nullable=True, comment='大模型配置（JSON）')
     portfolio_assets = relationship("PortfolioAssets", back_populates="portfolio")
     risk_metrics = relationship("RiskMetrics", back_populates="portfolio")
-    desc = Column(Text)
-    enable = Column(Integer, nullable=False, default=1)
-    market = Column(String(50), nullable=False, default='cn')
-    quantstat_json = Column(JSON, nullable=True)
+    desc = Column(Text, comment='组合描述')
+    enable = Column(Integer, nullable=False, default=1, comment='是否启用：0-停用, 1-启用')
+    market = Column(String(50), nullable=False, default='cn', comment='市场：cn/hk/us 等')
+    quantstat_json = Column(JSON, nullable=True, comment='量化绩效统计（JSON）')
 
     def to_dict(self):
         """将对象转换为字典格式"""
@@ -331,7 +331,7 @@ class InvestmentPortfolio(Base):
 
 class PortfolioAssets(Base):
     __tablename__ = 'portfolio_assets'
-    asset_id = Column(Integer, primary_key=True, autoincrement=True)
+    asset_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
     portfolio_id = Column(String(36), ForeignKey('investment_portfolio.portfolio_id'), comment='投资组合ID')
     stock_code = Column(String(20), nullable=False, comment='股票/ETF标的代码')
     asset_name = Column(String(100), nullable=False, comment='标的名称')
@@ -339,13 +339,13 @@ class PortfolioAssets(Base):
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     last_update = Column(DateTime, default=datetime.now, comment='更新时间')
     position_price = Column(Float, nullable=False, comment='最新价格')
-    cost_price = Column(Float, nullable=False, comment='持仓价格')
+    cost_price = Column(Float, nullable=False, comment='持仓价格（成本价）')
     position_size = Column(Integer, nullable=False, comment='持仓数量')
     position_beta = Column(Float, nullable=False, comment='Beta', default=0)
     base_rsi_threshold = Column(Integer, nullable=False, comment='RSI卖出阈值', default=0)
-    stop_loss_percent = Column(Float, nullable=False, comment='止盈', default=0)
-    take_profit_percent = Column(Float, nullable=False, comment='止损', default=0)
-    remark = Column(Text)
+    stop_loss_percent = Column(Float, nullable=False, comment='止损线（%）', default=0)
+    take_profit_percent = Column(Float, nullable=False, comment='止盈线（%）', default=0)
+    remark = Column(Text, comment='备注')
     portfolio = relationship("InvestmentPortfolio", back_populates="portfolio_assets")
 
     def to_dict(self):
@@ -526,12 +526,12 @@ class FuturesBasisWide(Base):
 class StockFearGreed(Base):
     __tablename__ = 'stocks_fear_greed'
 
-    trade_date = Column(Date, primary_key=True, nullable=False)
-    index_code = Column(String(20), nullable=False)
-    close = Column(Numeric(precision=18, scale=4), nullable=False)
-    fear_greed = Column(Numeric(precision=5, scale=2), nullable=False)
-    vol_score = Column(Numeric(precision=5, scale=2), nullable=False)
-    mom_score = Column(Numeric(precision=5, scale=2), nullable=False)
+    trade_date = Column(Date, primary_key=True, nullable=False, comment='交易日期')
+    index_code = Column(String(20), nullable=False, comment='指数代码')
+    close = Column(Numeric(precision=18, scale=4), nullable=False, comment='收盘点位')
+    fear_greed = Column(Numeric(precision=5, scale=2), nullable=False, comment='恐惧贪婪综合指数')
+    vol_score = Column(Numeric(precision=5, scale=2), nullable=False, comment='波动率分项得分')
+    mom_score = Column(Numeric(precision=5, scale=2), nullable=False, comment='动量分项得分')
 
     def to_dict(self):
         return {
@@ -547,17 +547,17 @@ class StockFearGreed(Base):
 class LlmPrompt(Base):
     __tablename__ = 'llm_prompts'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    prompt_key = Column(String(128), nullable=False, index=True)  # 如 'news_stock_relation'
-    name = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)  # Prompt 模板文本
-    variables = Column(JSON, nullable=True)  # 存为 JSON 字符串，如: ["content"]
-    output_format = Column(String(20), nullable=False, default='text')  # 'text' / 'json_object' / 'json_array'
-    description = Column(Text, nullable=True)
-    version = Column(Integer, nullable=False, default=1)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    prompt_key = Column(String(128), nullable=False, index=True, comment='Prompt 唯一键，如 news_stock_relation')  # 如 'news_stock_relation'
+    name = Column(String(255), nullable=False, comment='Prompt 名称')
+    content = Column(Text, nullable=False, comment='Prompt 模板文本')  # Prompt 模板文本
+    variables = Column(JSON, nullable=True, comment='模板变量列表（JSON 数组，如 ["content"]）')  # 存为 JSON 字符串，如: ["content"]
+    output_format = Column(String(20), nullable=False, default='text', comment='输出格式：text/json_object/json_array')  # 'text' / 'json_object' / 'json_array'
+    description = Column(Text, nullable=True, comment='描述说明')
+    version = Column(Integer, nullable=False, default=1, comment='版本号')
+    is_active = Column(Boolean, nullable=False, default=True, comment='是否启用')
+    created_at = Column(DateTime, default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment='更新时间')
 
     def to_dict(self):
         return {
@@ -578,22 +578,22 @@ class LlmPrompt(Base):
 class DailyPnLRecord(Base):
     __tablename__ = 'daily_pnl_records'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, nullable=False, index=True)  # 交易日期
-    portfolio_id = Column(String(50), nullable=False, index=True)  # 组合ID
-    stock_code = Column(String(20), nullable=False, index=True)  # 股票代码
-    stock_name = Column(String(50), nullable=True)  # 股票名称
-    position_size = Column(Integer, nullable=True)  # 持仓数量
-    cost_price = Column(DECIMAL(12, 4), nullable=True)  # 成本价
-    close_price = Column(DECIMAL(12, 4), nullable=True)  # 当日收盘价
-    market_value = Column(DECIMAL(18, 2), nullable=True)  # 市值 = size * close
-    unrealized_pnl = Column(DECIMAL(18, 2), nullable=True)  # 浮动盈亏金额
-    pnl_pct = Column(DECIMAL(10, 4), nullable=True)  # 浮动盈亏百分比（%）
-    total_assets = Column(DECIMAL(18, 2), nullable=True)  # 组合总资产（冗余）
-    cash_balance = Column(DECIMAL(18, 2), nullable=True)  # 现金余额
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    date = Column(Date, nullable=False, index=True, comment='交易日期')  # 交易日期
+    portfolio_id = Column(String(50), nullable=False, index=True, comment='组合ID')  # 组合ID
+    stock_code = Column(String(20), nullable=False, index=True, comment='股票代码')  # 股票代码
+    stock_name = Column(String(50), nullable=True, comment='股票名称')  # 股票名称
+    position_size = Column(Integer, nullable=True, comment='持仓数量')  # 持仓数量
+    cost_price = Column(DECIMAL(12, 4), nullable=True, comment='成本价')  # 成本价
+    close_price = Column(DECIMAL(12, 4), nullable=True, comment='当日收盘价')  # 当日收盘价
+    market_value = Column(DECIMAL(18, 2), nullable=True, comment='市值 = size * close')  # 市值 = size * close
+    unrealized_pnl = Column(DECIMAL(18, 2), nullable=True, comment='浮动盈亏金额')  # 浮动盈亏金额
+    pnl_pct = Column(DECIMAL(10, 4), nullable=True, comment='浮动盈亏百分比（%）')  # 浮动盈亏百分比（%）
+    total_assets = Column(DECIMAL(18, 2), nullable=True, comment='组合总资产（冗余）')  # 组合总资产（冗余）
+    cash_balance = Column(DECIMAL(18, 2), nullable=True, comment='现金余额')  # 现金余额
 
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment='更新时间')
 
     # 唯一约束（防止同一天重复插入）
     __table_args__ = (
@@ -624,18 +624,18 @@ class DailyPnLRecord(Base):
 class PortfolioDailySummary(Base):
     __tablename__ = 'portfolio_daily_summary'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, nullable=False, unique=True, index=True)  # 交易日期（组合级唯一）
-    portfolio_id = Column(String(50), nullable=False, index=True)  # 组合ID
-    total_assets = Column(DECIMAL(18, 2), nullable=False)  # 总资产
-    total_unrealized_pnl = Column(DECIMAL(18, 2), nullable=False)  # 总浮动盈亏
-    total_pnl_pct = Column(DECIMAL(10, 4), nullable=False)  # 总盈亏%
-    position_ratio = Column(DECIMAL(5, 4), nullable=False)  # 仓位比例（0～1）
-    cash_balance = Column(DECIMAL(18, 2), nullable=False)  # 现金余额
-    daily_pnl_change = Column(Float, default=0.0)  # 相对于前一日的变化
-    cumulative_realized_pnl = Column(Float, default=0.0)  # 👈 添加此字段
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    date = Column(Date, nullable=False, unique=True, index=True, comment='交易日期（组合级唯一）')  # 交易日期（组合级唯一）
+    portfolio_id = Column(String(50), nullable=False, index=True, comment='组合ID')  # 组合ID
+    total_assets = Column(DECIMAL(18, 2), nullable=False, comment='总资产')  # 总资产
+    total_unrealized_pnl = Column(DECIMAL(18, 2), nullable=False, comment='总浮动盈亏')  # 总浮动盈亏
+    total_pnl_pct = Column(DECIMAL(10, 4), nullable=False, comment='总盈亏%')  # 总盈亏%
+    position_ratio = Column(DECIMAL(5, 4), nullable=False, comment='仓位比例（0~1）')  # 仓位比例（0～1）
+    cash_balance = Column(DECIMAL(18, 2), nullable=False, comment='现金余额')  # 现金余额
+    daily_pnl_change = Column(Float, default=0.0, comment='相对前一日的变化')  # 相对于前一日的变化
+    cumulative_realized_pnl = Column(Float, default=0.0, comment='累计已实现盈亏')
+    created_at = Column(DateTime, default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment='更新时间')
 
     __table_args__ = (
         {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'}
@@ -661,18 +661,18 @@ class PortfolioDailySummary(Base):
 class PortfolioTransaction(Base):
     __tablename__ = 'portfolio_transaction'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    date = Column(Date, nullable=False)
-    action = Column(Enum('BUY', 'SELL', name='action_type'), nullable=False)
-    code = Column(String(20), nullable=False)
-    name = Column(String(100), nullable=False)
-    qty = Column(Integer, nullable=False)
-    price = Column(Numeric(precision=15, scale=4), nullable=False)
-    amount = Column(Numeric(precision=18, scale=2), nullable=False)
-    realized_pnl = Column(Numeric(precision=18, scale=2), default=0.00)
-    portfolio_id = Column(Integer, nullable=False)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    date = Column(Date, nullable=False, comment='交易日期')
+    action = Column(Enum('BUY', 'SELL', name='action_type'), nullable=False, comment='交易动作：BUY-买入, SELL-卖出')
+    code = Column(String(20), nullable=False, comment='标的代码')
+    name = Column(String(100), nullable=False, comment='标的名称')
+    qty = Column(Integer, nullable=False, comment='成交数量')
+    price = Column(Numeric(precision=15, scale=4), nullable=False, comment='成交价格')
+    amount = Column(Numeric(precision=18, scale=2), nullable=False, comment='成交金额')
+    realized_pnl = Column(Numeric(precision=18, scale=2), default=0.00, comment='已实现盈亏')
+    portfolio_id = Column(Integer, nullable=False, comment='投资组合编号')
+    created_at = Column(DateTime, default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment='更新时间')
 
     def __repr__(self):
         return f"<PortfolioTransaction(code={self.code}, action={self.action}, qty={self.qty})>"
@@ -697,7 +697,7 @@ class PortfolioTransaction(Base):
 class SystemLog(Base):
     __tablename__ = 'system_logs'
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
     log_type = Column(SmallInteger, nullable=False, comment='日志类型: 1-系统日志, 2-用户操作日志')
     log_level = Column(SmallInteger, nullable=False, default=2,
                        comment='日志级别: 1-DEBUG, 2-INFO, 3-WARN, 4-ERROR, 5-FATAL')
@@ -714,7 +714,7 @@ class SystemLog(Base):
     status = Column(SmallInteger, default=1, comment='状态: 0-失败, 1-成功')
     error_code = Column(String(50), comment='错误码')
     error_message = Column(Text, comment='错误信息')
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    created_at = Column(DateTime, nullable=False, default=func.now(), comment='创建时间')
 
     def __repr__(self):
         return f"<SystemLog(id={self.id}, type={self.log_type}, level={self.log_level}, module={self.module})>"
@@ -745,7 +745,7 @@ class ResearchReport(Base):
     __tablename__ = 'research_reports'
 
     # === 主键 ===
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
 
     # === 核心分类 ===
     # 1:个股研报, 2:行业研报, 3:宏观/市场策略
@@ -763,7 +763,7 @@ class ResearchReport(Base):
     title = Column(String(500), nullable=False, comment='研报标题')
     summary = Column(Text, nullable=True, comment='摘要/核心观点')
     content_text = Column(Text, nullable=True, comment='全文内容 (用于检索)')
-    content_json = Column(JSON, nullable=True)
+    content_json = Column(JSON, nullable=True, comment='结构化内容（JSON，如估值/图表数据）')
 
     # 评级与目标价
     rating = Column(String(50), nullable=True, comment='投资评级 (买入/增持/中性/卖出)')
@@ -819,22 +819,22 @@ class ResearchReport(Base):
 class ScheduledTask(Base):
     __tablename__ = 'scheduled_task'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    task_name = Column(String(100), nullable=False, unique=True)
-    func_module = Column(String(255), nullable=False)
-    func_name = Column(String(100), nullable=False)
-    args = Column(JSON, default=[])
-    kwargs = Column(JSON, default={})
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    task_name = Column(String(100), nullable=False, unique=True, comment='任务名称（唯一）')
+    func_module = Column(String(255), nullable=False, comment='函数所在模块路径')
+    func_name = Column(String(100), nullable=False, comment='函数名')
+    args = Column(JSON, default=[], comment='位置参数（JSON 数组）')
+    kwargs = Column(JSON, default={}, comment='关键字参数（JSON 对象）')
 
-    trigger_type = Column(Enum(), nullable=False, default=TriggerType.CRON)
-    cron_expression = Column(String(100))  # 仅当 trigger_type == 'cron' 时有效
-    run_at = Column(DateTime)  # 仅当 trigger_type == 'date' 时有效
+    trigger_type = Column(Enum(), nullable=False, default=TriggerType.CRON, comment='触发类型：cron-定时, date-一次性')
+    cron_expression = Column(String(100), comment='Cron 表达式（仅当 trigger_type == cron 时有效）')  # 仅当 trigger_type == 'cron' 时有效
+    run_at = Column(DateTime, comment='执行时间（仅当 trigger_type == date 时有效）')  # 仅当 trigger_type == 'date' 时有效
 
-    is_active = Column(Boolean, default=True)
-    last_run_at = Column(DateTime)
-    next_run_at = Column(DateTime)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    is_active = Column(Boolean, default=True, comment='是否启用')
+    last_run_at = Column(DateTime, comment='上次执行时间')
+    next_run_at = Column(DateTime, comment='下次执行时间')
+    created_at = Column(DateTime, default=datetime.utcnow, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment='更新时间')
 
     def __repr__(self):
         return f"<ScheduledTask(id={self.id}, task_name='{self.task_name}', type={self.trigger_type})>"
@@ -866,11 +866,11 @@ class LlmConversationContext(Base):
         'mysql_collate': 'utf8mb4_bin',
     }
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    chat_id = Column(String(50, collation='utf8mb4_bin'), nullable=True, default=None)
-    chat_context = Column(Text, nullable=True, default=None)
-    created_at = Column(DateTime, nullable=True, default=None)
-    updated_at = Column(DateTime, nullable=True, default=None)
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    chat_id = Column(String(50, collation='utf8mb4_bin'), nullable=True, default=None, comment='会话ID')
+    chat_context = Column(Text, nullable=True, default=None, comment='会话上下文内容')
+    created_at = Column(DateTime, nullable=True, default=None, comment='创建时间')
+    updated_at = Column(DateTime, nullable=True, default=None, comment='更新时间')
 
     def __repr__(self):
         return f"<LlmConversationContext(id={self.id}, chat_id='{self.chat_id}')>"
@@ -884,19 +884,19 @@ class LlmConversationContext(Base):
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
-class AppLog(Base):
 
+class AppLog(Base):
     __tablename__ = 'app_logs'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp = Column(DateTime, nullable=False, index=True)
-    level = Column(String(16), nullable=False, index=True)
-    logger = Column(String(64))
-    message = Column(Text)
-    module = Column(String(64))
-    func = Column(String(64))
-    line = Column(Integer)
-    created_at = Column(DateTime)  # SQLAlchemy 里可以 server_default 或手动填
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    timestamp = Column(DateTime, nullable=False, index=True, comment='日志时间戳')
+    level = Column(String(16), nullable=False, index=True, comment='日志级别')
+    logger = Column(String(64), comment='logger 名称')
+    message = Column(Text, comment='日志消息')
+    module = Column(String(64), comment='模块名')
+    func = Column(String(64), comment='函数名')
+    line = Column(Integer, comment='行号')
+    created_at = Column(DateTime, comment='入库时间')  # SQLAlchemy 里可以 server_default 或手动填
 
     def __repr__(self):
         return f"<AppLog(id={self.id}, level={self.level}, message={self.message[:30]})>"
@@ -905,21 +905,21 @@ class AppLog(Base):
 class StockFinancialScore(Base):
     __tablename__ = 'stock_financial_scores'
 
-    id = Column(BigInteger, primary_key=True, autoincrement=True)
-    code = Column(String(12), nullable=False, unique=True, index=True)
-    roe = Column(DECIMAL(10, 4), nullable=False)
-    profit_growth = Column(DECIMAL(12, 4), nullable=False)
-    cash_quality = Column(DECIMAL(8, 4), nullable=False)
-    pe = Column(DECIMAL(10, 4), nullable=False)
-    debt_ratio = Column(DECIMAL(8, 4), nullable=False)
-    roe_score = Column(DECIMAL(6, 2), nullable=False)
-    profit_growth_score = Column(DECIMAL(6, 2), nullable=False)
-    cash_quality_score = Column(DECIMAL(6, 2), nullable=False)
-    pe_score = Column(DECIMAL(6, 2), nullable=False)
-    debt_ratio_score = Column(DECIMAL(6, 2), nullable=False)
-    composite_score = Column(DECIMAL(6, 2), nullable=False, index=True)
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    code = Column(String(12), nullable=False, unique=True, index=True, comment='股票代码')
+    roe = Column(DECIMAL(10, 4), nullable=False, comment='净资产收益率 ROE（原始值）')
+    profit_growth = Column(DECIMAL(12, 4), nullable=False, comment='利润增长率（原始值，%）')
+    cash_quality = Column(DECIMAL(8, 4), nullable=False, comment='现金流质量（原始值）')
+    pe = Column(DECIMAL(10, 4), nullable=False, comment='市盈率 PE（原始值）')
+    debt_ratio = Column(DECIMAL(8, 4), nullable=False, comment='资产负债率（原始值，%）')
+    roe_score = Column(DECIMAL(6, 2), nullable=False, comment='ROE 维度得分')
+    profit_growth_score = Column(DECIMAL(6, 2), nullable=False, comment='利润增长维度得分')
+    cash_quality_score = Column(DECIMAL(6, 2), nullable=False, comment='现金流质量维度得分')
+    pe_score = Column(DECIMAL(6, 2), nullable=False, comment='估值（PE）维度得分')
+    debt_ratio_score = Column(DECIMAL(6, 2), nullable=False, comment='负债率维度得分')
+    composite_score = Column(DECIMAL(6, 2), nullable=False, index=True, comment='综合得分')
+    created_at = Column(DateTime, server_default=func.now(), comment='创建时间')
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment='更新时间')
 
     def __repr__(self):
         return (f"<StockFinancialScore(id={self.id}, code={self.code}, "
