@@ -29,10 +29,12 @@ prompt_quant_decision = """
 def adjust_position_plan(position_plan, holding_assets_dict):
     assert 'actions' in position_plan
 
+    valid_actions = []
     for action in position_plan['actions']:
-
         # {'action': 'sell', 'reason': '持仓亏损，技术形态偏弱，且行业竞争加剧，为控制风险分批减仓。', 'quantity': 10, 'stock_code': '688256', 'stock_name': '寒武纪'}
-        if action['quantity'] == 0:
+        
+        # 过滤掉无效的 action：quantity 为 0、None 或负数
+        if not action.get('quantity') or action['quantity'] <= 0:
             continue
 
         lot_size = get_lot_size(action['stock_code'])
@@ -54,9 +56,16 @@ def adjust_position_plan(position_plan, holding_assets_dict):
         if adjusted_qty <= 0 and current_qty > 0:
             adjusted_qty = lot_size if current_qty >= lot_size else current_qty
 
+        # 再次检查调整后的数量是否有效
+        if adjusted_qty <= 0:
+            continue
+
         # 修正操作手数
         action['quantity'] = adjusted_qty
+        valid_actions.append(action)
 
+    # 用过滤后的 actions 替换原来的
+    position_plan['actions'] = valid_actions
     return position_plan
 
 
