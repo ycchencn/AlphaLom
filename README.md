@@ -41,9 +41,9 @@ FinFilo 采用「单体仓库 + 多进程服务」的部署形态：同一镜像
 | `web_slave` | 8081 | `run_app.py` | Flask REST API（从节点，负载均衡） |
 | `chat_app` | 8082→8000 | `run_chat_app.py` | FastAPI 流式对话 + MCP 工具调用 |
 | `scheduler` | — | `scheduler.py` | 定时任务调度（收盘后跑数据/因子/信号） |
-| `job_server` | — | `job_server_mq.py` | RabbitMQ 任务消费者 |
-| `job_server_slave` | — | `job_server_mq.py` | RabbitMQ 任务消费者（从节点） |
-| `news_server` | — | `news_server.py` | 新闻聚合 |
+| `job_server` | — | `job/job_server_mq.py` | RabbitMQ 任务消费者 |
+| `job_server_slave` | — | `job/job_server_mq.py` | RabbitMQ 任务消费者（从节点） |
+| `news_server` | — | `job/news_server.py` | 新闻聚合 |
 | `log_comsumer` | — | `log_comsumer.py` | 日志消费 |
 
 ### 后端模块
@@ -104,8 +104,6 @@ finfilo/
 ├── run_app.py            # Flask REST 入口
 ├── run_chat_app.py       # FastAPI 对话入口
 ├── scheduler.py          # 定时任务入口
-├── job_server_mq.py      # RabbitMQ 消费入口
-├── news_server.py        # 新闻服务入口
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置
 ├── app/  routes/  service/  llms/  backtest/  job/  models/  utils/  prompts/  finfilo/
