@@ -491,7 +491,7 @@ onUnmounted(() => {
         v-model:visible="report_drawer"
         header="研报详情"
         position="right"
-        class="!w-full md:!w-200 lg:!w-[85rem]"
+        class="!w-full md:!w-200 lg:!w-[100rem]"
         :footer="false"
         body-class="p-0"
     >
