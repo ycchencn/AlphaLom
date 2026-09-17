@@ -63,4 +63,5 @@ class LLMBaseVolcEngine(LLMBase):
                 }
             },
         )
+        self._print_token_usage(completion.usage)
         return completion.choices[0].message.content
