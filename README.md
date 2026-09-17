@@ -165,9 +165,7 @@ npm run build    # 构建到 dist/（Flask 的 static 目录）
 
 ## ⚠️ 注意事项
 
-- **鉴权为 Demo 级**：`run_app.py` 中的登录接口目前是**硬编码**的（`guest` / 固定密码 / 返回假 token），仅用于演示，**生产环境必须替换为正式鉴权**。
-- 所有密钥通过 `.env` 注入，仓库中**不应**提交真实密钥。
-- `config.elasticsearch_setting.enable` 默认关闭，按需开启。
+- 
 
 ## 截图
 

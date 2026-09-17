@@ -1,11 +1,52 @@
 <script setup>
+import Dialog from 'primevue/dialog';
 import ConfirmDialog from 'primevue/confirmdialog';
 import { onBeforeMount, ref } from 'vue';
 import axios from 'axios';
 import { formatCurrency } from '@/utils/function';
+import { useNotification } from '@/composables/useNotification';
 
 const portfolios = ref([]); // 初始化为空数组，避免 v-for 报错
 const loading1 = ref(false);
+const { showSuccess, showError } = useNotification();
+
+// ---- 新增投资组合相关 ----
+const createDialogVisible = ref(false);
+const submitting = ref(false);
+const createForm = ref({
+    name: '',
+    strategy_type: 1,
+    init_cash: 1000000,
+    current_cash: 1000000,
+    total_position_pct: 80,
+    base_currency: 'CNY',
+    llm_setting: {
+        model: '',
+        platform: 'aliyun'
+    }
+});
+
+// 策略类型选项（与下方 PHASE_CONFIG 对齐）
+const strategyTypeOptions = [
+    { label: '技术面', value: 0 },
+    { label: 'AI主观', value: 1 },
+];
+
+// 基准货币选项
+const currencyOptions = [
+    { label: '人民币 CNY', value: 'CNY' },
+    { label: '美元 USD', value: 'USD' },
+    { label: '港币 HKD', value: 'HKD' },
+];
+
+// 大模型平台选项（对应 llms/__init__.py get_model_by_setting 的 platform 分发）
+const platformOptions = [
+    { label: '阿里云百炼', value: 'aliyun' },
+    { label: 'DeepSeek', value: 'deepseek' },
+    { label: '火山引擎', value: 'volcengine' },
+    { label: 'SiliconFlow', value: 'siliconflow' },
+    { label: '智谱', value: 'zhipu' },
+];
 
 // 辅助函数：安全计算累计收益率
 const calculateCumulativeReturn = (item) => {
@@ -17,7 +58,7 @@ const calculateCumulativeReturn = (item) => {
 
     // 2. 边界值判断：如果总资产或初始资金无效（如 null, undefined, NaN），返回 0 或 '-'
     if (!totalAssets || !initCash) {
-        item.summary.total_assets = item.summary.init_cash
+        item.summary.total_assets = initCash;
         return 0;
     }
 
@@ -28,29 +69,118 @@ const calculateCumulativeReturn = (item) => {
     return ratio * 100;
 };
 
-onBeforeMount(() => {
+// 加载投资组合列表（可复用，新增后刷新用）
+const loadPortfolios = () => {
     loading1.value = true;
     axios.get('/api/v1/investment_portfolios')
         .then(response => {
-            // --- 核心修改开始 ---
-            // 在赋值前对数据进行映射和处理
             const rawData = response.data || [];
             portfolios.value = rawData.map(item => {
-                // 这里你可以直接修改原对象，或者创建一个新对象
-                // 我们将计算好的结果挂载到 item 上，方便模板直接使用
+                // 防御：新组合可能暂无 daily summary，补全字段避免 toFixed / 运算报错
+                const summary = item.summary || {};
+                item.summary = {
+                    total_unrealized_pnl: summary.total_unrealized_pnl ?? 0,
+                    total_assets: summary.total_assets ?? 0,
+                    daily_pnl_change: summary.daily_pnl_change ?? 0,
+                    position_ratio: summary.position_ratio ?? 0,
+                };
+                // 仓位比例后端为 0~1 小数，转成 0~100 供 ProgressBar 显示
                 item.summary.position_ratio = item.summary.position_ratio * 100;
                 item.calculated_return_rate = calculateCumulativeReturn(item);
                 return item;
             });
-            // --- 核心修改结束 ---
         })
         .catch(err => {
             console.error("数据加载失败", err);
+            showError('投资组合列表加载失败');
         })
         .finally(() => {
             loading1.value = false;
         });
+};
+
+onBeforeMount(() => {
+    loadPortfolios();
 });
+
+// 打开新增弹窗（重置表单为默认值）
+const openCreateDialog = () => {
+    createForm.value = {
+        name: '',
+        strategy_type: 1,
+        init_cash: 1000000,
+        current_cash: 1000000,
+        total_position_pct: 80,
+        base_currency: 'CNY',
+        llm_setting: {
+            model: '',
+            platform: 'aliyun'
+        }
+    };
+    createDialogVisible.value = true;
+};
+
+// 提交新增投资组合
+const submitCreate = async () => {
+    const f = createForm.value;
+
+    // 前置校验
+    if (!f.name || !String(f.name).trim()) {
+        showError('请输入策略名称');
+        return;
+    }
+    if (f.init_cash == null || Number(f.init_cash) <= 0) {
+        showError('初始资金必须大于 0');
+        return;
+    }
+    if (f.current_cash == null || Number(f.current_cash) < 0) {
+        showError('当前资金不能为负数');
+        return;
+    }
+    if (f.total_position_pct == null || Number(f.total_position_pct) < 0 || Number(f.total_position_pct) > 100) {
+        showError('总仓位需在 0~100 之间');
+        return;
+    }
+    if (!f.llm_setting.model || !String(f.llm_setting.model).trim()) {
+        showError('请输入大模型名称');
+        return;
+    }
+
+    submitting.value = true;
+    try {
+        await axios.post('/api/v1/investment_portfolios', {
+            name: String(f.name).trim(),
+            strategy_type: Number(f.strategy_type),
+            init_cash: Number(f.init_cash),
+            current_cash: Number(f.current_cash),
+            total_position_pct: Number(f.total_position_pct),
+            base_currency: f.base_currency,
+            llm_setting: {
+                model: String(f.llm_setting.model || '').trim(),
+                platform: f.llm_setting.platform
+            }
+        });
+        showSuccess('策略创建成功');
+        createDialogVisible.value = false;
+        loadPortfolios();
+    } catch (error) {
+        let message = '创建失败，请重试';
+        if (error?.response?.data?.msg) {
+            message = error.response.data.msg;
+        }
+        showError(message);
+    } finally {
+        submitting.value = false;
+    }
+};
+
+// 辅助函数：安全计算今日收益百分比（分母为 0 时返回 0，避免 NaN）
+const calculateDailyPct = (summary) => {
+    const change = Number(summary?.daily_pnl_change ?? 0);
+    const totalAssets = Number(summary?.total_assets ?? 0);
+    if (!totalAssets) return '0.00';
+    return ((change / totalAssets) * 100).toFixed(2);
+};
 
 // 1. 阶段映射配置
 const PHASE_CONFIG = {
@@ -65,7 +195,61 @@ const formatType = (phaseInt) => {
 </script>
 
 <template>
+    <Toast />
     <ConfirmDialog></ConfirmDialog>
+
+    <!-- 新增投资组合弹窗 -->
+    <Dialog v-model:visible="createDialogVisible" modal header="新增投资组合" :style="{ width: '28rem' }">
+        <div class="flex flex-col gap-4">
+            <div>
+                <label for="pf_name" class="font-semibold block mb-1">策略名称 <span class="text-red-500">*</span></label>
+                <InputText id="pf_name" v-model="createForm.name" autocomplete="off" placeholder="请输入策略名称" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_strategy_type" class="font-semibold block mb-1">策略类型</label>
+                <Dropdown id="pf_strategy_type" v-model="createForm.strategy_type" :options="strategyTypeOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_init_cash" class="font-semibold block mb-1">初始资金 <span class="text-red-500">*</span></label>
+                <InputNumber id="pf_init_cash" v-model="createForm.init_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_current_cash" class="font-semibold block mb-1">当前资金 <span class="text-red-500">*</span></label>
+                <InputNumber id="pf_current_cash" v-model="createForm.current_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_position_pct" class="font-semibold block mb-1">总仓位（%） <span class="text-red-500">*</span></label>
+                <InputNumber id="pf_position_pct" v-model="createForm.total_position_pct" :min="0" :max="100" suffix=" %" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_currency" class="font-semibold block mb-1">基准货币</label>
+                <Dropdown id="pf_currency" v-model="createForm.base_currency" :options="currencyOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_platform" class="font-semibold block mb-1">大模型平台</label>
+                <Dropdown id="pf_platform" v-model="createForm.llm_setting.platform" :options="platformOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="pf_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
+                <InputText id="pf_model" v-model="createForm.llm_setting.model" autocomplete="off" placeholder="如 qwen3.6-plus" class="w-full" />
+            </div>
+        </div>
+
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="createDialogVisible = false" :disabled="submitting" />
+                <Button type="button" label="创建" :loading="submitting" @click="submitCreate" />
+            </div>
+        </template>
+    </Dialog>
+
     <div class="card">
         <DataTable
             :value="portfolios"
@@ -94,6 +278,7 @@ const formatType = (phaseInt) => {
                             size="small"
                             label="添加策略"
                             class="whitespace-nowrap"
+                            @click="openCreateDialog"
                         />
                     </div>
                 </div>
@@ -115,7 +300,7 @@ const formatType = (phaseInt) => {
 
             <Column field="name" filterField="name" header="仓位" style="min-width: 8rem">
                 <template #body="{ data }">
-                    <ProgressBar :value="data.summary?.position_ratio.toFixed(2)"></ProgressBar>
+                    <ProgressBar :value="Number(data.summary?.position_ratio ?? 0).toFixed(2)"></ProgressBar>
                 </template>
             </Column>
 
@@ -127,7 +312,7 @@ const formatType = (phaseInt) => {
                       'text-green-600': data.summary.daily_pnl_change < 0,
                     }">
                         {{ formatCurrency(data.summary.daily_pnl_change, true) }}
-                        ({{ (data.summary.daily_pnl_change / data.summary.total_assets * 100).toFixed(2) }}%)
+                        ({{ calculateDailyPct(data.summary) }}%)
                     </span>
                 </template>
             </Column>
@@ -159,7 +344,7 @@ const formatType = (phaseInt) => {
 
             <Column field="name" filterField="name" header="持仓个股">
                 <template #body="{ data }">
-                    {{ data.assets.length }}
+                    {{ (data.assets || []).length }}
                 </template>
             </Column>
 

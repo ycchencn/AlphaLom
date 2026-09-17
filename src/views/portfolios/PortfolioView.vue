@@ -13,8 +13,7 @@ import {
     formatHoldingDuration,
     formatDaysAgo,
     fetchPortfolioSummaryDaily,
-    formatPercentage,
-    fetchPortfolioTransaction, fetchPortfolioQuantStat
+    fetchPortfolioTransaction
 } from '@/utils/function.js';
 import axios from 'axios';
 import Dialog from 'primevue/dialog';

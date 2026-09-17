@@ -293,8 +293,8 @@ class InvestmentPortfolio(Base):
     base_currency = Column(String(10), default='USD', comment='基准货币')
     position_plan = Column(JSON, nullable=True, comment='仓位计划（JSON）')
     position_plan_reason = Column(Text, nullable=True, comment='仓位计划理由')
-    init_cash = Column(DECIMAL(5, 2), nullable=False, comment='初始资金')
-    current_cash = Column(DECIMAL(5, 2), nullable=False, comment='当前资金')
+    init_cash = Column(DECIMAL(18, 2), nullable=False, comment='初始资金')
+    current_cash = Column(DECIMAL(18, 2), nullable=False, comment='当前资金')
     create_time = Column(DateTime, default=datetime.now, comment='创建时间')
     update_time = Column(DateTime, onupdate=datetime.now, comment='更新时间')
     llm_prompt = Column(Text, default='', comment='大模型提示词')
@@ -315,9 +315,9 @@ class InvestmentPortfolio(Base):
             'position_plan': self.position_plan,
             'position_plan_reason': self.position_plan_reason,
             'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
-            'update_time': self.create_time.isoformat() if self.update_time else None,
-            'init_cash': self.init_cash,
-            'current_cash': self.current_cash,
+            'update_time': self.update_time.strftime('%Y-%m-%d %H:%M:%S') if self.update_time else None,
+            'init_cash': float(self.init_cash) if self.init_cash is not None else None,
+            'current_cash': float(self.current_cash) if self.current_cash is not None else None,
             'llm_prompt': self.llm_prompt,
             'llm_setting': self.llm_setting,
             'desc': self.desc,
