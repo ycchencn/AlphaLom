@@ -48,6 +48,40 @@ def get_tech_analysis_report(stock_code):
     return jsonify(report)
 
 
+@stock_bp.route(f'{api_prefix}/stock/research_reports/<string:stock_code>', methods=['GET'])
+def get_research_reports(stock_code):
+    """
+    获取个股的所有研报列表（不含大字段 content_text/content_json）
+    """
+    reports = ResearchReportService.query_reports(stock_code=stock_code, limit=200)
+    # 列表接口不返回大字段，节省带宽
+    result = []
+    for r in reports:
+        d = r.to_dict()
+        d.pop('content_text', None)
+        d.pop('content_json', None)
+        result.append(d)
+    return jsonify(result)
+
+
+@stock_bp.route(f'{api_prefix}/stock/research_report/<int:report_id>', methods=['GET'])
+def get_research_report_detail(report_id):
+    """
+    获取单个研报详情（含 content_text / content_json）
+    """
+    from models import ResearchReport
+    from models.database import db_session
+    try:
+        report = db_session.query(ResearchReport).filter_by(id=report_id).first()
+        if not report:
+            return jsonify({'code': 404, 'msg': 'Report not found'}), 404
+        return jsonify(report.to_dict())
+    except Exception as e:
+        from utils.logger import logger
+        logger.error(f"Error fetching report {report_id}: {e}")
+        return jsonify({'code': 500, 'msg': str(e)}), 500
+
+
 @stock_bp.route(f'{api_prefix}/stocks/<string:symbol>', methods=['PUT'])
 def update_stock(symbol):
     """

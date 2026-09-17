@@ -65,6 +65,10 @@ const dcf_research_report = ref({
 const tech_report = ref(null)
 const dcf_research_report_drawer = ref(false)
 const fundamental_scores = ref(null)
+const research_reports = ref([])
+const selected_report = ref(null)
+const report_drawer = ref(false)
+const report_loading = ref(false)
 
 // 可选：真实历史价格数据
 const realHistoryData = ref([])
@@ -305,6 +309,11 @@ onMounted(async () => {
 
     });
 
+    // 加载研报列表
+    axios.get(`/api/v1/stock/research_reports/${stock_code}`).then(response => {
+        research_reports.value = response.data || [];
+    });
+
 });
 
 const chartFilterOptions = [
@@ -391,6 +400,28 @@ const reanalysisDcf = function () {
     }
 }
 
+const viewReport = function (report) {
+    report_loading.value = true;
+    axios.get(`/api/v1/stock/research_report/${report.id}`).then(response => {
+        selected_report.value = response.data;
+        report_drawer.value = true;
+    }).catch(error => {
+        showError('获取研报详情失败');
+    }).finally(() => {
+        report_loading.value = false;
+    });
+}
+
+const getRatingSeverity = function (rating) {
+    if (!rating) return 'secondary';
+    const r = rating.toLowerCase();
+    if (r.includes('买入') || r.includes('buy') || r.includes('强推')) return 'success';
+    if (r.includes('增持') || r.includes('推荐')) return 'success';
+    if (r.includes('中性') || r.includes('持有')) return 'warning';
+    if (r.includes('卖出') || r.includes('减持')) return 'danger';
+    return 'secondary';
+}
+
 
 onUnmounted(() => {
     dispose('chart');
@@ -443,6 +474,49 @@ onUnmounted(() => {
                     >重新分析
                     </Button>
                 </div>
+            </div>
+        </div>
+    </Drawer>
+
+    <!-- 研报详情抽屉 -->
+    <Drawer
+        v-model:visible="report_drawer"
+        header="研报详情"
+        position="right"
+        class="!w-full md:!w-200 lg:!w-[75rem]"
+        :footer="false"
+        body-class="p-0"
+    >
+        <div class="flex flex-col h-full" v-if="selected_report">
+            <div class="flex-1 overflow-y-auto p-6">
+                <div class="mb-4">
+                    <h2 class="text-2xl font-bold mb-2">{{ selected_report.title }}</h2>
+                    <div class="flex gap-4 text-sm text-gray-500 mb-4">
+                        <span><i class="pi pi-building"></i> {{ selected_report.broker_name }}</span>
+                        <span><i class="pi pi-user"></i> {{ selected_report.analyst_name || '-' }}</span>
+                        <span><i class="pi pi-calendar"></i> {{ formatDaysAgo(selected_report.publish_time) }}</span>
+                        <Tag v-if="selected_report.rating" :value="selected_report.rating" :severity="getRatingSeverity(selected_report.rating)" />
+                    </div>
+                </div>
+
+                <Divider/>
+
+                <div v-if="selected_report.summary" class="mb-6">
+                    <h3 class="text-lg font-semibold mb-2">摘要</h3>
+                    <div class="text-gray-700">{{ selected_report.summary }}</div>
+                </div>
+
+                <Divider/>
+
+                <div class="mb-6">
+                    <h3 class="text-lg font-semibold mb-2">正文内容</h3>
+                    <MarkdownRenderer
+                        fontSize="13px"
+                        :markdown="selected_report.content_text || '暂无内容'"
+                    />
+                </div>
+
+                <div class="h-4"></div>
             </div>
         </div>
     </Drawer>
@@ -675,6 +749,53 @@ onUnmounted(() => {
                         </template>
                     </Column>
                 </DataTable>
+            </TabPanel>
+
+            <TabPanel value="tab5">
+                <div class="mt-5">
+                    <div class="font-semibold text-lg mb-3">
+                        <i class="pi pi-file text-blue-500"></i> 研报列表
+                    </div>
+                    <DataTable
+                        :value="research_reports"
+                        :paginator="true"
+                        :rows="10"
+                        tableStyle="font-size:12px"
+                        :rowHover="true"
+                        :showGridlines="false"
+                        :loading="report_loading"
+                    >
+                        <template #empty>暂无研报数据</template>
+                        <template #loading>加载中...</template>
+
+                        <Column field="title" header="标题">
+                            <template #body="{ data }">
+                                <a @click="viewReport(data)" class="text-blue-600 hover:underline cursor-pointer">
+                                    {{ data.title }}
+                                </a>
+                            </template>
+                        </Column>
+
+                        <Column field="broker_name" header="券商" style="width: 120px" />
+
+                        <Column field="rating" header="评级" style="width: 100px">
+                            <template #body="{ data }">
+                                <Tag
+                                    v-if="data.rating"
+                                    :value="data.rating"
+                                    :severity="getRatingSeverity(data.rating)"
+                                />
+                                <span v-else>-</span>
+                            </template>
+                        </Column>
+
+                        <Column field="publish_time" header="发布时间" style="width: 120px">
+                            <template #body="{ data }">
+                                {{ formatDaysAgo(data.publish_time) }}
+                            </template>
+                        </Column>
+                    </DataTable>
+                </div>
             </TabPanel>
         </TabPanels>
     </Tabs>
