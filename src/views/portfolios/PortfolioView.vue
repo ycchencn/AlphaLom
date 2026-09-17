@@ -41,9 +41,6 @@ const editForm = ref({
     name: '',
     strategy_type: 1,
     init_cash: 0,
-    current_cash: 0,
-    total_position_pct: 0,
-    base_currency: 'CNY',
     desc: '',
     llm_setting: {
         model: '',
@@ -55,13 +52,6 @@ const editForm = ref({
 const strategyTypeOptions = [
     { label: '技术面', value: 0 },
     { label: 'AI主观', value: 1 },
-];
-
-// 基准货币选项
-const currencyOptions = [
-    { label: '人民币 CNY', value: 'CNY' },
-    { label: '美元 USD', value: 'USD' },
-    { label: '港币 HKD', value: 'HKD' },
 ];
 
 // 大模型平台选项
@@ -350,9 +340,6 @@ const openEditDialog = () => {
         name: profInfo.value.name || '',
         strategy_type: profInfo.value.strategy_type ?? 1,
         init_cash: profInfo.value.init_cash || 0,
-        current_cash: profInfo.value.current_cash || 0,
-        total_position_pct: profInfo.value.total_position_pct || 0,
-        base_currency: profInfo.value.base_currency || 'CNY',
         desc: profInfo.value.desc || '',
         llm_setting: profInfo.value.llm_setting || {
             model: '',
@@ -375,14 +362,6 @@ const submitEdit = async () => {
         showError('初始资金必须大于 0');
         return;
     }
-    if (f.current_cash == null || Number(f.current_cash) < 0) {
-        showError('当前资金不能为负数');
-        return;
-    }
-    if (f.total_position_pct == null || Number(f.total_position_pct) < 0 || Number(f.total_position_pct) > 100) {
-        showError('总仓位需在 0~100 之间');
-        return;
-    }
     
     // 仅 AI 主观策略需要验证大模型配置
     let llm_setting = null;
@@ -403,9 +382,6 @@ const submitEdit = async () => {
             name: String(f.name).trim(),
             strategy_type: Number(f.strategy_type),
             init_cash: Number(f.init_cash),
-            current_cash: Number(f.current_cash),
-            total_position_pct: Number(f.total_position_pct),
-            base_currency: f.base_currency,
             desc: f.desc,
             llm_setting: llm_setting
         });
@@ -514,21 +490,6 @@ const showDcfDrawer = function () {
             <div>
                 <label for="edit_init_cash" class="font-semibold block mb-1">初始资金 <span class="text-red-500">*</span></label>
                 <InputNumber id="edit_init_cash" v-model="editForm.init_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
-            </div>
-
-            <div>
-                <label for="edit_current_cash" class="font-semibold block mb-1">当前资金 <span class="text-red-500">*</span></label>
-                <InputNumber id="edit_current_cash" v-model="editForm.current_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
-            </div>
-
-            <div>
-                <label for="edit_position_pct" class="font-semibold block mb-1">总仓位（%） <span class="text-red-500">*</span></label>
-                <InputNumber id="edit_position_pct" v-model="editForm.total_position_pct" :min="0" :max="100" suffix=" %" class="w-full" />
-            </div>
-
-            <div>
-                <label for="edit_currency" class="font-semibold block mb-1">基准货币</label>
-                <Dropdown id="edit_currency" v-model="editForm.base_currency" :options="currencyOptions" optionLabel="label" optionValue="value" class="w-full" />
             </div>
 
             <!-- 仅 AI 主观策略需要配置大模型 -->
