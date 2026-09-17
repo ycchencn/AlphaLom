@@ -32,7 +32,46 @@ const lineData = ref(null);
 const lineDataAssets = ref(null);
 const lineOptions = ref(null);
 const modal_visible = ref(false);
+const editDialogVisible = ref(false);
+const editSubmitting = ref(false);
 const code = ref(``);
+
+// 编辑表单数据
+const editForm = ref({
+    name: '',
+    strategy_type: 1,
+    init_cash: 0,
+    current_cash: 0,
+    total_position_pct: 0,
+    base_currency: 'CNY',
+    desc: '',
+    llm_setting: {
+        model: '',
+        platform: 'aliyun'
+    }
+});
+
+// 策略类型选项
+const strategyTypeOptions = [
+    { label: '技术面', value: 0 },
+    { label: 'AI主观', value: 1 },
+];
+
+// 基准货币选项
+const currencyOptions = [
+    { label: '人民币 CNY', value: 'CNY' },
+    { label: '美元 USD', value: 'USD' },
+    { label: '港币 HKD', value: 'HKD' },
+];
+
+// 大模型平台选项
+const platformOptions = [
+    { label: '阿里云百炼', value: 'aliyun' },
+    { label: 'DeepSeek', value: 'deepseek' },
+    { label: '火山引擎', value: 'volcengine' },
+    { label: 'SiliconFlow', value: 'siliconflow' },
+    { label: '智谱', value: 'zhipu' },
+];
 // 盈亏日历数据
 const profitData = ref({});
 const portfolio_quantstat = ref(null);
@@ -288,12 +327,98 @@ onMounted(() => {
 
 const items = [
     {
+        label: '编辑组合信息',
+        icon: 'pi pi-pencil',
+        command: () => {
+            openEditDialog();
+        }
+    },
+    {
         label: '编辑模型prompt',
+        icon: 'pi pi-code',
         command: () => {
             modal_visible.value = true;
         }
     }
 ];
+
+// 打开编辑弹窗
+const openEditDialog = () => {
+    if (!profInfo.value) return;
+    
+    editForm.value = {
+        name: profInfo.value.name || '',
+        strategy_type: profInfo.value.strategy_type ?? 1,
+        init_cash: profInfo.value.init_cash || 0,
+        current_cash: profInfo.value.current_cash || 0,
+        total_position_pct: profInfo.value.total_position_pct || 0,
+        base_currency: profInfo.value.base_currency || 'CNY',
+        desc: profInfo.value.desc || '',
+        llm_setting: profInfo.value.llm_setting || {
+            model: '',
+            platform: 'aliyun'
+        }
+    };
+    editDialogVisible.value = true;
+};
+
+// 提交编辑
+const submitEdit = async () => {
+    const f = editForm.value;
+    
+    // 校验
+    if (!f.name || !String(f.name).trim()) {
+        showError('请输入组合名称');
+        return;
+    }
+    if (f.init_cash == null || Number(f.init_cash) <= 0) {
+        showError('初始资金必须大于 0');
+        return;
+    }
+    if (f.current_cash == null || Number(f.current_cash) < 0) {
+        showError('当前资金不能为负数');
+        return;
+    }
+    if (f.total_position_pct == null || Number(f.total_position_pct) < 0 || Number(f.total_position_pct) > 100) {
+        showError('总仓位需在 0~100 之间');
+        return;
+    }
+    if (!f.llm_setting.model || !String(f.llm_setting.model).trim()) {
+        showError('请输入大模型名称');
+        return;
+    }
+
+    editSubmitting.value = true;
+    try {
+        await axios.put(`/api/v1/portfolio/${encodeURIComponent(portfolioId)}`, {
+            name: String(f.name).trim(),
+            strategy_type: Number(f.strategy_type),
+            init_cash: Number(f.init_cash),
+            current_cash: Number(f.current_cash),
+            total_position_pct: Number(f.total_position_pct),
+            base_currency: f.base_currency,
+            desc: f.desc,
+            llm_setting: {
+                model: String(f.llm_setting.model || '').trim(),
+                platform: f.llm_setting.platform
+            }
+        });
+        showSuccess('组合信息更新成功');
+        editDialogVisible.value = false;
+        // 重新加载数据
+        const data = await fetchPortfolioInfo(portfolioId);
+        enrichAssets(data);
+        profInfo.value = data;
+    } catch (error) {
+        let message = '更新失败，请重试';
+        if (error?.response?.data?.msg) {
+            message = error.response.data.msg;
+        }
+        showError(message);
+    } finally {
+        editSubmitting.value = false;
+    }
+};
 
 async function updatePortfolioPrompt() {
     try {
@@ -361,6 +486,63 @@ const showDcfDrawer = function () {
             暂无报告数据
         </div>
     </Drawer>
+
+    <!-- 编辑组合信息弹窗 -->
+    <Dialog v-model:visible="editDialogVisible" modal header="编辑组合信息" :style="{ width: '32rem' }">
+        <div class="flex flex-col gap-4">
+            <div>
+                <label for="edit_name" class="font-semibold block mb-1">组合名称 <span class="text-red-500">*</span></label>
+                <InputText id="edit_name" v-model="editForm.name" autocomplete="off" placeholder="请输入组合名称" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_desc" class="font-semibold block mb-1">持仓风格 / 描述</label>
+                <Textarea id="edit_desc" v-model="editForm.desc" rows="2" autoResize class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_strategy_type" class="font-semibold block mb-1">策略类型</label>
+                <Dropdown id="edit_strategy_type" v-model="editForm.strategy_type" :options="strategyTypeOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_init_cash" class="font-semibold block mb-1">初始资金 <span class="text-red-500">*</span></label>
+                <InputNumber id="edit_init_cash" v-model="editForm.init_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_current_cash" class="font-semibold block mb-1">当前资金 <span class="text-red-500">*</span></label>
+                <InputNumber id="edit_current_cash" v-model="editForm.current_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_position_pct" class="font-semibold block mb-1">总仓位（%） <span class="text-red-500">*</span></label>
+                <InputNumber id="edit_position_pct" v-model="editForm.total_position_pct" :min="0" :max="100" suffix=" %" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_currency" class="font-semibold block mb-1">基准货币</label>
+                <Dropdown id="edit_currency" v-model="editForm.base_currency" :options="currencyOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_platform" class="font-semibold block mb-1">大模型平台</label>
+                <Dropdown id="edit_platform" v-model="editForm.llm_setting.platform" :options="platformOptions" optionLabel="label" optionValue="value" class="w-full" />
+            </div>
+
+            <div>
+                <label for="edit_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
+                <InputText id="edit_model" v-model="editForm.llm_setting.model" autocomplete="off" placeholder="如 qwen3.6-plus" class="w-full" />
+            </div>
+        </div>
+
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="editDialogVisible = false" :disabled="editSubmitting" />
+                <Button type="button" label="保存" :loading="editSubmitting" @click="submitEdit" />
+            </div>
+        </template>
+    </Dialog>
 
     <Dialog v-model:visible="modal_visible" modal header="编辑模型Prompt" style="width: 950px;">
         <div class="flex items-center gap-4 mb-4">
