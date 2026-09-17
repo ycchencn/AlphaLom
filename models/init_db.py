@@ -37,7 +37,7 @@ def init_database(create_admin: bool = True):
 
     if create_admin:
         try:
-            if UserService.create_admin_if_not_exists():
+            if UserService.create_user_if_not_exists():
                 logger.info("✅ 默认管理员已创建")
             else:
                 logger.info("ℹ️ 管理员账号已存在，跳过创建")

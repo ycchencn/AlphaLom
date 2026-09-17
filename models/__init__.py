@@ -300,7 +300,6 @@ class InvestmentPortfolio(Base):
     llm_prompt = Column(Text, default='', comment='大模型提示词')
     llm_setting = Column(JSON, nullable=True, comment='大模型配置（JSON）')
     portfolio_assets = relationship("PortfolioAssets", back_populates="portfolio")
-    risk_metrics = relationship("RiskMetrics", back_populates="portfolio")
     desc = Column(Text, comment='组合描述')
     enable = Column(Integer, nullable=False, default=1, comment='是否启用：0-停用, 1-启用')
     market = Column(String(50), nullable=False, default='cn', comment='市场：cn/hk/us 等')
@@ -367,39 +366,6 @@ class PortfolioAssets(Base):
             'take_profit_percent': self.take_profit_percent,
             'create_time': self.create_time.isoformat() if self.create_time else None,
             'last_update': self.last_update.isoformat() if self.last_update else None,
-        }
-
-
-class RiskMetrics(Base):
-    __tablename__ = 'risk_metrics'
-    metric_id = Column(String(36), primary_key=True, comment='风险指标ID')
-    portfolio_id = Column(String(36), ForeignKey('investment_portfolio.portfolio_id'), comment='投资组合ID')
-    sharpe_ratio = Column(DECIMAL(10, 4), comment='夏普比率')
-    max_drawdown = Column(DECIMAL(10, 2), comment='最大回撤')
-    sortino_ratio = Column(DECIMAL(10, 4), comment='索提诺比率')
-    volatility = Column(DECIMAL(10, 4), comment='波动率')
-    calc_date = Column(DateTime, comment='计算日期')
-    portfolio = relationship("InvestmentPortfolio", back_populates="risk_metrics")
-
-    def to_dict(self):
-        """将对象转换为字典格式"""
-        return {
-            'metric_id': self.metric_id,
-            'portfolio_id': self.portfolio_id,
-            'sharpe_ratio': float(self.sharpe_ratio)
-            if self.sharpe_ratio is not None
-            else None,
-            'max_drawdown': float(self.max_drawdown)
-            if self.max_drawdown is not None
-            else None,
-            'sortino_ratio': float(self.sortino_ratio)
-            if self.sortino_ratio is not None
-            else None,
-            'volatility': float(self.volatility)
-            if self.volatility is not None
-            else None,
-            'calc_date': self.calc_date.isoformat()
-            if self.calc_date else None
         }
 
 

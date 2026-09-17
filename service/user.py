@@ -147,10 +147,15 @@ class UserService:
             return -1
 
     @staticmethod
-    def create_admin_if_not_exists(username=DEFAULT_ADMIN_USERNAME, password=DEFAULT_ADMIN_PASSWORD):
+    def create_user_if_not_exists(username=DEFAULT_ADMIN_USERNAME, password=DEFAULT_ADMIN_PASSWORD,
+                                  role='admin', nickname='管理员'):
         """
-        首次安装（users 表为空）时自动创建默认管理员。
-        已存在同用户名或表非空时不重复创建。
+        用户不存在时创建（默认创建管理员，首次安装时自动调用）。
+        已存在同用户名时不重复创建。
+        :param username: 用户名
+        :param password: 明文密码（内部会哈希）
+        :param role: 角色，默认 admin
+        :param nickname: 昵称，默认「管理员」
         """
         try:
             existing = UserService.get_by_username(username)
@@ -160,14 +165,14 @@ class UserService:
             db_session.add(User(
                 username=username,
                 password_hash=password_hash,
-                nickname='管理员',
-                role='admin',
+                nickname=nickname,
+                role=role,
                 is_active=1,
             ))
             db_session.commit()
-            logger.info(f"已创建默认管理员账号：{username}")
+            logger.info(f"已创建用户账号：{username}（role={role}）")
             return True
         except Exception as e:
             db_session.rollback()
-            logger.error(f"创建默认管理员失败: {e}")
+            logger.error(f"创建用户失败: {e}")
             return False
