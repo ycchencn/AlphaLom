@@ -12,7 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from openai import AsyncOpenAI
-from utils.logger import logger, get_today
+from utils.logger import logger
+from utils.common import get_today
 from typing import Optional, Dict, List
 # from config import aliyun_bailian_apikey
 from llms.llm_base_async import LLMBaseAsync
