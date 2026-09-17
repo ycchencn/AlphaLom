@@ -8,6 +8,7 @@ services:
         command: python3 /app/run_app.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -20,6 +21,7 @@ services:
         command: python3 /app/run_app.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -32,6 +34,7 @@ services:
         command: python3 /app/run_chat_app.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -42,6 +45,7 @@ services:
         command: python3 /app/scheduler.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -52,6 +56,7 @@ services:
         command: python3 /app/job/job_server_mq.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -62,6 +67,7 @@ services:
         command: python3 /app/job/job_server_mq.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -72,6 +78,7 @@ services:
         command: python3 /app/job/news_server.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
@@ -82,6 +89,7 @@ services:
         command: python3 /app/log_comsumer.py
         environment:
             ENV: production
+            PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
         restart: always
