@@ -51,9 +51,9 @@ def get_tech_analysis_report(stock_code):
 @stock_bp.route(f'{api_prefix}/stock/research_reports/<string:stock_code>', methods=['GET'])
 def get_research_reports(stock_code):
     """
-    获取个股的所有研报列表（不含大字段 content_text/content_json）
+    获取个股的深度研报列表（report_type=3，不含大字段 content_text/content_json）
     """
-    reports = ResearchReportService.query_reports(stock_code=stock_code, limit=200)
+    reports = ResearchReportService.query_reports(stock_code=stock_code, report_type=3, limit=200)
     # 列表接口不返回大字段，节省带宽
     result = []
     for r in reports:

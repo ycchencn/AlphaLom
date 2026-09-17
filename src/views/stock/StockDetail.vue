@@ -510,10 +510,14 @@ onUnmounted(() => {
 
                 <div class="mb-6">
                     <h3 class="text-lg font-semibold mb-2">正文内容</h3>
-                    <MarkdownRenderer
-                        fontSize="13px"
-                        :markdown="selected_report.content_text || '暂无内容'"
+                    <iframe
+                        v-if="selected_report.content_text"
+                        :srcdoc="selected_report.content_text"
+                        class="w-full border-0"
+                        style="height: 600px;"
+                        sandbox="allow-same-origin"
                     />
+                    <div v-else class="text-gray-400">暂无内容</div>
                 </div>
 
                 <div class="h-4"></div>
@@ -754,7 +758,7 @@ onUnmounted(() => {
             <TabPanel value="tab5">
                 <div class="mt-5">
                     <div class="font-semibold text-lg mb-3">
-                        <i class="pi pi-file text-blue-500"></i> 研报列表
+                        <i class="pi pi-file text-blue-500"></i> 深度研报
                     </div>
                     <DataTable
                         :value="research_reports"
@@ -776,18 +780,7 @@ onUnmounted(() => {
                             </template>
                         </Column>
 
-                        <Column field="broker_name" header="券商" style="width: 120px" />
-
-                        <Column field="rating" header="评级" style="width: 100px">
-                            <template #body="{ data }">
-                                <Tag
-                                    v-if="data.rating"
-                                    :value="data.rating"
-                                    :severity="getRatingSeverity(data.rating)"
-                                />
-                                <span v-else>-</span>
-                            </template>
-                        </Column>
+                        <Column field="broker_name" header="券商" style="width: 180px" />
 
                         <Column field="publish_time" header="发布时间" style="width: 120px">
                             <template #body="{ data }">
