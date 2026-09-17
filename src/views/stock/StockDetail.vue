@@ -488,39 +488,48 @@ onUnmounted(() => {
         body-class="p-0"
     >
         <div class="flex flex-col h-full" v-if="selected_report">
-            <div class="flex-1 overflow-y-auto p-6">
-                <div class="mb-4">
-                    <h2 class="text-2xl font-bold mb-2">{{ selected_report.title }}</h2>
-                    <div class="flex gap-4 text-sm text-gray-500 mb-4">
-                        <span><i class="pi pi-building"></i> {{ selected_report.broker_name }}</span>
-                        <span><i class="pi pi-user"></i> {{ selected_report.analyst_name || '-' }}</span>
-                        <span><i class="pi pi-calendar"></i> {{ formatDaysAgo(selected_report.publish_time) }}</span>
-                        <Tag v-if="selected_report.rating" :value="selected_report.rating" :severity="getRatingSeverity(selected_report.rating)" />
+            <!-- 滚动区域 -->
+            <div class="flex-1 overflow-y-auto">
+                <div class="p-6">
+                    <div class="mb-4">
+                        <h2 class="text-2xl font-bold mb-2">{{ selected_report.title }}</h2>
+                        <div class="flex gap-4 text-sm text-gray-500 mb-4">
+                            <span><i class="pi pi-building"></i> {{ selected_report.broker_name }}</span>
+                            <span><i class="pi pi-user"></i> {{ selected_report.analyst_name || '-' }}</span>
+                            <span><i class="pi pi-calendar"></i> {{ formatDaysAgo(selected_report.publish_time) }}</span>
+                        </div>
                     </div>
+
+                    <Divider/>
+
+                    <div v-if="selected_report.summary" class="mb-6">
+                        <h3 class="text-lg font-semibold mb-2">摘要</h3>
+                        <div class="text-gray-700">{{ selected_report.summary }}</div>
+                    </div>
+
+                    <Divider/>
+
+                    <div class="mb-6">
+                        <h3 class="text-lg font-semibold mb-2">正文内容</h3>
+                        <iframe
+                            v-if="selected_report.content_text"
+                            :srcdoc="selected_report.content_text"
+                            class="w-full border-0"
+                            style="height: 600px;"
+                            sandbox="allow-same-origin"
+                        />
+                        <div v-else class="text-gray-400">暂无内容</div>
+                    </div>
+
+                    <div class="h-4"></div>
                 </div>
+            </div>
 
-                <Divider/>
-
-                <div v-if="selected_report.summary" class="mb-6">
-                    <h3 class="text-lg font-semibold mb-2">摘要</h3>
-                    <div class="text-gray-700">{{ selected_report.summary }}</div>
+            <!-- 底部操作栏 -->
+            <div class="border-t border-gray-300 p-4 flex justify-between items-center shrink-0">
+                <div class="text-xs text-gray-400">
+                    发布时间：{{ formatDaysAgo(selected_report.publish_time) || '加载中...' }}
                 </div>
-
-                <Divider/>
-
-                <div class="mb-6">
-                    <h3 class="text-lg font-semibold mb-2">正文内容</h3>
-                    <iframe
-                        v-if="selected_report.content_text"
-                        :srcdoc="selected_report.content_text"
-                        class="w-full border-0"
-                        style="height: 600px;"
-                        sandbox="allow-same-origin"
-                    />
-                    <div v-else class="text-gray-400">暂无内容</div>
-                </div>
-
-                <div class="h-4"></div>
             </div>
         </div>
     </Drawer>
@@ -780,7 +789,7 @@ onUnmounted(() => {
                             </template>
                         </Column>
 
-                        <Column field="broker_name" header="券商" style="width: 180px" />
+                        <Column field="broker_name" header="券商" style="width: 250px" />
 
                         <Column field="publish_time" header="发布时间" style="width: 120px">
                             <template #body="{ data }">
