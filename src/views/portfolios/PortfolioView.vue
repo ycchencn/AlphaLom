@@ -383,9 +383,18 @@ const submitEdit = async () => {
         showError('总仓位需在 0~100 之间');
         return;
     }
-    if (!f.llm_setting.model || !String(f.llm_setting.model).trim()) {
-        showError('请输入大模型名称');
-        return;
+    
+    // 仅 AI 主观策略需要验证大模型配置
+    let llm_setting = null;
+    if (f.strategy_type === 1) {
+        if (!f.llm_setting.model || !String(f.llm_setting.model).trim()) {
+            showError('请输入大模型名称');
+            return;
+        }
+        llm_setting = {
+            model: String(f.llm_setting.model || '').trim(),
+            platform: f.llm_setting.platform
+        };
     }
 
     editSubmitting.value = true;
@@ -398,10 +407,7 @@ const submitEdit = async () => {
             total_position_pct: Number(f.total_position_pct),
             base_currency: f.base_currency,
             desc: f.desc,
-            llm_setting: {
-                model: String(f.llm_setting.model || '').trim(),
-                platform: f.llm_setting.platform
-            }
+            llm_setting: llm_setting
         });
         showSuccess('组合信息更新成功');
         editDialogVisible.value = false;
@@ -525,15 +531,18 @@ const showDcfDrawer = function () {
                 <Dropdown id="edit_currency" v-model="editForm.base_currency" :options="currencyOptions" optionLabel="label" optionValue="value" class="w-full" />
             </div>
 
-            <div>
-                <label for="edit_platform" class="font-semibold block mb-1">大模型平台</label>
-                <Dropdown id="edit_platform" v-model="editForm.llm_setting.platform" :options="platformOptions" optionLabel="label" optionValue="value" class="w-full" />
-            </div>
+            <!-- 仅 AI 主观策略需要配置大模型 -->
+            <template v-if="editForm.strategy_type === 1">
+                <div>
+                    <label for="edit_platform" class="font-semibold block mb-1">大模型平台</label>
+                    <Dropdown id="edit_platform" v-model="editForm.llm_setting.platform" :options="platformOptions" optionLabel="label" optionValue="value" class="w-full" />
+                </div>
 
-            <div>
-                <label for="edit_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
-                <InputText id="edit_model" v-model="editForm.llm_setting.model" autocomplete="off" placeholder="如 qwen3.6-plus" class="w-full" />
-            </div>
+                <div>
+                    <label for="edit_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
+                    <InputText id="edit_model" v-model="editForm.llm_setting.model" autocomplete="off" placeholder="如 qwen3.6-plus" class="w-full" />
+                </div>
+            </template>
         </div>
 
         <template #footer>
