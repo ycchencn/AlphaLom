@@ -191,14 +191,14 @@ onMounted(() => {
             :rowsPerPageOptions="[20, 50, 100]"
             stripedRows
             showGridlines
-            tableStyle="font-size: 13px"
+            style="font-size: 11px"
         >
-            <Column field="timestamp" header="时间" style="min-width: 180px">
+            <Column field="timestamp" header="时间" style="min-width: 120px">
                 <template #body="{ data }">
                     <span class="text-color-secondary">{{ data.timestamp }}</span>
                 </template>
             </Column>
-            <Column field="level" header="级别" style="min-width: 100px">
+            <Column field="level" header="级别">
                 <template #body="{ data }">
                     <Tag :value="data.level" :severity="getLevelSeverity(data.level)" />
                 </template>
@@ -213,7 +213,7 @@ onMounted(() => {
                     <span class="text-color-secondary">{{ data.func || '-' }}</span>
                 </template>
             </Column>
-            <Column field="line" header="行号" style="min-width: 80px">
+            <Column field="line" header="行号">
                 <template #body="{ data }">
                     <span class="text-color-secondary">{{ data.line || '-' }}</span>
                 </template>
