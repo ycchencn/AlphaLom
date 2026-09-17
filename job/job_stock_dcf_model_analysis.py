@@ -4,6 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 import json
+import re
 
 from llms import get_model_by_setting
 from utils.logger import logger
@@ -64,10 +65,12 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     # 3 获取关联新闻供LLM分析
     relative_news = MarketNewsService.search(stock_code=_stock_code, page_size=30)
 
-    # 获取财务报告数据
-    report_pershare_index = databull.get_stock_financial_data(symbol=_stock_code,
-                                                              start_date=get_date_by_n(finance_report_date_limit * 365),
-                                                              end_date=get_today(), report_type='PershareIndex')
+    # 获取财务报告数据 PershareIndex
+    report_pershare_index = databull.get_stock_financial_data(
+        symbol=_stock_code,
+        start_date=get_date_by_n(finance_report_date_limit * 365),
+        end_date=get_today(), report_type='PershareIndex'
+    )
 
     # 4 大模型汇总输出分析报告
     template = Template(prompt_template)
@@ -109,9 +112,7 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         "rating": "-",
     }
 
-    result = ResearchReportService.add(data)
-
-    # logger.info(content)
+    ResearchReportService.add(data)
 
     return True
 
@@ -136,6 +137,43 @@ def job_stock_dcf_model_analysis_daily(override=False):
         logger.info(f"send dcf analysis of {stock['symbol']}")
 
 
+def _clean_numeric_string(value):
+    """清洗大模型返回的「带单位 / 含杂质」的数字字符串，仅保留可转 float 的数字。
+    例：'11.16元' -> '11.16'；'约 132.6 元/股' -> '132.6'；'58.7' -> '58.7'。
+    无法提取有效数字时原样返回，交由下游继续报错（fail-safe，避免静默成 0）。"""
+    if not isinstance(value, str):
+        return value
+    s = value.strip()
+    if not s:
+        return value
+    # 已经是干净数字则直接返回
+    try:
+        float(s)
+        return s
+    except ValueError:
+        pass
+    # 去掉常见单位 / 货币符号 / 空白（注意：不含「万」，避免每股价格被错误缩放）
+    cleaned = re.sub(r'[元/股￥¥$人民币RMB港元港币美元美圆块刀\s]', '', s, flags=re.IGNORECASE)
+    # 提取第一个合法数字片段（支持负数、小数）
+    m = re.search(r'[-+]?\d*\.?\d+', cleaned)
+    return m.group(0) if m else value
+
+
+def _sanitize_dcf_report_extra(obj):
+    """对 dcf_report_extra 返回的估值 JSON 做数值清洗：
+    把每股内在价值的三种情景与当前股价中的单位 / 杂质剥离，保证下游 float() 不报错。"""
+    if not isinstance(obj, dict):
+        return obj
+    valuation = obj.get('每股内在价值')
+    if isinstance(valuation, dict):
+        for key in ('乐观情景', '中性情景', '保守情景'):
+            if key in valuation:
+                valuation[key] = _clean_numeric_string(valuation[key])
+    if '当前股价' in obj:
+        obj['当前股价'] = _clean_numeric_string(obj['当前股价'])
+    return obj
+
+
 def dcf_report_extra(_stock_code, report_content):
     """
     从dcf报告提取股价预期
@@ -147,7 +185,9 @@ def dcf_report_extra(_stock_code, report_content):
     staff.role_base = '你需要从dcf报告提取股价预期，使用JSON输出'
     question = f"""
     请严格输出具体的价格，不要给35-40这样子模棱两可的数据
-    价格输出不要用任何单位，就纯数字输出
+    价格一律只输出纯数字字符串，禁止出现「元」「元/股」「￥」「$」「万」等任何单位或货币符号
+    若原文为区间（如35-40），请取单一代表值
+    只输出 JSON，不要附加任何解释文字
     报告原文：{report_content},"""
     question += """输出JSON格式参考！
     {
@@ -162,7 +202,12 @@ def dcf_report_extra(_stock_code, report_content):
     """
     staff.set_response_json()
     res_json = staff.ask(question)
-    return json.loads(res_json)
+    try:
+        parsed = json.loads(res_json)
+    except (json.JSONDecodeError, TypeError) as e:
+        logger.warning(f"[{_stock_code}] dcf_report_extra JSON 解析失败，估值数据降级为空: {e}")
+        return {}
+    return _sanitize_dcf_report_extra(parsed)
 
 
 if __name__ == '__main__':
