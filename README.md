@@ -161,6 +161,38 @@ npm run dev      # 启动 Vite 开发服务器
 npm run build    # 构建到 dist/（Flask 的 static 目录）
 ```
 
+### Docker 构建与部署
+
+使用 `docker.sh` 脚本管理 Docker 镜像和服务：
+
+```bash
+# 完整构建（基础镜像 + 服务镜像 + 启动服务）
+./docker.sh all
+
+# 构建基础镜像（BE + FE）
+./docker.sh base
+
+# 仅构建服务镜像
+./docker.sh build
+
+# 启动/停止/重启服务
+./docker.sh up
+./docker.sh down
+./docker.sh restart
+
+# 查看服务状态和日志
+./docker.sh status
+./docker.sh logs
+
+# 清理未使用的镜像和容器
+./docker.sh clean
+
+# 查看帮助
+./docker.sh help
+```
+
+> 直接运行 `./docker.sh`（无参数）会执行默认操作：构建服务镜像并启动。
+
 ## ⚠️ 注意事项
 
 - 
