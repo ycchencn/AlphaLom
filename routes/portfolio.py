@@ -42,7 +42,7 @@ def _pick_writable(data):
 
 
 @portfolio_bp.route(f'{api_prefix}/investment_portfolios', methods=['GET'])
-# @cache.cached(timeout=360, query_string=True)
+@cache.cached(timeout=360, query_string=True)
 def get_investment_portfolios():
     # 获取策略列表数据
     portfolios = InvestmentPortfolioService.get_all()

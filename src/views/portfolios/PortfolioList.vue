@@ -84,8 +84,8 @@ const loadPortfolios = () => {
                     daily_pnl_change: summary.daily_pnl_change ?? 0,
                     position_ratio: summary.position_ratio ?? 0,
                 };
-                // 仓位比例后端为 0~1 小数，转成 0~100 供 ProgressBar 显示
-                item.summary.position_ratio = item.summary.position_ratio * 100;
+                // 仓位比例后端为 0~1 小数，转成 0~100 供 ProgressBar 显示，保留2位小数
+                item.summary.position_ratio = Math.round(item.summary.position_ratio * 10000) / 100;
                 item.calculated_return_rate = calculateCumulativeReturn(item);
                 return item;
             });
@@ -300,7 +300,7 @@ const formatType = (phaseInt) => {
 
             <Column field="name" filterField="name" header="仓位" style="min-width: 8rem">
                 <template #body="{ data }">
-                    <ProgressBar :value="Number(data.summary?.position_ratio ?? 0).toFixed(2)"></ProgressBar>
+                    <ProgressBar :value="data.summary?.position_ratio"></ProgressBar>
                 </template>
             </Column>
 

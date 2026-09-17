@@ -867,6 +867,71 @@ class AppLog(Base):
     def __repr__(self):
         return f"<AppLog(id={self.id}, level={self.level}, message={self.message[:30]})>"
 
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'level': self.level,
+            'logger': self.logger,
+            'message': self.message,
+            'module': self.module,
+            'func': self.func,
+            'line': self.line,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'level': self.level,
+            'logger': self.logger,
+            'message': self.message,
+            'module': self.module,
+            'func': self.func,
+            'line': self.line,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'level': self.level,
+            'logger': self.logger,
+            'message': self.message,
+            'module': self.module,
+            'func': self.func,
+            'line': self.line,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'level': self.level,
+            'logger': self.logger,
+            'message': self.message,
+            'module': self.module,
+            'func': self.func,
+            'line': self.line,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S') if self.timestamp else None,
+            'level': self.level,
+            'logger': self.logger,
+            'message': self.message,
+            'module': self.module,
+            'func': self.func,
+            'line': self.line,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
 
 class StockFinancialScore(Base):
     __tablename__ = 'stock_financial_scores'
