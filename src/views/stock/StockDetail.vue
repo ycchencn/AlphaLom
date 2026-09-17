@@ -483,7 +483,7 @@ onUnmounted(() => {
         v-model:visible="report_drawer"
         header="研报详情"
         position="right"
-        class="!w-full md:!w-200 lg:!w-[75rem]"
+        class="!w-full md:!w-200 lg:!w-[85rem]"
         :footer="false"
         body-class="p-0"
     >
@@ -499,11 +499,12 @@ onUnmounted(() => {
             </div>
 
             <!-- iframe 内容区：占满剩余空间 -->
-            <div class="flex-1 overflow-hidden">
+            <div class="flex-1 overflow-hidden p-4">
                 <iframe
                     v-if="selected_report.content_text"
                     :srcdoc="selected_report.content_text"
-                    class="w-full h-full border-0"
+                    class="border-0"
+                    style="width: 90%; height: 100%; margin: 0 auto; display: block;"
                     sandbox="allow-scripts allow-same-origin"
                 />
                 <div v-else class="flex items-center justify-center h-full text-gray-400">
