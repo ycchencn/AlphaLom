@@ -412,6 +412,14 @@ const viewReport = function (report) {
     });
 }
 
+const injectScaleCss = function (htmlContent) {
+    const scaleCss = `<style>body { width: 90%; margin: 0 auto; }</style>`;
+    if (htmlContent.includes('</head>')) {
+        return htmlContent.replace('</head>', scaleCss + '</head>');
+    }
+    return scaleCss + htmlContent;
+}
+
 const getRatingSeverity = function (rating) {
     if (!rating) return 'secondary';
     const r = rating.toLowerCase();
@@ -499,12 +507,11 @@ onUnmounted(() => {
             </div>
 
             <!-- iframe 内容区：占满剩余空间 -->
-            <div class="flex-1 overflow-hidden p-4">
+            <div class="flex-1 overflow-hidden">
                 <iframe
                     v-if="selected_report.content_text"
-                    :srcdoc="selected_report.content_text"
-                    class="border-0"
-                    style="width: 90%; height: 100%; margin: 0 auto; display: block;"
+                    :srcdoc="injectScaleCss(selected_report.content_text)"
+                    class="w-full h-full border-0"
                     sandbox="allow-scripts allow-same-origin"
                 />
                 <div v-else class="flex items-center justify-center h-full text-gray-400">
