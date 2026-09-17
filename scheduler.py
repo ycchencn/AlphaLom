@@ -7,6 +7,7 @@
 import pytz
 
 from utils.logger import logger
+from models.init_db import init_database
 from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
@@ -18,6 +19,9 @@ from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_
 from job.job_check_signal import job_check_signal_daily
 
 if __name__ == '__main__':
+
+    # 服务启动时自动建表 + 创建默认管理员（首次安装 / 空库场景）
+    init_database()
 
     # 创建调度器实例
     scheduler = BlockingScheduler()

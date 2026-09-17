@@ -944,3 +944,32 @@ class StockFinancialScore(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+# 用户表（登录认证）
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    username = Column(String(50), nullable=False, unique=True, comment='登录用户名（唯一）')
+    password_hash = Column(String(255), nullable=False, comment='密码哈希（bcrypt/pbkdf2，不存明文）')
+    nickname = Column(String(50), nullable=True, comment='昵称')
+    email = Column(String(100), nullable=True, comment='邮箱')
+    role = Column(String(20), nullable=False, default='user', comment='角色：admin-管理员, user-普通用户')
+    is_active = Column(Integer, nullable=False, default=1, comment='是否启用：0-禁用, 1-启用')
+    last_login_at = Column(DateTime, nullable=True, comment='最后登录时间')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    def to_dict(self):
+        """转为字典，隐藏密码哈希等敏感字段"""
+        return {
+            'id': self.id,
+            'username': self.username,
+            'nickname': self.nickname,
+            'email': self.email,
+            'role': self.role,
+            'is_active': self.is_active,
+            'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }

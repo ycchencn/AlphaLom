@@ -19,3 +19,4 @@ from service.portfolio_daily_summary_service import PortfolioDailySummaryService
 from service.daily_pnl_record_service import DailyPnLRecordService
 from service.portfolio_transaction_service import PortfolioTransactionService
 from service.research_report_service import ResearchReportService
+from service.user import UserService
