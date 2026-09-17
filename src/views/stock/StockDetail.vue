@@ -488,40 +488,26 @@ onUnmounted(() => {
         body-class="p-0"
     >
         <div class="flex flex-col h-full" v-if="selected_report">
-            <!-- 滚动区域 -->
-            <div class="flex-1 overflow-y-auto">
-                <div class="p-6">
-                    <div class="mb-4">
-                        <h2 class="text-2xl font-bold mb-2">{{ selected_report.title }}</h2>
-                        <div class="flex gap-4 text-sm text-gray-500 mb-4">
-                            <span><i class="pi pi-building"></i> {{ selected_report.broker_name }}</span>
-                            <span><i class="pi pi-user"></i> {{ selected_report.analyst_name || '-' }}</span>
-                            <span><i class="pi pi-calendar"></i> {{ formatDaysAgo(selected_report.publish_time) }}</span>
-                        </div>
-                    </div>
+            <!-- 顶部信息区 -->
+            <div class="p-4 border-b border-gray-200 shrink-0">
+                <h2 class="text-xl font-bold mb-2">{{ selected_report.title }}</h2>
+                <div class="flex gap-4 text-sm text-gray-500">
+                    <span><i class="pi pi-building"></i> {{ selected_report.broker_name }}</span>
+                    <span><i class="pi pi-user"></i> {{ selected_report.analyst_name || '-' }}</span>
+                    <span><i class="pi pi-calendar"></i> {{ formatDaysAgo(selected_report.publish_time) }}</span>
+                </div>
+            </div>
 
-                    <Divider/>
-
-                    <div v-if="selected_report.summary" class="mb-6">
-                        <h3 class="text-lg font-semibold mb-2">摘要</h3>
-                        <div class="text-gray-700">{{ selected_report.summary }}</div>
-                    </div>
-
-                    <Divider/>
-
-                    <div class="mb-6">
-                        <h3 class="text-lg font-semibold mb-2">正文内容</h3>
-                        <iframe
-                            v-if="selected_report.content_text"
-                            :srcdoc="selected_report.content_text"
-                            class="w-full border-0"
-                            style="height: 600px;"
-                            sandbox="allow-scripts allow-same-origin"
-                        />
-                        <div v-else class="text-gray-400">暂无内容</div>
-                    </div>
-
-                    <div class="h-4"></div>
+            <!-- iframe 内容区：占满剩余空间 -->
+            <div class="flex-1 overflow-hidden">
+                <iframe
+                    v-if="selected_report.content_text"
+                    :srcdoc="selected_report.content_text"
+                    class="w-full h-full border-0"
+                    sandbox="allow-scripts allow-same-origin"
+                />
+                <div v-else class="flex items-center justify-center h-full text-gray-400">
+                    暂无内容
                 </div>
             </div>
 
