@@ -209,3 +209,29 @@ def update_portfolio_legacy(portfolio_id):
     兼容旧路径的组合更新（与 /investment_portfolios/<id> 行为一致）
     """
     return update_portfolio(portfolio_id)
+
+
+@portfolio_bp.route(f'{api_prefix}/portfolio/<string:portfolio_id>/analyze', methods=['POST'])
+def trigger_position_plan_analysis(portfolio_id):
+    """
+    手动触发 AI 调仓分析
+    Path Param:
+        portfolio_id (str): 组合ID
+    Body (JSON):
+        send_feishu (bool, optional): 是否发送飞书通知，默认 False
+    """
+    from backtest.strategy.ai_position_plan_daily import job_position_plan_daily
+
+    if not InvestmentPortfolioService.get_by_portfolio_id(portfolio_id):
+        return make_response_json(msg='Portfolio not found', code=404)
+
+    data = request.get_json(silent=True) or {}
+    send_feishu = bool(data.get('send_feishu', False))
+
+    try:
+        logger.info(f"手动触发 AI 调仓分析: portfolio_id={portfolio_id}, send_feishu={send_feishu}")
+        job_position_plan_daily(portfolio_id=portfolio_id, send_feishu=send_feishu)
+        return make_response_json(msg='Analysis completed successfully', code=200)
+    except Exception as e:
+        logger.error(f"AI 调仓分析失败: {e}")
+        return make_response_json(msg=f'Analysis failed: {str(e)}', code=500)

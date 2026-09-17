@@ -329,8 +329,41 @@ const items = [
         command: () => {
             modal_visible.value = true;
         }
+    },
+    {
+        label: '触发AI调仓分析',
+        icon: 'pi pi-bolt',
+        command: () => {
+            triggerAnalysis();
+        }
     }
 ];
+
+// 触发AI调仓分析
+const analysisLoading = ref(false);
+const triggerAnalysis = async () => {
+    if (!profInfo.value) return;
+    
+    analysisLoading.value = true;
+    try {
+        await axios.post(`/api/v1/portfolio/${encodeURIComponent(portfolioId)}/analyze`, {
+            send_feishu: false
+        });
+        showSuccess('AI调仓分析完成');
+        // 重新加载数据
+        const data = await fetchPortfolioInfo(portfolioId);
+        enrichAssets(data);
+        profInfo.value = data;
+    } catch (error) {
+        let message = '分析失败，请重试';
+        if (error?.response?.data?.msg) {
+            message = error.response.data.msg;
+        }
+        showError(message);
+    } finally {
+        analysisLoading.value = false;
+    }
+};
 
 // 打开编辑弹窗
 const openEditDialog = () => {
