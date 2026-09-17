@@ -138,7 +138,7 @@ cp .env.example .env
 - `REDIS_HOST` / `REDIS_PORT`：Redis 连接
 - `RABBITMQ_*`：消息队列连接
 - `*_APIKEY`：各 LLM 厂商 API Key（DEEPSEEK / ALIYUN_BAILIAN / DOUBAO / SILICONFLOW / TENCENT / ZHIPU）
-- `DATAJIJI_HOST`：DataBull 数据接口地址
+- `DATABULL_HOST`：DataBull 数据接口地址
 - `MCP_HOST`：MCP 服务器地址
 
 ### 启动服务

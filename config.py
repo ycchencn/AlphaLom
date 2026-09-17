@@ -112,8 +112,8 @@ llm_model_setting = {
 }
 
 # ===== 外部数据接口 =====
-# 数据接口（DataBull）根地址，env: DATAJIJI_HOST
-databull_host = os.getenv('DATAJIJI_HOST')
+# 数据接口（DataBull）根地址，env: DATABULL_HOST
+databull_host = os.getenv('DATABULL_HOST')
 
 # ===== MCP 服务 =====
 mcp_host = os.getenv('MCP_HOST')      # MCP 服务器地址
@@ -137,6 +137,7 @@ elasticsearch_setting = {
 # ===== 财务 / DCF 分析参数 =====
 # 财务数据回溯年数：查询起点 = 今天 - finance_report_date_limit × 365 天
 finance_report_date_limit = 1
+
 # DCF / 深度研报生成最小间隔（天）：同一股票在该天数内已生成则跳过，避免重复消耗
 dcf_report_date_limit = 7
 
