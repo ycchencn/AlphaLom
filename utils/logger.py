@@ -6,8 +6,8 @@
 
 import json
 import logging
+import os
 from datetime import datetime
-from utils.redis_obj import redis_obj
 
 
 class RedisHandler(logging.Handler):
@@ -50,5 +50,11 @@ logger.setLevel(logging.INFO)
 # 创建一个格式器（formatter），定义日志的输出格式
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 
-# 将处理器添加到 logger
-logger.addHandler(RedisHandler(redis_obj))
+# 非开发模式下才挂载 Redis 写入
+env = os.getenv('ENV', 'dev').lower()
+if env != 'dev':
+    try:
+        from utils.redis_obj import redis_obj
+        logger.addHandler(RedisHandler(redis_obj))
+    except Exception as e:
+        logger.warning(f"Failed to initialize Redis log handler: {e}")

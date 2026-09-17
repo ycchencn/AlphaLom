@@ -193,7 +193,7 @@ onMounted(() => {
             showGridlines
             style="font-size: 11px"
         >
-            <Column field="timestamp" header="时间" style="min-width: 120px">
+            <Column field="timestamp" header="时间" style="min-width: 130px">
                 <template #body="{ data }">
                     <span class="text-color-secondary">{{ data.timestamp }}</span>
                 </template>
