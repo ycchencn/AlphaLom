@@ -516,7 +516,7 @@ onUnmounted(() => {
                             :srcdoc="selected_report.content_text"
                             class="w-full border-0"
                             style="height: 600px;"
-                            sandbox="allow-same-origin"
+                            sandbox="allow-scripts allow-same-origin"
                         />
                         <div v-else class="text-gray-400">暂无内容</div>
                     </div>
