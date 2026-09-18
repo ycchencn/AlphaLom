@@ -5,7 +5,7 @@ services:
         ports:
             - "8080:8080"
         working_dir: /app
-        command: python3 /app/run_app.py
+        command: python3 /app/run_fastapi.py
         environment:
             ENV: production
             PYTHONPATH: /app
@@ -18,7 +18,7 @@ services:
         ports:
             - "8081:8080"
         working_dir: /app
-        command: python3 /app/run_app.py
+        command: python3 /app/run_fastapi.py
         environment:
             ENV: production
             PYTHONPATH: /app
