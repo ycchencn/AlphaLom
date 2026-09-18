@@ -5,7 +5,7 @@
 """
 
 from fastapi import APIRouter
-from app.fastapi_app import api_prefix, cache
+from app.fastapi_app import api_prefix
 from utils.data_loader import databull
 
 index_router = APIRouter(prefix=api_prefix, tags=['指数'])

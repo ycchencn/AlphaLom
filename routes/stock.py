@@ -5,7 +5,7 @@
 """
 
 from fastapi import APIRouter, Query, Request, HTTPException
-from app.fastapi_app import api_prefix, cache
+from app.fastapi_app import api_prefix
 from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService

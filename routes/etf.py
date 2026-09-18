@@ -5,10 +5,9 @@
 """
 
 from fastapi import APIRouter, Query
-from app.fastapi_app import api_prefix, cache
+from app.fastapi_app import api_prefix
 from utils.data_loader import databull
 from service import FactorValueService
-from config import cache_setting
 
 etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 

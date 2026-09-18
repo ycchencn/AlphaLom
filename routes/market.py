@@ -6,7 +6,7 @@
 
 from datetime import datetime
 from fastapi import APIRouter, Query, HTTPException
-from app.fastapi_app import api_prefix, cache, json_resp
+from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService
 from utils.logger import logger
 from utils.data_loader import databull

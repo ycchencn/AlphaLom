@@ -7,7 +7,7 @@
 import uuid
 import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException
-from app.fastapi_app import api_prefix, cache
+from app.fastapi_app import api_prefix
 from utils.logger import logger
 from service import InvestmentPortfolioService, PortfolioAssetsService
 from service import (

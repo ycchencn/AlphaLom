@@ -8,7 +8,6 @@
 """
 
 import ipaddress
-from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, Request
@@ -26,6 +25,14 @@ redis_pool = ConnectionPool(host=redis_host, port=redis_port, db=0)
 
 # ==================== API 前缀 ====================
 api_prefix = '/api/v1'
+
+# ==================== 禁用缓存的接口前缀 ====================
+# 投资组合（策略）数据必须实时反映最新持仓与净值，
+# 这些前缀下的接口响应不参与任何缓存（后端 / 浏览器 / CDN / 反向代理）
+NO_CACHE_PATH_PREFIXES = (
+    f'{api_prefix}/investment_portfolios',
+    f'{api_prefix}/portfolio',
+)
 
 # ==================== 代理 IP 配置 ====================
 TRUSTED_PROXIES = [
@@ -101,16 +108,6 @@ def json_resp(ctx: dict) -> dict:
     return ctx
 
 
-def trading_cache_key() -> str:
-    """
-    动态生成缓存键
-    注意：FastAPI 中需在路由内调用，传入 request 参数
-    """
-    now = datetime.now()
-    is_after_hours = now.hour >= 15 or now.hour < 9
-    return f"PH_{now.strftime('%Y%m%d%H')}" if is_after_hours else f"TRD_{now.strftime('%Y%m%d%H')}"
-
-
 # ==================== 快速创建 FastAPI 应用 ====================
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用"""
@@ -129,6 +126,17 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # 关闭投资组合相关接口的缓存
+    # 显式下发 no-store 响应头，确保浏览器 / CDN / 反向代理都不缓存策略数据
+    @_app.middleware('http')
+    async def disable_cache_for_portfolio(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(NO_CACHE_PATH_PREFIXES):
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
+
     # 挂载静态文件（Vue 打包产物）
     import os
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dist')
@@ -137,18 +145,3 @@ def create_app() -> FastAPI:
         # _app.mount('/fonts', StaticFiles(directory=os.path.join(static_dir, 'fonts')), name='fonts')
 
     return _app
-
-
-# ==================== 向后兼容：导出 cache 对象 ====================
-class _NoopCache:
-    """占位缓存对象，替换 Flask-Caching 的 cache
-    后续可替换为基于 Redis 的 FastAPI 缓存实现"""
-
-    @staticmethod
-    def cached(timeout=300, query_string=False, make_cache_key=None):
-        def decorator(func):
-            return func
-        return decorator
-
-
-cache = _NoopCache()
