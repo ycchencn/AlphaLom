@@ -11,9 +11,12 @@ from service import FactorValueService
 
 etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 
+# ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；写成 `async def`
+# 会让下面循环里的同步 databull HTTP 调用直接占死事件循环 → 全站一起卡。
+
 
 @etf_router.get('/etfs')
-async def get_etfs():
+def get_etfs():
     """
     获取ETF监控列表
     """
@@ -36,7 +39,14 @@ async def get_etfs():
             ticker=etf['symbol'],
             factor_name='52week_high'
         )
-        etf['ohlc_last'] = databull.get_last_tick(symbol=etf['symbol'], tick_type='etf')
-        etf['ohlc_last']['chg_pct'] = (etf['ohlc_last']['lastPrice'] - etf['ohlc_last']['lastClose']) / etf['ohlc_last']['lastClose'] * 100
+        ohlc = databull.get_last_tick(symbol=etf['symbol'], tick_type='etf') or {}
+        # 远端偶发返回空结果（实测 159990 就会返回 {}）。原实现直接 ohlc['lastPrice'] 下标取值，
+        # 一旦为空就 KeyError，导致**整个 ETF 列表接口 500**、全页打不开。
+        # 前端对 ohlc_last 的各字段都有 `!= null` 兜底（显示 '--'），所以这里只需保证
+        # ohlc_last 始终是 dict、拿不到数据时不写 chg_pct。
+        last_price, last_close = ohlc.get('lastPrice'), ohlc.get('lastClose')
+        if last_price is not None and last_close:
+            ohlc['chg_pct'] = (last_price - last_close) / last_close * 100
+        etf['ohlc_last'] = ohlc
 
     return etfs
