@@ -94,4 +94,11 @@ if os.path.isdir(static_dir):
 # ==================== 启动 ====================
 if __name__ == '__main__':
     init_database()
-    uvicorn.run('run_fastapi:app', host='0.0.0.0', port=8080, reload=(env=='dev'))
+    uvicorn.run(
+        'run_fastapi:app',
+        host='0.0.0.0',
+        port=8080,
+        reload=(env=='dev'),
+        workers=int(os.getenv('WEB_WORKERS', '3')),
+        log_level=os.getenv('WEB_LOG_LEVEL', 'info'),
+    )
