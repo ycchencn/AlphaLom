@@ -99,6 +99,5 @@ if __name__ == '__main__':
         host='0.0.0.0',
         port=8080,
         reload=(env=='dev'),
-        workers=int(os.getenv('WEB_WORKERS', '3')),
-        log_level=os.getenv('WEB_LOG_LEVEL', 'info'),
+        workers=int(os.getenv('WEB_WORKERS', '3'))
     )
