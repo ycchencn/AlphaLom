@@ -8,17 +8,16 @@
 """
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse, FileResponse
-from starlette.middleware.cors import CORSMiddleware
-from app.fastapi_app import create_app, cache, api_prefix, get_client_info
+from app.fastapi_app import create_app, api_prefix
 from service import UserService
 from models.init_db import init_database
-from utils.logger import logger
 import os
 
 # 创建 FastAPI 应用
 app = create_app()
+env = os.getenv('ENV', 'dev').lower()
 
 # ==================== 路由注册 ====================
 from routes.stock import stock_router
@@ -83,4 +82,4 @@ if os.path.isdir(static_dir):
 # ==================== 启动 ====================
 if __name__ == '__main__':
     init_database()
-    uvicorn.run('run_fastapi:app', host='0.0.0.0', port=8080, reload=True)
+    uvicorn.run('run_fastapi:app', host='0.0.0.0', port=8080, reload=(env=='dev'))

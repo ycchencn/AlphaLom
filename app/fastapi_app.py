@@ -14,8 +14,7 @@ from typing import Optional
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from models import db
-from config import database_conn_str, redis_host, redis_port
+from config import redis_host, redis_port
 from redis import ConnectionPool
 
 # ==================== 数据库 ====================

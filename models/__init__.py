@@ -9,14 +9,10 @@ from sqlalchemy import Column, Integer, String, Date, ForeignKey, Enum, Numeric,
 from sqlalchemy import Float, DECIMAL, JSON
 from sqlalchemy.sql import func
 from datetime import datetime
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
-from typing import Optional, Dict, Any
+from sqlalchemy.orm import declarative_base, relationship
+from typing import Dict, Any
 
 Base = declarative_base()
-
-db = SQLAlchemy()
 
 
 class TriggerType(str, Enum):
