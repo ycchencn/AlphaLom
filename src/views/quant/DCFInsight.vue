@@ -98,7 +98,7 @@ function initFilters1() {
             <Column field="symbol" filterField="symbol" header="代码">
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
-                                 :to="{ name: 'stock-monitor-detail', params: { symbol: data.symbol } }">{{data.symbol}}
+                                 :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">{{data.symbol}}
                     </router-link>
                 </template>
             </Column>
