@@ -19,7 +19,6 @@ from routes.watchlist import watchlist_bp
 from routes.etf import etf_bp
 from routes.quant import quant_bp
 from routes.index import index_bp
-from routes.syslog import syslog_bp
 
 # 指定时区为北京时间
 beijing_tz = pytz.timezone('Asia/Shanghai')
@@ -32,7 +31,6 @@ app.register_blueprint(watchlist_bp)
 app.register_blueprint(etf_bp)
 app.register_blueprint(quant_bp)
 app.register_blueprint(index_bp)
-app.register_blueprint(syslog_bp)
 
 
 @app.route('/api/v1/auth/login', methods=['POST'])

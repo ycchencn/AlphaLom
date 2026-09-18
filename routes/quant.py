@@ -5,16 +5,16 @@
 """
 
 import json
+from fastapi import APIRouter
 from utils.redis_obj import redis_obj
-from flask import Blueprint
-from app import json_resp
+from app.fastapi_app import json_resp
 from job.dump_stocks_dcf import export_dcf_to_excel
 
-quant_bp = Blueprint('quant', __name__)
+quant_router = APIRouter(prefix='/api/v1', tags=['量化'])
 
 
-@quant_bp.route(f'/api/v1/quant/stock/get_dcf_report_snap', methods=['GET'])
-def get_dcf_report_snap():
+@quant_router.get('/quant/stock/get_dcf_report_snap')
+async def get_dcf_report_snap():
     """
     获取个股研报数据
     """

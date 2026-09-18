@@ -19,6 +19,7 @@ from typing import Optional, Dict, List
 from llms.llm_base_async import LLMBaseAsync
 from contextlib import asynccontextmanager  # 新增导入
 from utils.redis_obj import redis_obj
+from routes.syslog import syslog_router
 
 init_prompt = f"今天是：{get_today()}\n"
 
@@ -64,6 +65,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 注册系统日志路由
+app.include_router(syslog_router)
 
 # 全局LLM客户端实例（仅初始化OpenAI，不创建aiohttp会话）
 llm_client = AsyncOpenAI(

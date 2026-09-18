@@ -2,121 +2,108 @@
  * @author Yc
  * Chaos isn't a pit. Chaos is a ladder. - Littlefinger
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
+ *
+ * 系统日志查询接口（FastAPI 实现）
 """
 
 from datetime import datetime
-from flask import Blueprint, request, jsonify
-from app import api_prefix
+from fastapi import APIRouter, Query, HTTPException
 from service.app_log_service import AppLogService
 from utils.logger import logger
 
-syslog_bp = Blueprint('syslog', __name__)
+syslog_router = APIRouter(prefix='/api/v1', tags=['系统日志'])
 
 
-def make_response_json(data=None, msg="success", code=200):
+def make_response(data=None, msg="success", code=200):
     """统一返回格式"""
-    return jsonify({'code': code, 'msg': msg, 'data': data})
+    return {'code': code, 'msg': msg, 'data': data}
 
 
-@syslog_bp.route(f'{api_prefix}/app_logs', methods=['GET'])
-def get_app_logs():
-    """
-    分页查询系统日志
-    Query params:
-      - level: 日志级别
-      - module: 模块名
-      - keyword: 关键词（搜索 message）
-      - start_time: 开始时间 (YYYY-MM-DD HH:MM:SS)
-      - end_time: 结束时间 (YYYY-MM-DD HH:MM:SS)
-      - page: 页码（默认 1）
-      - page_size: 每页数量（默认 50）
-    """
+@syslog_router.get('/app_logs')
+async def get_app_logs(
+    level: str = Query(None, description="日志级别"),
+    module: str = Query(None, description="模块名"),
+    keyword: str = Query(None, description="关键词（搜索 message）"),
+    start_time: str = Query(None, description="开始时间 YYYY-MM-DD HH:MM:SS"),
+    end_time: str = Query(None, description="结束时间 YYYY-MM-DD HH:MM:SS"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(50, ge=1, le=500, description="每页数量"),
+):
+    """分页查询系统日志"""
     try:
-        level = request.args.get('level')
-        module = request.args.get('module')
-        keyword = request.args.get('keyword')
-        start_time_str = request.args.get('start_time')
-        end_time_str = request.args.get('end_time')
-        page = int(request.args.get('page', 1))
-        page_size = int(request.args.get('page_size', 50))
-
-        start_time = None
-        end_time = None
-        if start_time_str:
+        start_dt = None
+        end_dt = None
+        if start_time:
             try:
-                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
-                return make_response_json(msg="start_time 格式错误，应为 YYYY-MM-DD HH:MM:SS", code=400)
-        if end_time_str:
+                raise HTTPException(status_code=400, detail="start_time 格式错误，应为 YYYY-MM-DD HH:MM:SS")
+        if end_time:
             try:
-                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
+                end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             except ValueError:
-                return make_response_json(msg="end_time 格式错误，应为 YYYY-MM-DD HH:MM:SS", code=400)
+                raise HTTPException(status_code=400, detail="end_time 格式错误，应为 YYYY-MM-DD HH:MM:SS")
 
         result = AppLogService.query_logs(
             level=level,
             module=module,
             keyword=keyword,
-            start_time=start_time,
-            end_time=end_time,
+            start_time=start_dt,
+            end_time=end_dt,
             page=page,
             page_size=page_size
         )
-        return make_response_json(data=result)
+        return make_response(data=result)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in get_app_logs: {e}")
-        return make_response_json(msg=str(e), code=500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@syslog_bp.route(f'{api_prefix}/app_logs/<int:log_id>', methods=['GET'])
-def get_app_log_detail(log_id):
-    """
-    获取单条日志详情
-    """
+@syslog_router.get('/app_logs/{log_id}')
+async def get_app_log_detail(log_id: int):
+    """获取单条日志详情"""
     try:
         log = AppLogService.get_by_id(log_id)
         if log is None:
-            return make_response_json(msg="日志不存在", code=404)
-        return make_response_json(data=log)
+            raise HTTPException(status_code=404, detail="日志不存在")
+        return make_response(data=log)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in get_app_log_detail: {e}")
-        return make_response_json(msg=str(e), code=500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@syslog_bp.route(f'{api_prefix}/app_logs/levels', methods=['GET'])
-def get_log_levels():
-    """
-    获取所有日志级别（用于筛选下拉）
-    """
+@syslog_router.get('/app_logs/levels')
+async def get_log_levels():
+    """获取所有日志级别（用于筛选下拉）"""
     try:
         levels = AppLogService.get_levels()
-        return make_response_json(data=levels)
+        return make_response(data=levels)
     except Exception as e:
         logger.error(f"Error in get_log_levels: {e}")
-        return make_response_json(msg=str(e), code=500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@syslog_bp.route(f'{api_prefix}/app_logs/modules', methods=['GET'])
-def get_log_modules():
-    """
-    获取所有模块名（用于筛选下拉）
-    """
+@syslog_router.get('/app_logs/modules')
+async def get_log_modules():
+    """获取所有模块名（用于筛选下拉）"""
     try:
         modules = AppLogService.get_modules()
-        return make_response_json(data=modules)
+        return make_response(data=modules)
     except Exception as e:
         logger.error(f"Error in get_log_modules: {e}")
-        return make_response_json(msg=str(e), code=500)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@syslog_bp.route(f'{api_prefix}/app_logs/statistics', methods=['GET'])
-def get_log_statistics():
-    """
-    获取日志统计信息
-    """
+@syslog_router.get('/app_logs/statistics')
+async def get_log_statistics():
+    """获取日志统计信息"""
     try:
         stats = AppLogService.get_statistics()
-        return make_response_json(data=stats)
+        return make_response(data=stats)
     except Exception as e:
         logger.error(f"Error in get_log_statistics: {e}")
-        return make_response_json(msg=str(e), code=500)
+        raise HTTPException(status_code=500, detail=str(e))

@@ -4,17 +4,15 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from flask import jsonify, Blueprint
-from app import api_prefix
+from fastapi import APIRouter
+from app.fastapi_app import api_prefix, cache
 from utils.data_loader import databull
-from app import cache
 
-index_bp = Blueprint('index', __name__)
+index_router = APIRouter(prefix=api_prefix, tags=['指数'])
 
 
-@index_bp.route(f'{api_prefix}/index/last_tick', methods=['GET'])
-@cache.cached(timeout=3600)
-def get_index_last():
+@index_router.get('/index/last_tick')
+async def get_index_last():
     """
     获取指数最新行情
     """
@@ -24,4 +22,4 @@ def get_index_last():
         res = databull.get_last_tick(code, tick_type='index', market='cn')
         res['index_code'] = code
         index_ticks.append(res)
-    return jsonify(index_ticks)
+    return index_ticks
