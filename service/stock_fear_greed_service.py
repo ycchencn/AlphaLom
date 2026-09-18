@@ -7,7 +7,7 @@
 from models import StockFearGreed  # 请确保你的模型文件中已定义该类
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy import and_
+from sqlalchemy import and_, func
 from utils.logger import logger
 from datetime import date
 from typing import List, Optional, Dict, Any
@@ -120,6 +120,43 @@ class StockFearGreedService:
         except Exception as e:
             logger.error(f"Error in get_latest_by_index: {e}")
             return None
+
+    @staticmethod
+    def get_latest_by_index_codes(index_codes) -> Dict[str, Dict[str, Any]]:
+        """
+        批量获取多个 index_code 各自的最新恐惧贪婪记录，**一次查询**完成。
+
+        返回 `{index_code: record_dict}`，结构与 `get_latest_by_index()` 一致；
+        某个 index_code 没有数据时不会出现在字典里。
+
+        依赖 `idx_index_code`：分组列与索引一致，MySQL 可直接取每个分组的最大 trade_date。
+        """
+        index_codes = [c for c in dict.fromkeys(index_codes or []) if c]
+        if not index_codes:
+            return {}
+
+        try:
+            latest_sub = (
+                db_session.query(
+                    StockFearGreed.index_code.label('index_code'),
+                    func.max(StockFearGreed.trade_date).label('max_date'),
+                )
+                .filter(StockFearGreed.index_code.in_(index_codes))
+                .group_by(StockFearGreed.index_code)
+                .subquery()
+            )
+            records = (
+                db_session.query(StockFearGreed)
+                .join(latest_sub, and_(
+                    StockFearGreed.index_code == latest_sub.c.index_code,
+                    StockFearGreed.trade_date == latest_sub.c.max_date,
+                ))
+                .all()
+            )
+            return {r.index_code: r.to_dict() for r in records}
+        except Exception as e:
+            logger.error(f"Error getting latest fear/greed in batch: {e}")
+            return {}
 
     @staticmethod
     def delete_by_index_and_date(index_code: str, trade_date: date) -> bool:

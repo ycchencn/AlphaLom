@@ -488,8 +488,13 @@ class FuturesBasisWide(Base):
 class StockFearGreed(Base):
     __tablename__ = 'stocks_fear_greed'
 
+    # ⚠️ 主键必须是 (trade_date, index_code) 复合主键 —— 与数据库中的 PRIMARY KEY 一致。
+    # 曾经只声明 trade_date 为 primary_key，导致 ORM 身份映射把「同一交易日、不同 index_code」
+    # 的多行当成同一个对象：一次查出多行时 SQLAlchemy 会按主键去重，静默只保留第一行。
+    # 单条查询（filter_by(index_code=...)）恰好只命中一行所以一直没暴露，
+    # 直到做批量查询（一次取多个 index_code 的最新值）才表现为「只返回一只票的数据」。
     trade_date = Column(Date, primary_key=True, nullable=False, comment='交易日期')
-    index_code = Column(String(20), nullable=False, comment='指数代码')
+    index_code = Column(String(20), primary_key=True, nullable=False, comment='指数代码')
     close = Column(Numeric(precision=18, scale=4), nullable=False, comment='收盘点位')
     fear_greed = Column(Numeric(precision=5, scale=2), nullable=False, comment='恐惧贪婪综合指数')
     vol_score = Column(Numeric(precision=5, scale=2), nullable=False, comment='波动率分项得分')

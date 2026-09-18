@@ -14,10 +14,14 @@ from fastapi_cache.decorator import cache
 
 market_router = APIRouter(prefix=api_prefix, tags=['市场数据'])
 
+# ⚠️ 同步 `def` 路由会被 Starlette 自动丢进 anyio 线程池（默认 40 线程）；
+# 写成 `async def` 则跑在唯一的事件循环线程上，Service 层的同步 pymysql / requests
+# 调用会把整个 loop 占死，表现为「一个接口慢，全部接口卡」。详见 README 并发章节。
+
 
 @market_router.get('/market/sectors')
 @cache(expire=3600)
-async def get_market_sectors(
+def get_market_sectors(
     sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级")
 ):
     """获取沪深板块涨跌幅数据"""
@@ -26,7 +30,7 @@ async def get_market_sectors(
 
 
 @market_router.get('/market/news')
-async def get_news(
+def get_news(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=200)
 ):
@@ -36,7 +40,7 @@ async def get_news(
 
 
 @market_router.get('/market/search_news')
-async def search_news(
+def search_news(
     keyword: str = Query(''),
     stock_code: str = Query(None),
     start_time: str = Query(None),

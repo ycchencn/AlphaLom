@@ -14,6 +14,10 @@ from utils.logger import logger
 
 watchlist_router = APIRouter(prefix=api_prefix, tags=['自选股'])
 
+# ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；`async def` 则跑在
+# 唯一的事件循环线程上，而下面这些 Service / databull 调用都是同步阻塞的，会把 loop 占死
+# → 「一个接口慢，全部接口卡」。只有需要 `await request.json()` 的写接口才保留 async。
+
 
 def make_response(data=None, msg="success", code=200):
     return {'code': code, 'msg': msg, 'data': data}
@@ -31,7 +35,7 @@ def get_main_force_behavior_phase(code):
 
 
 @watchlist_router.get('/watchlist')
-async def get_watchlist():
+def get_watchlist():
     """
     获取自选股列表
     """
@@ -57,7 +61,7 @@ async def get_watchlist():
 
 
 @watchlist_router.get('/watchlist/{stock_code}')
-async def get_stock_detail(stock_code: str):
+def get_stock_detail(stock_code: str):
     """
     获取单只自选股详情
     """
@@ -134,7 +138,7 @@ async def update_stock(stock_code: str, request: Request):
 
 
 @watchlist_router.delete('/watchlist/{stock_code}')
-async def delete_stock(stock_code: str):
+def delete_stock(stock_code: str):
     """
     删除自选股
     """

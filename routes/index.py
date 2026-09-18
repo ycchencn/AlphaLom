@@ -11,10 +11,13 @@ from fastapi_cache.decorator import cache
 
 index_router = APIRouter(prefix=api_prefix, tags=['指数'])
 
+# ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；写成 `async def`
+# 会让下面循环里的同步 databull HTTP 调用直接占死事件循环 → 全站一起卡。
+
 
 @index_router.get('/index/last_tick')
 @cache(expire=3600)
-async def get_index_last():
+def get_index_last():
     """
     获取指数最新行情
     """

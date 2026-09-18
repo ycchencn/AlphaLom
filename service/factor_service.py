@@ -13,7 +13,7 @@ from datetime import date, datetime
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from utils.common import get_today
-from sqlalchemy import func
+from sqlalchemy import func, and_
 
 
 class FactorValueService:
@@ -234,6 +234,62 @@ class FactorValueService:
         except Exception as e:
             logger.error(f"Error getting latest date for factor {factor_name}: {e}")
             return None
+
+    @staticmethod
+    def get_latest_factor_values(tickers, factor_names) -> Dict[Any, Any]:
+        """
+        批量获取「多个 ticker × 多个 factor」各自的最新值，**一次查询**完成。
+
+        用途：列表类接口（如 /stocks_monitored、/watchlist）原本对每只票、每个因子各查一次，
+        N 只票 × M 个因子 = N*M 次串行往返。改为「先按 (factor_name, ticker) 分组求
+        max(trade_date)，再回表取该日期的 value」，往返次数降为 1。
+
+        返回 `{(ticker, factor_name): value}`；某组合没有数据时该键不存在（调用方自己给默认值）。
+        `value` 是 DECIMAL 列，原样返回，与 `get_latest_factor_value()` 的返回保持一致。
+
+        依赖 `idx_factor_ticker_date (factor_name, ticker, trade_date)`：分组列与索引前缀一致，
+        MySQL 可用松散索引扫描直接取每个分组的最大值，不必扫全表。
+        """
+        tickers = [t for t in dict.fromkeys(tickers or []) if t]
+        factor_names = [f for f in dict.fromkeys(factor_names or []) if f]
+        if not tickers or not factor_names:
+            return {}
+
+        try:
+            # 每个 (factor_name, ticker) 的最新交易日
+            latest_sub = (
+                db_session.query(
+                    FactorValue.ticker.label('ticker'),
+                    FactorValue.factor_name.label('factor_name'),
+                    func.max(FactorValue.trade_date).label('max_date'),
+                )
+                .filter(
+                    FactorValue.ticker.in_(tickers),
+                    FactorValue.factor_name.in_(factor_names),
+                )
+                .group_by(FactorValue.ticker, FactorValue.factor_name)
+                .subquery()
+            )
+
+            # 回表取该日期的值。factor_values 的主键是
+            # (trade_date, ticker, factor_name)，所以这里每个分组恰好命中一行，不会重复。
+            rows = (
+                db_session.query(
+                    FactorValue.ticker,
+                    FactorValue.factor_name,
+                    FactorValue.value,
+                )
+                .join(latest_sub, and_(
+                    FactorValue.ticker == latest_sub.c.ticker,
+                    FactorValue.factor_name == latest_sub.c.factor_name,
+                    FactorValue.trade_date == latest_sub.c.max_date,
+                ))
+                .all()
+            )
+            return {(r[0], r[1]): r[2] for r in rows}
+        except Exception as e:
+            logger.error(f"Error getting latest factor values in batch: {e}")
+            return {}
 
     @staticmethod
     def get_latest_factor_value(ticker, factor_name: str) -> Any:

@@ -21,6 +21,12 @@ from fastapi_cache.decorator import cache
 
 portfolio_router = APIRouter(prefix=api_prefix, tags=['投资组合'])
 
+# ⚠️ 路由的 async/sync 不是风格问题，是并发度问题：
+# Service 层全部是同步实现（pymysql / requests / pika），写 `async def` 会让这些阻塞调用
+# 直接占死唯一的事件循环，把一个慢请求变成全站卡顿（并发度 1）。
+# 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程），才是正确形态。
+# 只有需要 `await` 的（`await request.json()`、`await FastAPICache.clear()`）才保留 async。
+
 PORTFOLIO_WRITABLE_FIELDS = {
     'name', 'strategy_type', 'total_position_pct', 'base_currency',
     'position_plan', 'position_plan_reason', 'init_cash', 'current_cash',
@@ -40,7 +46,7 @@ def _pick_writable(data):
 
 @portfolio_router.get('/investment_portfolios')
 @cache(expire=3600)
-async def get_investment_portfolios():
+def get_investment_portfolios():
     """获取策略列表数据"""
     portfolios = InvestmentPortfolioService.get_all()
     for prof in portfolios:
@@ -55,7 +61,7 @@ async def get_investment_portfolios():
 
 @portfolio_router.get('/investment_portfolios_info/{portfolio_id}')
 @cache(expire=3600)
-async def get_investment_portfolios_info(portfolio_id: str):
+def get_investment_portfolios_info(portfolio_id: str):
     """获取策略详情"""
     prof = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
     prof['portfolio_id'] = portfolio_id
@@ -69,21 +75,21 @@ async def get_investment_portfolios_info(portfolio_id: str):
 
 @portfolio_router.get('/portfolio_daily_summary/{portfolio_id}')
 @cache(expire=3600)
-async def get_portfolio_daily_summary(portfolio_id: str):
+def get_portfolio_daily_summary(portfolio_id: str):
     """获取策略每日统计数据"""
     summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)
     return summary_list
 
 
 @portfolio_router.get('/portfolio_transaction/{portfolio_id}')
-async def get_portfolio_transaction(portfolio_id: str):
+def get_portfolio_transaction(portfolio_id: str):
     """获取策略交易记录"""
     _list = PortfolioTransactionService.get_by_portfolio_id(portfolio_id)
     return _list
 
 
 @portfolio_router.get('/portfolio_quantstat/{portfolio_id}')
-async def gen_quantstat(portfolio_id: str):
+def gen_quantstat(portfolio_id: str):
     """生成量化绩效报告"""
     summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)
     df = pd.DataFrame(summary_list)
@@ -153,7 +159,7 @@ async def update_portfolio(portfolio_id: str, request: Request):
 
 
 @portfolio_router.delete('/investment_portfolios/{portfolio_id}')
-async def delete_portfolio(portfolio_id: str):
+def delete_portfolio(portfolio_id: str):
     """删除投资组合"""
     if not InvestmentPortfolioService.get_by_portfolio_id(portfolio_id):
         return make_response(msg='Portfolio not found', code=404)
