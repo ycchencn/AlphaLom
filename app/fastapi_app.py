@@ -9,6 +9,7 @@
 
 import ipaddress
 import re
+import uuid
 from typing import Optional
 
 from fastapi import FastAPI, Request
@@ -17,9 +18,15 @@ from fastapi.staticfiles import StaticFiles
 from config import redis_host, redis_port
 from redis import ConnectionPool
 
+from models.database import (
+    begin_request_scope,
+    db_session,
+    end_request_scope,
+)
+
 # ==================== 数据库 ====================
-# Flask-SQLAlchemy 的 db 实例共用同一个 engine
-# FastAPI 中直接使用 db.session 或 models.database.db_session
+# 会话对象统一由 models.database 提供（db_session），业务代码直接使用即可。
+# 会话的创建与回收由下面的请求级中间件管理，不要在业务代码里手动 remove()。
 
 # ==================== Redis 连接池 ====================
 redis_pool = ConnectionPool(host=redis_host, port=redis_port, db=0)
@@ -163,6 +170,20 @@ def create_app() -> FastAPI:
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response
+
+    # 请求级数据库会话：一个请求一个 Session，响应结束立即回收。
+    # 不做这件事的话，scoped_session 的 thread-local 作用域在「全 async 路由 + 单事件循环线程」
+    # 下会退化成整个进程共用一个 Session：事务长期不提交，MySQL REPEATABLE READ 的读快照
+    # 被钉死，接口会一直返回旧数据（看起来就像接口被缓存了），同时连接也不归还连接池。
+    @_app.middleware('http')
+    async def db_session_scope(request: Request, call_next):
+        reset_token = begin_request_scope(uuid.uuid4().hex)
+        try:
+            return await call_next(request)
+        finally:
+            # remove() 会关闭会话（回滚未提交事务）并把连接归还连接池
+            db_session.remove()
+            end_request_scope(reset_token)
 
     # 挂载静态文件（Vue 打包产物）
     import os
