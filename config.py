@@ -79,6 +79,30 @@ rabbitmq_config = {
     'queue_name': os.getenv('RABBITMQ_QUEUE_NAME')
 }
 
+# ===== HTTP 服务（uvicorn 启动参数与并发模型）=====
+# 两个独立的并发旋钮，作用层次不同，别混为一谈：
+#
+#   workers          多进程。每个 worker 是独立进程，各自有事件循环、anyio 线程池、
+#                    数据库连接池；进程间不共享内存（缓存/限流只能靠 Redis）。
+#                    吞吐线性提升，但**内存与数据库连接数按倍数增长**。
+#   thread_pool_size 单进程内线程数上限。本项目绝大多数路由是同步 `def`（内部调用
+#                    pymysql / requests 等阻塞库），Starlette 会把它们丢进 anyio 线程池
+#                    执行，这个值即「一个进程能同时处理多少个阻塞型请求」。
+#                    anyio 默认 40。注意它只约束阻塞型路由，纯 async 路由不受约束。
+#
+# 容量约束（改大之前先看这里）：
+#   - 线程池上限不要超过本进程数据库连接池容量，否则线程会排队等连接，白占线程。
+#     models/database.py 是 pool_size=30 + max_overflow=50 → 单进程最多 80 条连接。
+#   - 每个 worker 各自建连接池，MySQL 侧总连接数 = workers × (pool_size + max_overflow)，
+#     改 workers 前先确认数据库 max_connections 够用。
+#   - dev 下 reload=True，uvicorn 强制单进程，workers 不生效（见 run_fastapi.py）。
+server_setting = {
+    'host': os.getenv('WEB_HOST', '0.0.0.0'),
+    'port': int(os.getenv('WEB_PORT', 8080)),                    # 默认 8080
+    'workers': int(os.getenv('WEB_WORKERS', 1)),                 # 默认 1（多进程）
+    'thread_pool_size': int(os.getenv('WEB_THREAD_POOL_SIZE', 40))  # 默认对齐 anyio 的 40
+}
+
 # ===== 接口缓存（单位：秒）=====
 cache_setting = {
     'stock_list': int(os.getenv('CACHE_STOCK_LIST', 1800)),     # 股票列表缓存 1800s（30 分钟）

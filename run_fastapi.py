@@ -11,6 +11,7 @@ import uvicorn
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from app.fastapi_app import create_app, api_prefix
+from config import server_setting
 from service import UserService
 from models.init_db import init_database
 import os
@@ -94,10 +95,14 @@ if os.path.isdir(static_dir):
 # ==================== 启动 ====================
 if __name__ == '__main__':
     init_database()
+    # 启动参数统一来自 config.server_setting（host / port / workers）。
+    # 单进程内的多线程并发由 server_setting['thread_pool_size'] 控制，
+    # 在应用的 lifespan 里应用（须在事件循环内，见 app/fastapi_app.py）。
     uvicorn.run(
         'run_fastapi:app',
-        host='0.0.0.0',
-        port=8080,
-        reload=(env=='dev'),
-        workers=int(os.getenv('WEB_WORKERS', '1')),
+        host=server_setting['host'],
+        port=server_setting['port'],
+        # dev 下开启热重载；uvicorn 在 reload 模式下会强制单进程，workers 随之失效
+        reload=(env == 'dev'),
+        workers=server_setting['workers'],
     )

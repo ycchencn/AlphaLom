@@ -10,12 +10,14 @@
 import ipaddress
 import re
 import uuid
+from contextlib import asynccontextmanager
 from typing import Optional
 
+import anyio.to_thread
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from config import redis_host, redis_port
+from config import redis_host, redis_port, server_setting
 from redis import ConnectionPool
 
 from models.database import (
@@ -24,6 +26,7 @@ from models.database import (
     end_request_scope,
 )
 from utils.api_cache import init_api_cache
+from utils.logger import logger
 
 # ==================== 数据库 ====================
 # 会话对象统一由 models.database 提供（db_session），业务代码直接使用即可。
@@ -141,6 +144,43 @@ def json_resp(ctx: dict) -> dict:
     return ctx
 
 
+# ==================== 并发参数 ====================
+def apply_thread_pool_size() -> None:
+    """把 config.server_setting['thread_pool_size'] 应用到 anyio 线程池。
+
+    本项目绝大多数路由是同步 `def`，由 Starlette 丢进 anyio 线程池执行（不写
+    `async def` 才能拿到多线程并发，见 routes/ 各文件顶部注释）。anyio 线程池
+    上限默认 40，这里按配置改。
+
+    **必须在事件循环内调用**：`current_default_thread_limiter()` 依赖当前运行的
+    async 后端，在事件循环外调用会抛 `NoEventLoopError`（anyio 4.15 实测）。
+    所以不能放在模块导入期，只能放在 lifespan 里。
+
+    多 worker 时每个 worker 进程各自跑一次 lifespan，各改各的，互不影响。
+    配 0 或负数表示不干预，沿用 anyio 默认值。
+    """
+    size = int(server_setting.get('thread_pool_size') or 0)
+    if size <= 0:
+        return
+
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    if limiter.total_tokens == size:
+        logger.info(f"线程池上限已是 {size}，无需调整")
+        return
+    logger.info(
+        f"线程池上限 {limiter.total_tokens} -> {size}"
+        f"（同步路由最大并发；本进程 workers={server_setting['workers']}）"
+    )
+    limiter.total_tokens = size
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """应用启动/关闭钩子（每个 worker 进程各执行一次）"""
+    apply_thread_pool_size()
+    yield
+
+
 # ==================== 快速创建 FastAPI 应用 ====================
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用"""
@@ -148,6 +188,7 @@ def create_app() -> FastAPI:
         title="FinFilo 量化交易系统",
         description="基于 LLM 的量化交易与分析平台",
         version="2.0.0",
+        lifespan=lifespan,
     )
 
     # CORS 配置
@@ -194,8 +235,8 @@ def create_app() -> FastAPI:
     # 挂载静态文件（Vue 打包产物）
     import os
     static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dist')
-    if os.path.isdir(static_dir):
-        _app.mount('/assets', StaticFiles(directory=os.path.join(static_dir, 'assets')), name='assets')
+    # if os.path.isdir(static_dir):
+    #     _app.mount('/assets', StaticFiles(directory=os.path.join(static_dir, 'assets')), name='assets')
         # _app.mount('/fonts', StaticFiles(directory=os.path.join(static_dir, 'fonts')), name='fonts')
 
     return _app

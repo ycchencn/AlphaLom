@@ -141,13 +141,26 @@ cp .env.example .env
 - `DATABULL_HOST`：DataBull 数据接口地址
 - `MCP_HOST`：MCP 服务器地址
 
+并发相关（见 `config.py` 的 `server_setting`，详见该处注释）：
+
+| 变量 | 默认 | 说明 |
+|:---|:---|:---|
+| `WEB_HOST` | `0.0.0.0` | 监听地址 |
+| `WEB_PORT` | `8080` | 监听端口 |
+| `WEB_WORKERS` | `1` | uvicorn 多进程 worker 数；每个 worker 独立事件循环 + 线程池 + 数据库连接池 |
+| `WEB_THREAD_POOL_SIZE` | `40` | 单进程内 anyio 线程池上限，即「同时执行的同步阻塞路由数」 |
+
+> `WEB_THREAD_POOL_SIZE` 只约束同步 `def` 路由（本项目绝大多数路由是同步的，才能拿到多线程并发）；
+> 纯 `async` 路由靠事件循环并发，不受它约束。改大前注意数据库连接池容量：
+> 单进程最多 `pool_size + max_overflow = 80` 条连接，多 worker 时总连接数按倍数增长。
+
 ### 启动服务
 
 ```bash
-# 开发环境（Flask REST）
-python run_app.py
+# 主服务（FastAPI，dev 下自动热重载）
+python run_fastapi.py
 
-# AI 对话服务（FastAPI，独立进程）
+# AI 对话服务（独立进程，端口 8000）
 python run_chat_app.py
 
 # 或使用 docker-compose 一键编排全部服务
@@ -158,7 +171,7 @@ docker-compose up -d
 
 ```bash
 npm run dev      # 启动 Vite 开发服务器
-npm run build    # 构建到 dist/（Flask 的 static 目录）
+npm run build    # 构建到 dist/（由 FastAPI 的 SPA 路由直接服务）
 ```
 
 ### Docker 构建与部署
