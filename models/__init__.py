@@ -77,7 +77,7 @@ class Stock(Base):
 
 
 # 股票新闻表
-class StockNews(db.Model):
+class StockNews(Base):
     __tablename__ = 'stock_news'
 
     news_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
@@ -91,7 +91,7 @@ class StockNews(db.Model):
 
 
 # 股票基本面表
-class StockFundamentals(db.Model):
+class StockFundamentals(Base):
     __tablename__ = 'stock_fundamentals'
 
     fundamental_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
@@ -111,7 +111,7 @@ class StockFundamentals(db.Model):
 
 
 # 自选股表
-class UserWatchlist(db.Model):
+class UserWatchlist(Base):
     __tablename__ = 'user_watchlist'
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
@@ -144,7 +144,7 @@ class UserWatchlist(db.Model):
 
 
 # 策略组
-class StrategyGroup(db.Model):
+class StrategyGroup(Base):
     __tablename__ = 'strategy_group'
 
     group_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
@@ -161,7 +161,7 @@ class StrategyGroup(db.Model):
         }
 
 
-class BacktestTask(db.Model):
+class BacktestTask(Base):
     __tablename__ = 'backtest_tasks'
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')  # 自增主键
@@ -223,7 +223,7 @@ class BacktestTask(db.Model):
         }
 
 
-class BacktestTrade(db.Model):
+class BacktestTrade(Base):
     __tablename__ = 'backtest_trades'
 
     id = Column(Integer, primary_key=True, comment='自增主键')

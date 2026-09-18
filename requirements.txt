@@ -6,9 +6,6 @@ pymysql~=1.2.0
 redis
 openai
 pytest~=9.0.3
-flask
-Flask-Caching
-flask-sqlalchemy
 apscheduler
 markdown2~=2.5.5
 distro~=1.9.0
@@ -42,7 +39,6 @@ simplejson
 cachetools
 polygon-api-client
 pyxt
-flask-restx
 zai-sdk
 pytz
 fake-useragent
@@ -52,7 +48,6 @@ tushare
 python-dotenv
 elasticsearch
 websockets
-flask_cors
 fastapi
 aiohttp
 uvicorn

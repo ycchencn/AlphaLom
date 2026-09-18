@@ -5,7 +5,6 @@
 """
 
 from models import MarketNews
-from flask import current_app
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError
 from utils.logger import logger
@@ -52,7 +51,7 @@ class MarketNewsService:
             db_session.commit()
             return new_news
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Database error occurred while creating market news: {e}")
+            logger.error(f"Database error occurred while creating market news: {e}")
             db_session.rollback()
             return None
         except Exception as e:
@@ -244,7 +243,7 @@ class MarketNewsService:
             db_session.commit()
             return news
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Database error during update of market news {news_id}: {e}")
+            logger.error(f"Database error during update of market news {news_id}: {e}")
             db_session.rollback()
             return None
         except Exception as e:
@@ -268,7 +267,7 @@ class MarketNewsService:
             db_session.commit()
             return True
         except SQLAlchemyError as e:
-            current_app.logger.error(f"Database error during deletion of market news {news_id}: {e}")
+            logger.error(f"Database error during deletion of market news {news_id}: {e}")
             db_session.rollback()
             return False
         except Exception as e:
