@@ -45,6 +45,7 @@ def _stock_reanalysis(symbol, sync_history=False, send_notification=False):
 
 
 @stock_router.get('/stock/dcf_research_report/{stock_code}')
+@cache(expire=3600)
 async def get_dcf_research_report(stock_code: str):
     """获取个股研报数据"""
     report = ResearchReportService.get_by_code(stock_code=stock_code, report_type=1)
@@ -159,6 +160,7 @@ async def get_stocks_monitored(
 
 
 @stock_router.get('/stock/greed_data/{stock_code}')
+@cache(expire=3600)
 async def get_stocks_greed_data(stock_code: str):
     """获取个股恐惧贪婪数据"""
     greed_data = StockFearGreedService.get_by_index_all(index_code=stock_code)
@@ -166,6 +168,7 @@ async def get_stocks_greed_data(stock_code: str):
 
 
 @stock_router.get('/stocks/{stock_code}')
+@cache(expire=3600)
 async def get_stock(stock_code: str):
     """获取个股信息"""
     if not validate_stock_code(stock_code):
@@ -179,6 +182,7 @@ async def get_stock(stock_code: str):
 
 
 @stock_router.get('/stock_history/{stock_code}')
+@cache(expire=3600)
 async def get_stock_history(
     stock_code: str,
     period: str = Query('d'),
@@ -224,6 +228,7 @@ async def stock_re_analysis_dcf(symbol: str):
 
 
 @stock_router.get('/stocks/profile/{symbol}')
+@cache(expire=3600)
 async def get_stock_profile(symbol: str):
     """获取公司信息"""
     if not validate_stock_code(symbol):
@@ -240,6 +245,7 @@ async def get_fundamental_scores(symbol: str):
 
 
 @stock_router.get('/stock/financial_data/{symbol}')
+@cache(expire=3600)
 async def get_financial_data(symbol: str):
     """获取个股财务数据"""
     report = databull.get_stock_financial_data(

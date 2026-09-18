@@ -10,11 +10,13 @@ from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService
 from utils.logger import logger
 from utils.data_loader import databull
+from fastapi_cache.decorator import cache
 
 market_router = APIRouter(prefix=api_prefix, tags=['市场数据'])
 
 
 @market_router.get('/market/sectors')
+@cache(expire=3600)
 async def get_market_sectors(
     sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级")
 ):

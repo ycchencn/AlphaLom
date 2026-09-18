@@ -17,6 +17,7 @@ from service import (
 )
 from backtest.quant_stat_report import generate_html_report_string
 from fastapi.responses import HTMLResponse
+from fastapi_cache.decorator import cache
 
 portfolio_router = APIRouter(prefix=api_prefix, tags=['投资组合'])
 
@@ -38,6 +39,7 @@ def _pick_writable(data):
 
 
 @portfolio_router.get('/investment_portfolios')
+@cache(expire=3600)
 async def get_investment_portfolios():
     """获取策略列表数据"""
     portfolios = InvestmentPortfolioService.get_all()
@@ -52,6 +54,7 @@ async def get_investment_portfolios():
 
 
 @portfolio_router.get('/investment_portfolios_info/{portfolio_id}')
+@cache(expire=3600)
 async def get_investment_portfolios_info(portfolio_id: str):
     """获取策略详情"""
     prof = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
@@ -65,6 +68,7 @@ async def get_investment_portfolios_info(portfolio_id: str):
 
 
 @portfolio_router.get('/portfolio_daily_summary/{portfolio_id}')
+@cache(expire=3600)
 async def get_portfolio_daily_summary(portfolio_id: str):
     """获取策略每日统计数据"""
     summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)

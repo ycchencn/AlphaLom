@@ -7,11 +7,13 @@
 from fastapi import APIRouter
 from app.fastapi_app import api_prefix
 from utils.data_loader import databull
+from fastapi_cache.decorator import cache
 
 index_router = APIRouter(prefix=api_prefix, tags=['指数'])
 
 
 @index_router.get('/index/last_tick')
+@cache(expire=3600)
 async def get_index_last():
     """
     获取指数最新行情
