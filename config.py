@@ -82,7 +82,11 @@ rabbitmq_config = {
 # ===== 接口缓存（单位：秒）=====
 cache_setting = {
     'stock_list': int(os.getenv('CACHE_STOCK_LIST', 1800)),     # 股票列表缓存 1800s（30 分钟）
-    'stock_history': int(os.getenv('CACHE_STOCK_HISTORY', 3600)) # 历史行情缓存 3600s（1 小时）
+    'stock_history': int(os.getenv('CACHE_STOCK_HISTORY', 3600)), # 历史行情缓存 3600s（1 小时）
+    # 监控股票列表：接口内部是 N+1 查询（每只票 4 次），开销大；
+    # 所含数据（恐惧贪婪、52 周高低、主力行为阶段）都是日频更新，
+    # 但 monitoring 标记可能被后台任务随时改动，故 TTL 取短一些（默认 5 分钟）
+    'monitored_stocks': int(os.getenv('CACHE_MONITORED_STOCKS', 300))
 }
 
 # ===== 大模型路由配置 =====

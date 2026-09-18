@@ -23,6 +23,7 @@ from models.database import (
     db_session,
     end_request_scope,
 )
+from utils.api_cache import init_api_cache
 
 # ==================== 数据库 ====================
 # 会话对象统一由 models.database 提供（db_session），业务代码直接使用即可。
@@ -184,6 +185,11 @@ def create_app() -> FastAPI:
             # remove() 会关闭会话（回滚未提交事务）并把连接归还连接池
             db_session.remove()
             end_request_scope(reset_token)
+
+    # 接口级缓存（fastapi-cache3，Redis 后端）。缓存的是服务端计算结果，
+    # 与上面 apply_cache_policy 是两回事：浏览器侧仍收到 no-store、每次回源，
+    # 由服务端决定是否直接返回缓存。具体接法与注意事项见 utils/api_cache.py。
+    init_api_cache()
 
     # 挂载静态文件（Vue 打包产物）
     import os

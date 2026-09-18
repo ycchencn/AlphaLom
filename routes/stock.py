@@ -5,7 +5,10 @@
 """
 
 from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi_cache import FastAPICache
+from fastapi_cache.decorator import cache
 from app.fastapi_app import api_prefix
+from config import cache_setting
 from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
@@ -15,6 +18,9 @@ from utils.common import get_today, get_date_by_n, validate_stock_code
 from utils.logger import logger
 
 stock_router = APIRouter(prefix=api_prefix, tags=['个股'])
+
+# 监控股票列表的缓存命名空间：装饰器与失效处共用，避免字符串写不一致导致失效落空
+MONITORED_STOCKS_NS = 'stocks_monitored'
 
 
 def get_main_force_behavior_phase(code):
@@ -110,21 +116,38 @@ async def update_stock(symbol: str, request: Request):
             'monitoring': data.get('monitoring', 1)
         })
 
+    # 监控标记变了，列表缓存必须立即失效，否则用户改完看不到自己的改动
+    # （后台任务直接改库的场景无法在这里挂钩，由 TTL 兜底）
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+
     return {'code': 0, 'message': 'Stock updated successfully!'}
 
 
 @stock_router.get('/stocks_monitored')
+@cache(expire=cache_setting['monitored_stocks'], namespace=MONITORED_STOCKS_NS)
 async def get_stocks_monitored(
     page: int = Query(1, ge=1),
     market: str = Query('cn'),
     page_size: int = Query(300, ge=1, le=1000),
     simple: int = Query(0, ge=0, le=1)
 ):
-    """获取个股监控列表"""
+    """获取个股监控列表
+
+    服务端带缓存：接口内部对每只票都要查 4 次库（恐惧贪婪、主力行为阶段、
+    52 周高低），默认 page_size=300 时约 1200 次查询，故整体缓存，TTL 见
+    config.cache_setting['monitored_stocks']。
+
+    缓存键由函数与其调用参数生成（FastAPI 把 query 参数作为 kwargs 传入），
+    因此 page / market / page_size / simple 全部参与区分，不会串数据。
+
+    返回给浏览器的仍是 no-store（全局缓存策略）：客户端不缓存、服务端命中缓存。
+    是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
+    """
     stocks = StockService.get_monitoring_stock_pool(per_page=page_size, market=market)
+    if simple == 1:
+        return stocks
+
     for stock in stocks:
-        if simple == 1:
-            continue
         stock['greed_data'], stock['main_force_behavior_phase'] = get_main_force_behavior_phase(stock['symbol'])
         stock['52week_low'] = FactorValueService.get_latest_factor_value(
             ticker=stock['symbol'], factor_name='52week_low'
