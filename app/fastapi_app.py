@@ -8,6 +8,7 @@
 """
 
 import ipaddress
+import re
 from typing import Optional
 
 from fastapi import FastAPI, Request
@@ -26,13 +27,37 @@ redis_pool = ConnectionPool(host=redis_host, port=redis_port, db=0)
 # ==================== API 前缀 ====================
 api_prefix = '/api/v1'
 
-# ==================== 禁用缓存的接口前缀 ====================
-# 投资组合（策略）数据必须实时反映最新持仓与净值，
-# 这些前缀下的接口响应不参与任何缓存（后端 / 浏览器 / CDN / 反向代理）
-NO_CACHE_PATH_PREFIXES = (
-    f'{api_prefix}/investment_portfolios',
-    f'{api_prefix}/portfolio',
+# ==================== 缓存策略 ====================
+# 默认一律不缓存：HTML 入口（SPA 路由全部回落到 index.html）和接口响应
+# 一旦被浏览器 / CDN / 反向代理缓存住，改完代码用户还是看到旧页面、旧数据。
+# 唯一例外是 Vite 构建产物 —— 文件名里带内容 hash（/assets/index-kLiojf6m.js），
+# 内容变则文件名必变，可以放心长期缓存，省掉每次开页面重下几 MB 的字体和 Monaco。
+CACHE_NO_STORE = 'no-store, no-cache, must-revalidate, max-age=0'      # 页面 + 接口
+CACHE_REVALIDATE = 'no-cache, must-revalidate'                          # 其余静态资源，每次回源校验（304 很轻）
+CACHE_IMMUTABLE = 'public, max-age=31536000, immutable'                 # 带 hash 的构建产物，一年
+
+# 构建产物目录，且文件名必须带 8 位以上 hash 才认定为不可变资源
+HASHED_ASSET_PREFIX = '/assets/'
+HASHED_ASSET_PATTERN = re.compile(r'-[A-Za-z0-9_]{8,}\.(?:js|mjs|css|woff2?|ttf|otf|png|jpe?g|svg|wasm)$')
+
+# 这些后缀属于静态资源：缓存但每次回源校验；其余（HTML / API）一律 no-store
+STATIC_FILE_SUFFIXES = (
+    '.js', '.mjs', '.css', '.map', '.json', '.txt', '.xml',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
+    '.woff', '.woff2', '.ttf', '.otf', '.eot', '.wasm',
 )
+
+
+def resolve_cache_control(path: str) -> str:
+    """按请求路径决定 Cache-Control"""
+    lower_path = path.lower()
+    if lower_path.startswith(HASHED_ASSET_PREFIX) and HASHED_ASSET_PATTERN.search(lower_path):
+        return CACHE_IMMUTABLE
+    if lower_path.endswith(STATIC_FILE_SUFFIXES):
+        return CACHE_REVALIDATE
+    # 页面（HTML / SPA 路由）与接口
+    return CACHE_NO_STORE
+
 
 # ==================== 代理 IP 配置 ====================
 TRUSTED_PROXIES = [
@@ -126,13 +151,15 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # 关闭投资组合相关接口的缓存
-    # 显式下发 no-store 响应头，确保浏览器 / CDN / 反向代理都不缓存策略数据
+    # 全局缓存策略：默认 no-store，只有带 hash 的构建产物长期缓存
+    # 中间件统一下发，才能同时覆盖 FileResponse（HTML / 静态文件）、
+    # JSONResponse 和直接返回 HTMLResponse 的接口
     @_app.middleware('http')
-    async def disable_cache_for_portfolio(request: Request, call_next):
+    async def apply_cache_policy(request: Request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(NO_CACHE_PATH_PREFIXES):
-            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        cache_control = resolve_cache_control(request.url.path)
+        response.headers['Cache-Control'] = cache_control
+        if cache_control == CACHE_NO_STORE:
             response.headers['Pragma'] = 'no-cache'
             response.headers['Expires'] = '0'
         return response

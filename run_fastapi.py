@@ -8,7 +8,7 @@
 """
 
 import uvicorn
-from fastapi import Request
+from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, FileResponse
 from app.fastapi_app import create_app, api_prefix
 from service import UserService
@@ -65,6 +65,16 @@ async def auth_login(request: Request):
 
 # ==================== 静态文件服务 ====================
 static_dir = os.path.join(os.path.dirname(__file__), 'dist')
+
+# 缺失的静态资源直接 404，不回落 index.html：
+# 老页面请求已下线的 hashed 产物（/assets/index-OLD.js）时若返回 HTML，
+# 浏览器只会报一个含糊的 MIME 错误，问题很难定位
+STATIC_ASSET_SUFFIXES = (
+    '.js', '.mjs', '.css', '.map', '.json', '.wasm',
+    '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp',
+    '.woff', '.woff2', '.ttf', '.otf', '.eot',
+)
+
 if os.path.isdir(static_dir):
     @app.get('/')
     async def serve_index():
@@ -75,6 +85,8 @@ if os.path.isdir(static_dir):
         file_path = os.path.join(static_dir, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
+        if full_path.lower().endswith(STATIC_ASSET_SUFFIXES):
+            raise HTTPException(status_code=404, detail=f'Static asset not found: /{full_path}')
         # SPA fallback: 所有非 API 路径返回 index.html
         return FileResponse(os.path.join(static_dir, 'index.html'))
 
