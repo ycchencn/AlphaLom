@@ -28,6 +28,7 @@ from routes.etf import etf_router
 from routes.quant import quant_router
 from routes.index import index_router
 from routes.syslog import syslog_router
+from routes.llm import llm_router
 
 app.include_router(stock_router)
 app.include_router(market_router)
@@ -36,6 +37,7 @@ app.include_router(etf_router)
 app.include_router(quant_router)
 app.include_router(index_router)
 app.include_router(syslog_router)
+app.include_router(llm_router)
 
 # ==================== 登录接口 ====================
 @app.post(f'{api_prefix}/auth/login')

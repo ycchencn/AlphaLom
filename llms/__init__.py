@@ -5,9 +5,11 @@
 """
 
 import random
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
-from config import llm_model_setting
+from openai import OpenAI
+
+from config import llm_model_setting, zhipu_api
 from llms.llm_base_aliyun import LLMBaseAliyun
 from llms.llm_base_deepseek import LLMBaseDeepSeek
 from llms.llm_base_siliconflow import LLMBaseSiliconflow
@@ -22,6 +24,14 @@ _PLATFORM_REGISTRY: Dict[str, type] = {
     'siliconflow': LLMBaseSiliconflow,
     'aliyun': LLMBaseAliyun,
     'zhipu': LLMBaseZhipu,
+}
+
+# 拉模型列表时需要改用其它端点的平台（key 仍取平台自己的）：
+# - zhipu：zai.ZhipuAiClient 未暴露 models.list，走智谱官方 OpenAI 兼容 /v4 接口
+# - siliconflow：chat 可用根路径，但 GET /models 只挂在 /v1 下（根路径 404）
+_MODELS_CLIENT_OVERRIDES: Dict[str, Dict[str, str]] = {
+    'zhipu': {'base_url': 'https://open.bigmodel.cn/api/paas/v4'},
+    'siliconflow': {'base_url': 'https://api.siliconflow.cn/v1'},
 }
 
 
@@ -69,3 +79,31 @@ def get_model_by_setting(_setting_name: str = 'stock_dcf_analysis', _setting: Op
 
     logger.debug(f"创建 LLM 实例：platform={platform}, model={staff.model}")
     return staff
+
+
+def list_platform_models(platform: str, timeout: float = 15.0) -> List[str]:
+    """
+    实时拉取指定平台可用的模型列表（调用各平台 OpenAI 兼容的 GET /models）
+    :param platform: 平台标识（_PLATFORM_REGISTRY 中的 key）
+    :param timeout: 上游请求超时（秒）
+    :return: 模型 ID 列表（去重、升序）
+    :raises ValueError: 平台不支持
+    :raises Exception: 上游接口失败（由调用方决定如何降级）
+    """
+    if platform not in _PLATFORM_REGISTRY:
+        raise ValueError(f"不支持的平台：{platform}，支持的平台：{', '.join(sorted(_PLATFORM_REGISTRY))}")
+
+    override = _MODELS_CLIENT_OVERRIDES.get(platform)
+    if override:
+        # 非 OpenAI SDK 客户端（如智谱 zai）：改用其 OpenAI 兼容端点 + 平台自己的 key
+        staff = _PLATFORM_REGISTRY[platform]()
+        api_key = getattr(staff.client, 'api_key', None) or zhipu_api
+        client = OpenAI(api_key=api_key, base_url=override['base_url'])
+    else:
+        # 直接复用生产用的 OpenAI 兼容客户端（同 base_url、同 key，保证列表与实际可调用一致）
+        client = _PLATFORM_REGISTRY[platform]().client
+
+    resp = client.models.list(timeout=timeout)
+    models = sorted({m.id for m in resp.data if getattr(m, 'id', None)})
+    logger.debug(f"拉取平台模型列表成功：platform={platform}, count={len(models)}")
+    return models

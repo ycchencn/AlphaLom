@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted, computed} from 'vue';
+import {ref, onMounted, computed, watch} from 'vue';
 import {useRoute} from 'vue-router';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -62,6 +62,48 @@ const platformOptions = [
     { label: 'SiliconFlow', value: 'siliconflow' },
     { label: '智谱', value: 'zhipu' },
 ];
+
+// ---- 模型列表（后端 GET /api/v1/llm/models?platform=xx，实时调各平台 /models 接口）----
+// 与平台下拉联动：切换平台后拉取该平台可用模型（客户端按平台缓存，切回不重复请求）；
+// 接口失败时退化为可手动输入，不阻塞编辑流程
+const modelOptionsByPlatform = ref({});
+const modelsLoading = ref(false);
+const loadLlmModels = (platform) => {
+    if (!platform || modelOptionsByPlatform.value[platform] !== undefined) return; // 已有缓存
+    modelsLoading.value = true;
+    axios.get('/api/v1/llm/models', { params: { platform } })
+        .then(response => {
+            const info = (response.data || {})[platform];
+            modelOptionsByPlatform.value[platform] = info?.models || [];
+            if (info?.error) {
+                showError(`获取 ${platform} 模型列表失败，可手动输入模型名称`);
+            }
+        })
+        .catch(err => {
+            console.error('模型列表加载失败', err);
+            modelOptionsByPlatform.value[platform] = [];
+            showError('获取模型列表失败，可手动输入模型名称');
+        })
+        .finally(() => {
+            modelsLoading.value = false;
+        });
+};
+
+// 当前平台下的可选模型
+const modelOptions = computed(() => modelOptionsByPlatform.value[editForm.value.llm_setting.platform] || []);
+
+// 平台切换联动：拉取新平台的模型列表；当前模型不在新平台选项里时，自动切到首个模型（没有则清空）
+watch(() => editForm.value.llm_setting.platform, (platform) => {
+    loadLlmModels(platform);
+    if (editForm.value.llm_setting.model && !modelOptions.value.includes(editForm.value.llm_setting.model)) {
+        editForm.value.llm_setting.model = modelOptions.value[0] || '';
+    }
+});
+
+// 打开编辑弹窗即拉当前平台的模型列表
+watch(editDialogVisible, (visible) => {
+    if (visible) loadLlmModels(editForm.value.llm_setting.platform);
+});
 // 盈亏日历数据
 const profitData = ref({});
 const portfolio_quantstat = ref(null);
@@ -534,7 +576,17 @@ const showDcfDrawer = function () {
 
                 <div>
                     <label for="edit_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
-                    <InputText id="edit_model" v-model="editForm.llm_setting.model" autocomplete="off" placeholder="如 qwen3.6-plus" class="w-full" />
+                    <Dropdown
+                        id="edit_model"
+                        v-model="editForm.llm_setting.model"
+                        :options="modelOptions"
+                        :loading="modelsLoading"
+                        editable
+                        filter
+                        placeholder="选择模型，也可手动输入"
+                        :empty-message="modelsLoading ? '正在获取模型列表…' : '该平台暂无可用模型，可手动输入'"
+                        class="w-full"
+                    />
                 </div>
             </template>
         </div>
