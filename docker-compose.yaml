@@ -61,17 +61,6 @@ services:
             REDIS_HOST: ${REDIS_HOST}
         restart: always
 
-    job_server_slave:
-        image: finfilo-service:latest
-        working_dir: /app
-        command: python3 /app/job/job_server.py
-        environment:
-            ENV: production
-            PYTHONPATH: /app
-            DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
-        restart: always
-
     news_server:
         image: finfilo-service:latest
         working_dir: /app
