@@ -7,6 +7,7 @@
 import uuid
 import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from app.fastapi_app import api_prefix
 from utils.logger import logger
 from service import InvestmentPortfolioService, PortfolioAssetsService
@@ -196,7 +197,12 @@ async def trigger_position_plan_analysis(portfolio_id: str, request: Request):
 
     try:
         logger.info(f"手动触发 AI 调仓分析: portfolio_id={portfolio_id}, send_feishu={send_feishu}")
-        job_position_plan_daily(portfolio_id=portfolio_id, send_feishu=send_feishu)
+        # ⚠️ 必须丢线程池：job_position_plan_daily 内部全是同步阻塞调用
+        # （DB + databull + LLM create_completion，一次可达数十秒）。
+        # 直接在 async 路由里调用会占死唯一的事件循环 → 分析期间全站接口一起卡住。
+        # run_in_threadpool 会把请求级 ContextVar（db_session 作用域令牌）复制进工作线程，
+        # 会话隔离不受影响。
+        await run_in_threadpool(job_position_plan_daily, portfolio_id=portfolio_id, send_feishu=send_feishu)
         return make_response(msg='Analysis completed successfully')
     except Exception as e:
         logger.error(f"AI 调仓分析失败: {e}")
