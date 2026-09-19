@@ -16,11 +16,11 @@ import router from "@/router";
         <div class="layout-topbar-actions">
             <div class="layout-topbar-menu hidden lg:block">
                 <div class="layout-topbar-menu-content">
-                    <router-link class="text-blue-500"
-                                 target="_blank"
-                                 :to="{ name: 'trading-terminal', params: { } }">
-                        <Chip label="Terminal" icon="pi pi-twitch" style="cursor: pointer"/>
-                    </router-link>
+<!--                    <router-link class="text-blue-500"-->
+<!--                                 target="_blank"-->
+<!--                                 :to="{ name: 'trading-terminal', params: { } }">-->
+<!--                        <Chip label="Terminal" icon="pi pi-twitch" style="cursor: pointer"/>-->
+<!--                    </router-link>-->
                 </div>
             </div>
         </div>

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Query
 from app.fastapi_app import api_prefix
 from utils.data_loader import databull
 from service import FactorValueService
+from fastapi_cache.decorator import cache
 
 etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 
@@ -16,6 +17,7 @@ etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 
 
 @etf_router.get('/etfs')
+@cache(expire=3600)
 def get_etfs():
     """
     获取ETF监控列表
@@ -27,8 +29,7 @@ def get_etfs():
         {"name": "芯片ETF华夏", "symbol": "159995"},
         {"name": "通信ETF银华", "symbol": "159994"},
         {"name": "证券ETF鹏华", "symbol": "159993"},
-        {"name": "创新药ETF银华", "symbol": "159992"},
-        {"name": "创业板大盘ETF招商", "symbol": "159990"}
+        {"name": "创新药ETF银华", "symbol": "159992"}
     ]
     for etf in etfs:
         etf['52week_low'] = FactorValueService.get_latest_factor_value(

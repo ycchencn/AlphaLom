@@ -42,8 +42,14 @@ const router = createRouter({
                 {
                     path: '/market/etf_insight',
                     name: 'market-etf-insight',
-                    component: () => import('@/views/market/ETFInsight.vue'),
+                    component: () => import('@/views/etf/ETFInsight.vue'),
                     meta: { title: 'ETF洞察', requiresAuth: true }
+                },
+                {
+                    path: '/quant/etf_detail/:symbol',
+                    name: 'etf-detail',
+                    component: () => import('@/views/etf/ETFDetail.vue'),
+                    meta: { title: '个股监控详情', requiresAuth: true }
                 },
                 {
                     path: '/quant/dcf_insight',
@@ -80,12 +86,6 @@ const router = createRouter({
                     name: 'stock-detail',
                     component: () => import('@/views/stock/StockDetail.vue'),
                     meta: { title: '个股详情', requiresAuth: true }
-                },
-                {
-                    path: '/quant/etf_detail/:symbol',
-                    name: 'etf-detail',
-                    component: () => import('@/views/market/ETFDetail.vue'),
-                    meta: { title: '个股监控详情', requiresAuth: true }
                 },
                 {
                     path: '/quant/trade_signal',
