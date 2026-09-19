@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any
 
-import finfilo
+import alphalom
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from llms import get_model_by_setting
@@ -494,7 +494,7 @@ def job_news_feed_analysis_ths() -> None:
     @brief 采集同花顺实时快讯并推送至AI分析管线
     @throws [Exception: 网络请求或解析异常]
     """
-    news_list = finfilo.get_realtime_news_from_ths_short(pagesize=20)
+    news_list = alphalom.get_realtime_news_from_ths_short(pagesize=20)
     _process_batch_articles(news_list, sources='tonghuashun')
 
 

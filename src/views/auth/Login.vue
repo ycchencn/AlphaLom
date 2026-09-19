@@ -86,7 +86,7 @@ function handleLogin() {
              <!-- SVG Path -->
              <path fill-rule="evenodd" clip-rule="evenodd" d="M17.1637 19.2467C..." fill="var(--primary-color)" />
           </svg>
-          <div class="text-surface-900 dark:text-surface-0 text-3xl font-medium mb-2">Welcome to Finfilo!</div>
+          <div class="text-surface-900 dark:text-surface-0 text-3xl font-medium mb-2">Welcome to AlphaLom!</div>
           <span class="text-muted-color font-medium">Sign in to System</span>
         </div>
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# FinFilo Docker 构建与部署脚本
+# AlphaLom Docker 构建与部署脚本
 # 用法: ./shell_build_docker.sh [command]
 
 set -e
@@ -12,9 +12,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # 镜像名称
-BASE_BE_IMAGE="finfilo-be-base"
-BASE_FE_IMAGE="finfilo-fe-base"
-SERVICE_IMAGE="finfilo-service"
+BASE_BE_IMAGE="alphalom-be-base"
+BASE_FE_IMAGE="alphalom-fe-base"
+SERVICE_IMAGE="alphalom-service"
 
 # 打印带颜色的信息
 info() {
@@ -36,7 +36,7 @@ error() {
 # 显示帮助信息
 show_help() {
     cat << EOF
-FinFilo Docker 构建与部署工具
+AlphaLom Docker 构建与部署工具
 
 用法: $0 [command]
 

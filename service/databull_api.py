@@ -14,7 +14,7 @@ import requests
 
 class DataBull:
     """
-    金融数据 API 客户端封装。支持 FinFilo 标准接口调用，内置连接池、统一异常处理与 DataFrame 自动转换。
+    金融数据 API 客户端封装。支持 AlphaLom 标准接口调用，内置连接池、统一异常处理与 DataFrame 自动转换。
     注意：需安装依赖：pip install pandas requests
     """
     def __init__(self, api_key: str, base_url: Optional[str] = None) -> None:

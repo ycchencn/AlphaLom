@@ -1,13 +1,16 @@
-# FinFilo
+# AlphaLom
 
-金融数据分析与投资组合管理平台：提供股票 / ETF / 市场行情接口，并集成多 LLM 做智能分析（财报解读、新闻解读、量化策略生成与回测）。
+**AlphaLom** —— 以 Alpha（超额收益）为标的、以 Loom（织机）为喻的量化投研平台：把散落在行情、财务、新闻与另类数据中的市场信号，编织成可执行的投资决策。
 
-> 当前版本：`v4.2.0`
+AlphaLom 是一体化金融数据分析与智能投研平台，面向个人量化投资者与投研团队，提供从 **多源数据采集 → 因子与信号计算 → LLM 智能研判 → 投资组合管理 → 策略回测** 的全链路能力。平台以 REST API 与 Web 控制台双形态交付，原生集成多路大语言模型（DeepSeek、通义千问、豆包、智谱 GLM、SiliconFlow、MiniMax），将 LLM 的语义理解能力系统性地嵌入投研流程——财报解读、新闻情绪投票、量化策略代码生成与 AI 辅助调仓，让机器读得懂市场，也让决策留得下痕迹。
+
+> 当前版本：`v4.3.0`
 
 ## 功能特性
 
 - **数据接口**：市场（大盘 / 板块 / 情绪 / 温度）、股票（行情 / 档案 / 技术信号 / DCF / 恐贪指数 / 财务评分）、ETF、投资组合（组合 / 统计 / 交易 / 盈亏）、回测（任务 / 信号 / 调仓）。
-- **AI 分析**：统一封装 DeepSeek、通义千问、豆包、智谱 GLM、SiliconFlow、MiniMax；自动生成报告、多模型新闻投票、策略代码生成、支持 MCP 的 AI 对话。
+- **AI 分析**：统一封装多路 LLM，按任务画像路由到最适模型；自动生成研报、多模型新闻投票、策略代码生成、支持 MCP 的 AI 对话与实时交易辅助。
+- **投研闭环**：盘后自动完成数据刷新、因子计算与信号生成；AI 调仓建议落库为可追溯的交易计划，与组合净值曲线、持仓明细形成完整的研究-执行-复盘闭环。
 
 ## 技术栈
 
@@ -19,7 +22,7 @@
 
 ## 系统架构
 
-「单体仓库 + 多进程服务」：同一镜像 `finfilo-service` 由 `docker-compose.yaml` 编排启动多个角色。
+「单体仓库 + 多进程服务」：同一镜像 `alphalom-service` 由 `docker-compose.yaml` 编排启动多个角色。
 
 | 服务 | 端口 | 入口 | 职责 |
 |---|---|---|---|
@@ -31,7 +34,7 @@
 | `news_server` | — | `job/news_server.py` | 新闻聚合 |
 | `log_comsumer` | — | `log_comsumer.py` | 日志消费 |
 
-**后端模块**：`app/`（FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应）、`routes/`（路由器）、`service/`（~30 个业务逻辑）、`llms/`（多模型封装）、`backtest/`（回测引擎 / 策略）、`job/`（12 个离线任务）、`models/`（db / redis / 任务队列）、`utils/`、`prompts/`、`finfilo/`（框架内部件）、`config.py`（全局配置）。
+**后端模块**：`app/`（FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应）、`routes/`（路由器）、`service/`（~30 个业务逻辑）、`llms/`（多模型封装）、`backtest/`（回测引擎 / 策略）、`job/`（12 个离线任务）、`models/`（db / redis / 任务队列）、`utils/`、`prompts/`、`alphalom/`（独立行情数据 SDK：股票 / ETF / 新闻多源抓取）、`config.py`（全局配置）。
 
 **前端视图**（`src/views/`）：market / stock / portfolios / quant / ai / trading / user / system / auth / uikit。
 
@@ -45,13 +48,13 @@
 ## 目录结构
 
 ```
-finfilo/
+alphalom/
 ├── run_fastapi.py        # FastAPI REST 入口
 ├── run_chat_app.py       # FastAPI 对话入口
 ├── scheduler.py          # 定时任务入口
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置
-├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/ prompts/ finfilo/
+├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/ prompts/ alphalom/
 ├── src/                  # Vue 前端源码
 ├── public/               # 静态资源
 ├── install/              # SQL 初始化脚本
@@ -68,7 +71,7 @@ finfilo/
 ```bash
 pip install -r requirements.txt
 npm install
-cp .env.example .env      # 配置数据库 / Redis / 各 LLM API Key
+cp .env.sample .env       # 配置数据库 / Redis / 各 LLM API Key
 ```
 
 主要环境变量（详见 `config.py`）：`DATABASE_CONN_STR`、`REDIS_*`、`JOB_QUEUE_*`（任务队列 stream/消费组名等）、`*_APIKEY`、`DATABULL_HOST`、`MCP_HOST`。

@@ -38,7 +38,7 @@ from fastapi_cache.coder import JsonCoder
 from config import redis_host, redis_port
 
 # 缓存 key 的统一前缀，便于在 Redis 中辨认与批量清理
-CACHE_PREFIX = 'finfilo'
+CACHE_PREFIX = 'alphalom'
 
 # Redis 故障时不要拖慢接口：连接与读写超时都设短，失败即回源
 _SOCKET_TIMEOUT = float(os.getenv('CACHE_REDIS_TIMEOUT', '0.5'))

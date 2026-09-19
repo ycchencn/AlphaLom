@@ -1,7 +1,7 @@
 services:
 
     web:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         ports:
             - "8080:8080"
         working_dir: /app
@@ -14,7 +14,7 @@ services:
         restart: always
 
     web_slave:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         ports:
             - "8081:8080"
         working_dir: /app
@@ -27,7 +27,7 @@ services:
         restart: always
 
     chat_app:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         ports:
             - "8082:8000"
         working_dir: /app
@@ -40,7 +40,7 @@ services:
         restart: always
 
     scheduler:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         working_dir: /app
         command: python3 /app/scheduler.py
         environment:
@@ -51,7 +51,7 @@ services:
         restart: always
 
     job_server:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         working_dir: /app
         command: python3 /app/job/job_server.py
         environment:
@@ -62,7 +62,7 @@ services:
         restart: always
 
     news_server:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         working_dir: /app
         command: python3 /app/job/news_server.py
         environment:
@@ -73,7 +73,7 @@ services:
         restart: always
 
     log_comsumer:
-        image: finfilo-service:latest
+        image: alphalom-service:latest
         working_dir: /app
         command: python3 /app/log_comsumer.py
         environment:

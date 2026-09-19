@@ -185,7 +185,7 @@ async def lifespan(_app: FastAPI):
 def create_app() -> FastAPI:
     """创建并配置 FastAPI 应用"""
     _app = FastAPI(
-        title="FinFilo 量化交易系统",
+        title="AlphaLom 量化交易系统",
         description="基于 LLM 的量化交易与分析平台",
         version="2.0.0",
         lifespan=lifespan,
