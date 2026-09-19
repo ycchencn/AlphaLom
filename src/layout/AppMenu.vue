@@ -77,7 +77,7 @@ const model = ref([
             {
                 label: 'API文档',
                 icon: 'pi pi-fw pi-twitch',
-                url: 'https://0wikvr2f6a.apifox.cn/',
+                url: 'https://www.databull.cn/docs',
                 target: '_blank',
                 enable: true,
             }
