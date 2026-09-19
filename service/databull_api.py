@@ -88,8 +88,8 @@ class DataBull:
         return self._request(f"{market}/market/sector_data/{sector_type}")
 
     def get_etf_list(self, market: str = "cn") -> Optional[Union[list, dict]]:
-        """获取 ETF 基金清单"""
-        return self._request(f"{market}/etfs")
+        """获取 ETF 基金清单（全市场目录，每条含 symbol/name）；文档要求尾斜杠 /cn/etfs/"""
+        return self._request(f"{market}/etfs/")
 
     def get_etf_composition(self, symbol: str, market: str = "cn") -> Optional[Union[list, dict]]:
         """获取 ETF 成分股构成（component_code / component_name 列表）

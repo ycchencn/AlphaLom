@@ -46,5 +46,10 @@ class TestDatajiji(unittest.TestCase):
         res = databull.get_last_tick(code, tick_type='etf')
         self.assertIsNotNone(res)
 
+    def test_etfs(self):
+        res = databull.get_etf_list(market='cn')
+        print(res)
+        self.assertIsNotNone(res)
+
 if __name__ == '__main__':
     unittest.main()

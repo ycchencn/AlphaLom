@@ -4,11 +4,14 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
+from fastapi_cache.decorator import cache
+from pydantic import BaseModel
+from typing import Optional
 from app.fastapi_app import api_prefix
 from utils.data_loader import databull
 from service import FactorValueService
-from fastapi_cache.decorator import cache
+from service.etf_service import EtfService
 from utils.common import get_today, get_date_by_n
 from utils.logger import logger
 import pandas as pd
@@ -47,24 +50,27 @@ def _etf_name_from_databull(symbol: str, fallback: str = None) -> str:
 
 
 @etf_router.get('/etfs')
-@cache(expire=3600)
 def get_etfs():
     """
-    获取ETF监控列表
+    获取ETF监控列表（持久化在 etf_watchlist 表）。
+    不挂 @cache：增删需即时可见，且每只 ETF 的行情来自 databull 实时接口。
     """
-    etfs = [dict(e) for e in ETF_MONITOR_LIST]
-    for etf in etfs:
-        # 名称统一从 databull 接口取，上游不可用时回退静态清单名
-        etf['name'] = _etf_name_from_databull(etf['symbol'], fallback=etf.get('name'))
-        etf['52week_low'] = FactorValueService.get_latest_factor_value(
-            ticker=etf['symbol'],
-            factor_name='52week_low'
-        )
-        etf['52week_high'] = FactorValueService.get_latest_factor_value(
-            ticker=etf['symbol'],
-            factor_name='52week_high'
-        )
-        ohlc = databull.get_last_tick(symbol=etf['symbol'], tick_type='etf') or {}
+    rows = EtfService.list_watchlist()
+    result = []
+    for row in rows:
+        symbol = row.symbol
+        etf = {
+            # 名称优先用持久化的 name；为空（早期脏数据/接口失败）再回退 databull，最后回退代码
+            'symbol': symbol,
+            'name': row.name or _etf_name_from_databull(symbol, fallback=symbol),
+            '52week_low': FactorValueService.get_latest_factor_value(
+                ticker=symbol, factor_name='52week_low'
+            ),
+            '52week_high': FactorValueService.get_latest_factor_value(
+                ticker=symbol, factor_name='52week_high'
+            ),
+        }
+        ohlc = databull.get_last_tick(symbol=symbol, tick_type='etf') or {}
         # 远端偶发返回空结果（实测 159990 就会返回 {}）。原实现直接 ohlc['lastPrice'] 下标取值，
         # 一旦为空就 KeyError，导致**整个 ETF 列表接口 500**、全页打不开。
         # 前端对 ohlc_last 的各字段都有 `!= null` 兜底（显示 '--'），所以这里只需保证
@@ -73,8 +79,50 @@ def get_etfs():
         if last_price is not None and last_close:
             ohlc['chg_pct'] = (last_price - last_close) / last_close * 100
         etf['ohlc_last'] = ohlc
+        result.append(etf)
 
-    return etfs
+    return result
+
+
+@etf_router.get('/etf_search')
+def search_etf(
+    keyword: str = Query('', description='代码或名称关键字'),
+    market: str = Query('cn'),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    按代码/名称在全市场 ETF 目录中模糊搜索（databull get_etf_list）。
+    用于「添加 ETF」弹窗的搜索联想。
+    """
+    return EtfService.search_etf(keyword, market=market, limit=limit)
+
+
+class EtfAddRequest(BaseModel):
+    symbol: str
+    name: Optional[str] = None
+
+
+@etf_router.post('/etf')
+def add_etf(req: EtfAddRequest):
+    """
+    添加一只 ETF 到监控列表（持久化）。symbol 必填，name 可选（不传则由接口取）。
+    """
+    try:
+        item = EtfService.add_watchlist(req.symbol, name=req.name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {'code': 0, 'message': 'ok', 'data': item.to_dict()}
+
+
+@etf_router.delete('/etf/{symbol}')
+def delete_etf(symbol: str):
+    """
+    从监控列表移除一只 ETF。
+    """
+    ok = EtfService.delete_watchlist(symbol)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f'ETF {symbol} 不在监控列表中')
+    return {'code': 0, 'message': 'ok'}
 
 
 @etf_router.get('/etf/{symbol}')

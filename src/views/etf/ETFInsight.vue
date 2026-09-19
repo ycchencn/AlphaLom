@@ -10,167 +10,184 @@ import {
     formatStockTradeAmount,
 } from '@/utils/function.js';
 
-const stock_list = ref([]);
+const etfList = ref([]);
 const filters1 = ref(null);
-const loading1 = ref(null);
-const modal_visible = ref(false);
-const modal_stock_code = ref(null);
+const loading1 = ref(false);
 const {showSuccess, showError} = useNotification();
-const modal_analysis_interval = ref(1)
+
+// 添加 ETF 弹窗状态
+const modalVisible = ref(false);
+const searchKeyword = ref('');
+const searchResults = ref([]);
+const searching = ref(false);
+const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
 
 function loadETFList() {
-    // 获取数据
-    axios.get(`/api/v1/etfs?page_size=300&page=1&v=1.3`).then(response => {
-        stock_list.value = response.data;
+    loading1.value = true;
+    axios.get(`/api/v1/etfs`).then(response => {
+        etfList.value = response.data;
+    }).catch(() => {
+        etfList.value = [];
+    }).finally(() => {
+        loading1.value = false;
     });
 }
 
-onBeforeMount(() => {
-    // 获取数据
-    loadETFList();
-    initFilters1();
-});
+function openAddModal() {
+    modalVisible.value = true;
+    searchKeyword.value = '';
+    searchResults.value = [];
+}
 
-/**
- * 添加股票到监控列表
- * @param {string} stockCode - 股票代码（如 '600519', 'AAPL', '00700.HK' 等）
- */
-async function addETFMonitor(stockCode) {
-    // === 1. 前置校验：stockCode 合法性 ===
-    if (!stockCode) {
-        showError('请输入股票代码');
+// 输入防抖后调用搜索接口
+let searchTimer = null;
+function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    const kw = searchKeyword.value.trim();
+    if (!kw) {
+        searchResults.value = [];
         return;
     }
+    searchTimer = setTimeout(() => doSearch(kw), 300);
+}
 
-    // 去除首尾空白
-    const trimmedCode = stockCode.trim();
-    if (trimmedCode.length === 0) {
-        showError('股票代码不能为空');
-        return;
-    }
-
-    // 可选：限制长度（例如最多20字符，覆盖 A股、港股、美股等）
-    if (trimmedCode.length > 20) {
-        showError('股票代码过长');
-        return;
-    }
-
-    // 可选：基础格式校验（允许字母、数字、点号、连字符，常见于全球股票代码）
-    const stockCodeRegex = /^[a-zA-Z0-9\.\-]+$/;
-    if (!stockCodeRegex.test(trimmedCode)) {
-        showError('股票代码包含非法字符');
-        return;
-    }
-
-    // === 2. 发起请求 ===
+async function doSearch(kw) {
+    searching.value = true;
     try {
-        await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
-            monitoring: 1,
-            monitor_by: 'guest',
-            securities_type: 'stock'
-        });
-        showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
-        modal_stock_code.value = ""
-    } catch (error) {
-        let message = '操作失败，请重试';
-        if (axios.isAxiosError(error)) {
-            if (error.response) {
-                const { status, data } = error.response;
-                message = data.message;
-                // 可继续扩展其他业务状态码
-            } else if (error.request) {
-                message = '网络连接失败，请检查网络后重试';
-            } else {
-                console.error('请求配置错误:', error.message);
-                message = '请求出错，请联系管理员';
-            }
-        } else {
-            console.error('未知错误:', error);
-            message = '发生未知错误';
-        }
-        showError(message);
+        const r = await axios.get('/api/v1/etf_search', {params: {keyword: kw, limit: 50}});
+        searchResults.value = Array.isArray(r.data) ? r.data : [];
+    } catch (e) {
+        searchResults.value = [];
+    } finally {
+        searching.value = false;
     }
 }
 
-// 1. 阶段映射配置 (保持不变)
-const PHASE_CONFIG = {
-    0: {label: '未知阶段', type: 'unknown', severity: 'secondary'},
-    1: {label: '吸筹阶段', type: 'accumulate', severity: 'info'},
-    2: {label: '洗盘阶段', type: 'wash', severity: 'help'},
-    3: {label: '拉升阶段', type: 'rise', severity: 'success'},
-    5: {label: '出货阶段', type: 'distribute', severity: 'warn'},
-    6: {label: '出货阶段', type: 'distribute', severity: 'danger'}
-};
+async function addEtf(row) {
+    const symbol = row.symbol;
+    addingSymbol.value = symbol;
+    try {
+        await axios.post('/api/v1/etf', {symbol, name: row.name || null});
+        showSuccess(`已添加 ${row.name || symbol}`);
+        // 从搜索结果里移除，避免重复添加
+        searchResults.value = searchResults.value.filter(x => x.symbol !== symbol);
+        loadETFList();
+    } catch (e) {
+        let msg = '添加失败，请重试';
+        if (e.response && e.response.data && e.response.data.detail) msg = e.response.data.detail;
+        else if (e.response && e.response.data && e.response.data.message) msg = e.response.data.message;
+        showError(msg);
+    } finally {
+        addingSymbol.value = '';
+    }
+}
 
-const stockIntervalOptions = [
-    {label: '每天', value: 1},
-    {label: '每3天', value: 3},
-];
+async function deleteEtf(symbol) {
+    try {
+        await axios.delete(`/api/v1/etf/${encodeURIComponent(symbol)}`);
+        showSuccess(`已删除 ${symbol}`);
+        loadETFList();
+    } catch (e) {
+        let msg = '删除失败，请重试';
+        if (e.response && e.response.data && e.response.data.detail) msg = e.response.data.detail;
+        showError(msg);
+    }
+}
 
-// 2. 修改 initFilters1 函数，添加 main_force_behavior_phase 的配置
+// 按代码直接添加（搜索无结果时的兜底）
+async function addBySymbol(symbol) {
+    const sym = (symbol || '').trim();
+    if (!sym) return;
+    addingSymbol.value = sym;
+    try {
+        await axios.post('/api/v1/etf', {symbol: sym, name: null});
+        showSuccess(`已添加 ${sym}`);
+        searchKeyword.value = '';
+        searchResults.value = [];
+        loadETFList();
+    } catch (e) {
+        let msg = '添加失败，请重试';
+        if (e.response && e.response.data && e.response.data.detail) msg = e.response.data.detail;
+        else if (e.response && e.response.data && e.response.data.message) msg = e.response.data.message;
+        showError(msg);
+    } finally {
+        addingSymbol.value = '';
+    }
+}
+
 function initFilters1() {
     filters1.value = {
         global: {value: null, matchMode: FilterMatchMode.CONTAINS},
     };
 }
 
+onBeforeMount(() => {
+    loadETFList();
+    initFilters1();
+});
+
 </script>
 
 <template>
     <Toast/>
-    <Dialog v-model:visible="modal_visible" modal header="添加ETF监控" :style="{ width: '25rem' }">
-        <div class="flex flex-col gap-4">
-            <!-- 股票代码 -->
-            <div>
-                <label for="stock_code" class="font-semibold block mb-1">股票代码</label>
+    <!-- 添加 ETF 弹窗：支持按代码/名称搜索 databull 全市场 ETF 目录 -->
+    <Dialog v-model:visible="modalVisible" modal header="添加 ETF" :style="{ width: '30rem' }">
+        <div class="flex flex-col gap-3">
+            <IconField>
+                <InputIcon>
+                    <i class="pi pi-search"/>
+                </InputIcon>
                 <InputText
-                    id="stock_code"
-                    v-model="modal_stock_code"
+                    v-model="searchKeyword"
+                    @input="onSearchInput"
+                    placeholder="输入代码或名称搜索"
+                    class="w-full"
                     autocomplete="off"
-                    placeholder="填写股票代码"
-                    @keyup.enter="modal_visible=false; addStockMonitor(modal_stock_code);"
-                    class="w-full mt-3"
                 />
+            </IconField>
+
+            <div v-if="searching" class="text-center text-gray-500 py-4">
+                <i class="pi pi-spin pi-spinner"/>
+            </div>
+            <div v-else-if="searchKeyword.trim() && searchResults.length === 0" class="text-center text-gray-400 py-4">
+                未找到匹配的 ETF
+            </div>
+            <div v-else class="flex flex-col gap-2 max-h-80 overflow-auto">
+                <div v-for="item in searchResults" :key="item.symbol"
+                     class="flex items-center justify-between border rounded p-2">
+                    <div class="min-w-0">
+                        <div class="font-semibold truncate">{{ item.symbol }}</div>
+                        <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
+                    </div>
+                    <Button
+                        icon="pi pi-plus"
+                        label="添加"
+                        size="small"
+                        :loading="addingSymbol === item.symbol"
+                        @click="addEtf(item)"
+                    />
+                </div>
             </div>
 
-            <!-- 分析周期 -->
-            <div>
-                <div class="flex justify-between items-center mb-1">
-                    <label for="analysis_interval" class="font-semibold">分析周期（天）</label>
-                </div>
-                <Dropdown
-                    v-model="modal_analysis_interval"
-                    :options="stockIntervalOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="选择分析周期"
-                    class="w-full mt-3"
-                    @change="() => {}"
+            <!-- 搜索无结果时，支持按代码直接添加（不依赖目录接口可用性） -->
+            <div v-if="searchKeyword.trim() && !searching" class="pt-1 border-t mt-2">
+                <Button
+                    label="按代码直接添加"
+                    severity="secondary"
+                    size="small"
+                    text
+                    :loading="addingSymbol === searchKeyword.trim()"
+                    @click="addBySymbol(searchKeyword.trim())"
                 />
+                <span class="text-xs text-gray-400 ml-2">未搜到？可直接用代码（如 159901）添加</span>
             </div>
         </div>
-
-        <!-- 操作按钮 -->
-        <template #footer>
-            <div class="flex justify-end gap-2">
-                <Button
-                    type="button"
-                    label="取消"
-                    severity="secondary"
-                    @click="modal_visible = false"
-                />
-                <Button
-                    type="button"
-                    label="确认"
-                    @click="modal_visible=false; addStockMonitor(modal_stock_code);"
-                />
-            </div>
-        </template>
     </Dialog>
+
     <div class="card">
         <DataTable
             ref="dt1"
-            :value="stock_list"
+            :value="etfList"
             :paginator="true"
             :rows="25"
             dataKey="symbol"
@@ -178,7 +195,7 @@ function initFilters1() {
             filterDisplay="menu"
             :loading="loading1"
             :filters="filters1"
-            :globalFilterFields="['symbol', 'name', 'concepts']"
+            :globalFilterFields="['symbol', 'name']"
             :showGridlines="false"
             style="font-size: 11px"
             size="medium"
@@ -187,9 +204,9 @@ function initFilters1() {
         >
             <template #header>
                 <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
-                    <!-- 左侧：下拉框 -->
-                    <div class="w-full md:w-auto">
-
+                    <!-- 左侧：说明 -->
+                    <div class="w-full md:w-auto text-gray-500 text-sm">
+                        共 {{ etfList.length }} 只监控 ETF
                     </div>
                     <!-- 右侧：按钮 + 搜索框 -->
                     <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end md:justify-start">
@@ -198,7 +215,7 @@ function initFilters1() {
                             icon="pi pi-plus"
                             size="small"
                             label="添加ETF"
-                            @click="modal_visible = true"
+                            @click="openAddModal"
                             class="whitespace-nowrap"
                         />
                         <IconField>
@@ -215,8 +232,8 @@ function initFilters1() {
                     </div>
                 </div>
             </template>
-            <template #empty> No data found.</template>
-            <template #loading> Loading customers data. Please wait.</template>
+            <template #empty> 暂无监控 ETF，点击右上角「添加ETF」搜索加入 </template>
+            <template #loading> Loading ETF data. Please wait.</template>
             <Column field="name" filterField="name" header="名称">
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
@@ -251,6 +268,18 @@ function initFilters1() {
                         :high52w="data['52week_high']"
                         :currentPrice="data.ohlc_last.lastPrice"
                         style="width: 100px;"
+                    />
+                </template>
+            </Column>
+            <Column header="操作" :style="{ width: '5rem' }">
+                <template #body="{ data }">
+                    <Button
+                        icon="pi pi-trash"
+                        severity="danger"
+                        text
+                        rounded
+                        v-tooltip.top="'移除'"
+                        @click="deleteEtf(data.symbol)"
                     />
                 </template>
             </Column>

@@ -105,6 +105,30 @@ class UserWatchlist(Base):
         }
 
 
+# ETF 自选/监控列表（持久化，替代原静态 ETF_MONITOR_LIST）
+class EtfWatchlist(Base):
+    __tablename__ = 'etf_watchlist'
+
+    # ⚠️ 主键 = 自增 id；symbol 加唯一约束，避免同一只 ETF 被重复加入。
+    # 不要改成 (symbol) 复合/单字段主键 —— 否则 ORM 身份映射在批量查询时会按 symbol 去重。
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), unique=True, nullable=False, index=True, comment='ETF代码，如 159901')
+    name = Column(String(100), comment='ETF名称（加入时从 databull 取，可空）')
+    created_at = Column(DateTime, default=datetime.now, comment='加入时间')
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'}
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'name': self.name,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+
 # 策略组
 class StrategyGroup(Base):
     __tablename__ = 'strategy_group'
