@@ -1042,5 +1042,11 @@ const showDcfDrawer = function () {
 </template>
 
 <style scoped>
-
+/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
+.p-card {
+    border: 1px solid #dedede;
+}
+:global(html.app-dark) .p-card {
+    border-color: #334155;
+}
 </style>

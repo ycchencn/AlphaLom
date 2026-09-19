@@ -18,7 +18,7 @@ class DataBull:
     注意：需安装依赖：pip install pandas requests
     """
     def __init__(self, api_key: str, base_url: Optional[str] = None) -> None:
-        self.base_url = (base_url or "https://api.finfilo.com").rstrip("/")
+        self.base_url = (base_url or "https://api.databull.cn").rstrip("/")
         self.session = self._build_session()
         self.session.headers.update({
             "Authorization": f"Bearer {api_key}",
@@ -94,6 +94,11 @@ class DataBull:
     def get_etf_composition(self, symbol: str, market: str = "cn") -> Optional[Union[list, dict]]:
         """获取 ETF 成分股构成"""
         return self._request(f"{market}/etf_composition", params={"symbol": symbol})
+
+    def get_etf_info(self, symbol: str, market: str = "cn") -> Optional[Dict]:
+        """获取单只 ETF 基本资料（名称、交易所、净值、申赎单位、类型、申赎开关、交易日等）"""
+        res = self._request(f"{market}/etfs/info", params={"symbol": symbol})
+        return res.get("data") if isinstance(res, dict) else res
 
     def get_stock_list(self, market: str = "cn") -> Optional[Union[list, dict]]:
         """获取标的资产/股票全量清单"""

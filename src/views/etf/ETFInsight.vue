@@ -220,7 +220,6 @@ function initFilters1() {
             <Column field="name" filterField="name" header="名称">
                 <template #body="{ data }">
                     <router-link class="text-blue-500"
-                                 target="_blank"
                                  :to="{ name: 'etf-detail', params: { symbol: data.symbol } }">{{ data.symbol }}
                     </router-link>
                     <br/>{{ data.name }}
