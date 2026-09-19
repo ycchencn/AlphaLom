@@ -66,14 +66,14 @@ EOF
 # 构建后端基础镜像
 build_base_be() {
     info "构建后端基础镜像: ${BASE_BE_IMAGE}"
-    docker build -t ${BASE_BE_IMAGE} --file ./src/DockerfileBase .
+    docker build -t ${BASE_BE_IMAGE} --file ./install/DockerfileBase .
     success "后端基础镜像构建完成"
 }
 
 # 构建前端基础镜像
 build_base_fe() {
     info "构建前端基础镜像: ${BASE_FE_IMAGE}"
-    docker build -t ${BASE_FE_IMAGE} --file ./src/DockerfileBaseFE .
+    docker build -t ${BASE_FE_IMAGE} --file ./install/DockerfileBaseFE .
     success "前端基础镜像构建完成"
 }
 
