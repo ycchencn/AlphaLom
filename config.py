@@ -69,14 +69,16 @@ redis_port = int(os.getenv('REDIS_PORT', 6379))   # 默认 6379
 # ===== EODHD 行情数据源 =====
 eodhd_api_key = os.getenv('EODHD_API_KEY')
 
-# ===== RabbitMQ 消息队列 =====
-rabbitmq_config = {
-    'host': os.getenv('RABBITMQ_HOST'),
-    'port': int(os.getenv('RABBITMQ_PORT', 5672)),           # 默认 5672
-    'username': os.getenv('RABBITMQ_USERNAME'),
-    'password': os.getenv('RABBITMQ_PASSWORD'),
-    'virtual_host': os.getenv('RABBITMQ_VIRTUAL_HOST', '/'), # 默认 '/'
-    'queue_name': os.getenv('RABBITMQ_QUEUE_NAME')
+# ===== 任务队列（Redis Stream，原 RabbitMQ 已移除）=====
+# stream 为队列名；group 为消费组名（多个 job_server 进程共组分摊 + 各自 PEL）；
+# block_ms 是 XREADGROUP 阻塞等待时长（无任务时多久醒一次，也决定优雅退出延迟）；
+# claim_idle_ms：消息滞留 PEL 超过该时长即视为消费者已死，会被其他消费者 XCLAIM 认领重投
+# （至少一次语义 —— job 函数要能容忍重复执行）。
+job_queue_config = {
+    'stream': os.getenv('JOB_QUEUE_STREAM', 'finfilo-job'),
+    'group': os.getenv('JOB_QUEUE_GROUP', 'finfilo-job-workers'),
+    'block_ms': int(os.getenv('JOB_QUEUE_BLOCK_MS', 5000)),
+    'claim_idle_ms': int(os.getenv('JOB_QUEUE_CLAIM_IDLE_MS', 10 * 60 * 1000)),
 }
 
 # ===== HTTP 服务（uvicorn 启动参数与并发模型）=====

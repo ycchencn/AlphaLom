@@ -53,7 +53,7 @@ services:
     job_server:
         image: finfilo-service:latest
         working_dir: /app
-        command: python3 /app/job/job_server_mq.py
+        command: python3 /app/job/job_server.py
         environment:
             ENV: production
             PYTHONPATH: /app
@@ -64,7 +64,7 @@ services:
     job_server_slave:
         image: finfilo-service:latest
         working_dir: /app
-        command: python3 /app/job/job_server_mq.py
+        command: python3 /app/job/job_server.py
         environment:
             ENV: production
             PYTHONPATH: /app
