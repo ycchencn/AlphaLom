@@ -73,40 +73,6 @@ class Stock(Base):
 
 
 # 股票新闻表
-class StockNews(Base):
-    __tablename__ = 'stock_news'
-
-    news_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    stock_code = Column(String(10), comment='关联股票代码')
-    title = Column(Text, comment='新闻标题')
-    content = Column(Text, comment='新闻正文')
-    source = Column(String(255), comment='新闻来源')
-    publish_time = Column(DateTime, comment='新闻发布时间')
-    created_at = Column(DateTime, default=datetime.now, comment='入库时间')
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
-
-# 股票基本面表
-class StockFundamentals(Base):
-    __tablename__ = 'stock_fundamentals'
-
-    fundamental_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    stock_code = Column(String(10), comment='股票代码')
-    date = Column(DateTime, comment='数据日期')
-    open_price = Column(Float(precision=2), comment='开盘价')
-    close_price = Column(Float(precision=2), comment='收盘价')
-    high_price = Column(Float(precision=2), comment='最高价')
-    low_price = Column(Float(precision=2), comment='最低价')
-    volume = Column(BigInteger, comment='成交量')
-    pe_ratio = Column(Float(precision=2), comment='市盈率 PE')
-    pb_ratio = Column(Float(precision=2), comment='市净率 PB')
-    eps = Column(Float(precision=2), comment='每股收益 EPS')
-    dividend_yield = Column(Float(precision=2), comment='股息率')
-    created_at = Column(DateTime, default=datetime.now, comment='入库时间')
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
-
-# 自选股表
 class UserWatchlist(Base):
     __tablename__ = 'user_watchlist'
 
@@ -216,43 +182,6 @@ class BacktestTask(Base):
             'last_signal_date': self.last_signal_date.strftime('%Y-%m-%d') if self.last_signal_date else None,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
             'strategy_code': self.strategy_code
-        }
-
-
-class BacktestTrade(Base):
-    __tablename__ = 'backtest_trades'
-
-    id = Column(Integer, primary_key=True, comment='自增主键')
-    backtest_id = Column(String(64), nullable=False, comment='关联回测ID')
-    portfolio_id = Column(Integer, comment='投资组合编号')
-    trade_type = Column(String(16), nullable=False, comment='交易类型：buy-买入, sell-卖出')  # 'buy' or 'sell'
-    symbol = Column(String(16), nullable=False, comment='标的代码')
-    size = Column(Float, nullable=False, comment='成交数量')
-    price = Column(Float, nullable=False, comment='成交价格')
-    created_at = Column(DateTime, default=datetime.now, comment='成交时间')
-
-    def to_dict(self):
-        """
-        @brief 将对象的属性转换为字典
-
-        @return: 包含对象所有属性的字典
-        @rtype: dict
-
-        @example:
-            # 示例用法
-            trade = BacktestTrade(...)
-            trade_dict = trade.to_dict()
-            print(trade_dict)
-        """
-        return {
-            'id': self.id,
-            'backtest_id': self.backtest_id,
-            'portfolio_id': self.portfolio_id,
-            'trade_type': self.trade_type,
-            'symbol': self.symbol,
-            'size': self.size,
-            'price': self.price,
-            'created_at': self.created_at if self.created_at else None
         }
 
 
@@ -404,30 +333,6 @@ class MarketNews(Base):
         }
 
 
-class IndexConstituents(Base):
-    __tablename__ = 'index_constituents'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='主键ID')
-    index_code = Column(String(50), nullable=False, default='0', comment='指数代码')
-    stock_code = Column(String(50), nullable=True, comment='股票代码')
-    stock_name = Column(String(50), nullable=True, comment='股票名称')
-    add_date = Column(Date, nullable=True, comment='纳入日期')
-
-    def to_dict(self):
-        """
-        @brief 将对象转换为字典格式，便于返回 JSON 数据
-        @return: 包含指数成分股信息的字典
-        @rtype: dict
-        """
-        return {
-            'id': self.id,
-            'index_code': self.index_code,
-            'stock_code': self.stock_code,
-            'stock_name': self.stock_name,
-            'add_date': self.add_date.isoformat() if self.add_date else None
-        }
-
-
 class FactorValue(Base):
     __tablename__ = 'factor_values'
 
@@ -451,35 +356,6 @@ class FactorValue(Base):
             'ticker': self.ticker,
             'factor_name': self.factor_name,
             'value': float(self.value) if self.value is not None else None,
-            'source': self.source,
-            'update_time': self.update_time.isoformat() if self.update_time else None
-        }
-
-
-class FuturesBasisWide(Base):
-    __tablename__ = 'futures_basis'
-
-    trade_date = Column(Date, primary_key=True, nullable=False, comment='交易日期，如 2025-12-19')
-    index_name = Column(String(20), primary_key=True, nullable=False, comment='指数名称：沪深300 / 上证50 / 中证500')
-    future_symbol = Column(String(20), nullable=False, comment='主力合约代码，如 IF2603')
-
-    future_close = Column(DECIMAL(precision=18, scale=6), nullable=True, comment='期货收盘价')
-    spot_close = Column(DECIMAL(precision=18, scale=6), nullable=True, comment='现货指数收盘价')
-    basis = Column(DECIMAL(precision=18, scale=6), nullable=True, comment='贴水 = 期货 - 现货')
-    basis_rate_pct = Column(DECIMAL(precision=18, scale=6), nullable=True, comment='贴水率（%）')
-
-    source = Column(String(30), nullable=False, default='akshare_cffex', comment='数据来源')
-    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='最后更新时间')
-
-    def to_dict(self):
-        return {
-            'trade_date': self.trade_date.isoformat() if self.trade_date else None,
-            'index_name': self.index_name,
-            'future_symbol': self.future_symbol,
-            'future_close': float(self.future_close) if self.future_close is not None else None,
-            'spot_close': float(self.spot_close) if self.spot_close is not None else None,
-            'basis': float(self.basis) if self.basis is not None else None,
-            'basis_rate_pct': float(self.basis_rate_pct) if self.basis_rate_pct is not None else None,
             'source': self.source,
             'update_time': self.update_time.isoformat() if self.update_time else None
         }
@@ -658,53 +534,6 @@ class PortfolioTransaction(Base):
             "portfolio_id": self.portfolio_id,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-
-class SystemLog(Base):
-    __tablename__ = 'system_logs'
-
-    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
-    log_type = Column(SmallInteger, nullable=False, comment='日志类型: 1-系统日志, 2-用户操作日志')
-    log_level = Column(SmallInteger, nullable=False, default=2,
-                       comment='日志级别: 1-DEBUG, 2-INFO, 3-WARN, 4-ERROR, 5-FATAL')
-    module = Column(String(50), nullable=False, comment='模块名称')
-    action = Column(String(100), comment='操作动作')
-    user_id = Column(BigInteger, comment='用户ID（用户操作日志必填）')
-    username = Column(String(50), comment='用户名（冗余存储，便于查询）')
-    ip_address = Column(String(45), comment='IP地址')
-    user_agent = Column(String(500), comment='用户代理')
-    request_id = Column(String(64), comment='请求追踪ID')
-    operation_time = Column(DateTime, nullable=False, default=func.now(), comment='操作时间')
-    content = Column(Text, comment='日志内容')
-    extra_data = Column(JSON, comment='扩展数据（JSON格式）')
-    status = Column(SmallInteger, default=1, comment='状态: 0-失败, 1-成功')
-    error_code = Column(String(50), comment='错误码')
-    error_message = Column(Text, comment='错误信息')
-    created_at = Column(DateTime, nullable=False, default=func.now(), comment='创建时间')
-
-    def __repr__(self):
-        return f"<SystemLog(id={self.id}, type={self.log_type}, level={self.log_level}, module={self.module})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "log_type": self.log_type,
-            "log_level": self.log_level,
-            "module": self.module,
-            "action": self.action,
-            "user_id": self.user_id,
-            "username": self.username,
-            "ip_address": self.ip_address,
-            "user_agent": self.user_agent,
-            "request_id": self.request_id,
-            "operation_time": self.operation_time.isoformat() if self.operation_time else None,
-            "content": self.content,
-            "extra_data": self.extra_data,
-            "status": self.status,
-            "error_code": self.error_code,
-            "error_message": self.error_message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
         }
 
 

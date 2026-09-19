@@ -189,7 +189,7 @@ def llm_news_summarize(
     # 1. 去重检查
     news_md5 = string_to_md5(news_content)
     if MarketNewsService.get_by_md5(news_md5) is not None:
-        logger.info(f"⏭️ 跳过重复记录 MD5: {news_md5}")
+        logger.debug(f"⏭️ 跳过重复记录 MD5: {news_md5}")
         return False
 
     # 3. 构建Prompt并调用大模型
@@ -263,7 +263,7 @@ def llm_news_summarize(
 
 def _process_batch_articles(articles: List[Dict[str, Any]], sources: str, news_type: str = 'normal') -> None:
     """统一调度文章抓取、清洗与AI分析任务"""
-    logger.info(f"🚀 开始处理 [{sources}] 批量新闻，共 {len(articles)} 条")
+    logger.debug(f"🚀 开始处理 [{sources}] 批量新闻，共 {len(articles)} 条")
     for idx, art in enumerate(articles, start=1):
         try:
             content = art.get('content_text', art.get('short', ''))

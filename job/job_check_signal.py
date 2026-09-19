@@ -124,7 +124,7 @@ def job_check_signal(_stock_code):
 
     result = ResearchReportService.add(data)
 
-def job_check_signal_daily(override=False):
+def job_check_signal_daily():
 
     stocks = StockService.search_stocks(securities_type='stock', monitoring=1, per_page=10000)
 
@@ -140,7 +140,7 @@ def job_check_signal_daily(override=False):
 
 if __name__ == '__main__':
 
-    stock_code = '600362'
-    job_check_signal(_stock_code=stock_code)
+    # stock_code = '600362'
+    # job_check_signal(_stock_code=stock_code)
 
-    # job_check_signal_daily()
+    job_check_signal_daily()

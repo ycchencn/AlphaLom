@@ -129,7 +129,7 @@ llm_model_setting = {
     },
     'stock_tech_analysis': {           # 技术分析
         'platform': 'volcengine',
-        'model': 'deepseek-v4-flash-ga-260731'
+        'model': 'doubao-seed-2-0-mini-260428'
     },
     'news_analysis': {                 # 新闻分析（多模型候选，按顺序回退）
         'platform': 'volcengine',

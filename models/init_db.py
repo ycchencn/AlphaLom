@@ -19,7 +19,7 @@ def init_database(create_admin: bool = True):
     """
     try:
         Base.metadata.create_all(bind=engine, checkfirst=True)
-        logger.info("✅ 基础模型表已就绪（Base.metadata）")
+        logger.debug("✅ 基础模型表已就绪（Base.metadata）")
     except Exception as e:
         logger.error(f"创建基础模型表失败: {e}")
 
@@ -28,7 +28,7 @@ def init_database(create_admin: bool = True):
             if UserService.create_user_if_not_exists():
                 logger.info("✅ 默认管理员已创建")
             else:
-                logger.info("ℹ️ 管理员账号已存在，跳过创建")
+                logger.debug("ℹ️ 管理员账号已存在，跳过创建")
         except Exception as e:
             logger.error(f"初始化默认管理员失败: {e}")
 
