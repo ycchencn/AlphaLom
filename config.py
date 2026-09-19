@@ -145,6 +145,9 @@ llm_model_setting = {
 # 数据接口（DataBull）根地址，env: DATABULL_HOST
 databull_host = os.getenv('DATABULL_HOST')
 
+# 数据接口（DataBull）密钥
+databull_key = os.getenv('DATABULL_KEY')
+
 # ===== MCP 服务 =====
 mcp_host = os.getenv('MCP_HOST')      # MCP 服务器地址
 

@@ -16,6 +16,7 @@ class TestDatajiji(unittest.TestCase):
 
     def test_get_company(self):
         res = databull.get_company('688008')
+        self.assertIsNotNone(res['business_scope'])
         self.assertIsNotNone(res)
 
     def test_get_history(self):

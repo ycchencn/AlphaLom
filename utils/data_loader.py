@@ -5,6 +5,6 @@
 """
 
 from service.databull_api import DataBull
-from config import databull_host
+from config import databull_host, databull_key
 
-databull = DataBull(api_key='', base_url=databull_host)
+databull = DataBull(api_key=databull_key, base_url=databull_host)
