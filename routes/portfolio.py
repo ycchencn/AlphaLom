@@ -23,7 +23,7 @@ from fastapi_cache.decorator import cache
 portfolio_router = APIRouter(prefix=api_prefix, tags=['投资组合'])
 
 # ⚠️ 路由的 async/sync 不是风格问题，是并发度问题：
-# Service 层全部是同步实现（pymysql / requests / pika），写 `async def` 会让这些阻塞调用
+# Service 层全部是同步实现（pymysql / requests / redis-py），写 `async def` 会让这些阻塞调用
 # 直接占死唯一的事件循环，把一个慢请求变成全站卡顿（并发度 1）。
 # 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程），才是正确形态。
 # 只有需要 `await` 的（`await request.json()`、`await FastAPICache.clear()`）才保留 async。
@@ -46,7 +46,7 @@ def _pick_writable(data):
 
 
 @portfolio_router.get('/investment_portfolios')
-@cache(expire=3600)
+@cache(expire=360)
 def get_investment_portfolios():
     """获取策略列表数据"""
     portfolios = InvestmentPortfolioService.get_all()
@@ -103,10 +103,10 @@ def gen_quantstat(portfolio_id: str):
 
 
 @portfolio_router.post('/investment_portfolios')
-async def create_portfolio(request: Request):
+def create_portfolio(request: Request):
     """新建投资组合"""
     try:
-        data = await request.json()
+        data = request.json()
     except Exception:
         data = {}
 
@@ -132,10 +132,10 @@ async def create_portfolio(request: Request):
 
 
 @portfolio_router.put('/investment_portfolios/{portfolio_id}')
-async def update_portfolio(portfolio_id: str, request: Request):
+def update_portfolio(portfolio_id: str, request: Request):
     """更新投资组合"""
     try:
-        data = await request.json()
+        data = request.json()
     except Exception:
         data = {}
 
@@ -176,9 +176,9 @@ def delete_portfolio(portfolio_id: str):
 
 
 @portfolio_router.put('/portfolio/{portfolio_id}')
-async def update_portfolio_legacy(portfolio_id: str, request: Request):
+def update_portfolio_legacy(portfolio_id: str, request: Request):
     """兼容旧路径的组合更新"""
-    return await update_portfolio(portfolio_id, request)
+    return update_portfolio(portfolio_id, request)
 
 
 @portfolio_router.post('/portfolio/{portfolio_id}/analyze')

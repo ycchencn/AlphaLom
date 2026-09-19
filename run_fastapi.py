@@ -24,7 +24,6 @@ env = os.getenv('ENV', 'dev').lower()
 from routes.stock import stock_router
 from routes.market import market_router
 from routes.portfolio import portfolio_router
-from routes.watchlist import watchlist_router
 from routes.etf import etf_router
 from routes.quant import quant_router
 from routes.index import index_router
@@ -33,7 +32,6 @@ from routes.syslog import syslog_router
 app.include_router(stock_router)
 app.include_router(market_router)
 app.include_router(portfolio_router)
-app.include_router(watchlist_router)
 app.include_router(etf_router)
 app.include_router(quant_router)
 app.include_router(index_router)

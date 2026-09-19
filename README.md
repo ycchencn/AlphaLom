@@ -11,9 +11,9 @@
 
 ## 技术栈
 
-- **前端**：Vue 3 + Vite + PrimeVue + Tailwind + klinecharts / echarts / chart.js
+- **前端**：Vue 3 + Vite + PrimeVue + Tailwind + klinecharts / echarts
 - **后端**：Python · FastAPI（REST + 流式对话 + MCP 工具调用）
-- **存储 / 中间件**：MySQL（SQLAlchemy）、Redis（缓存 + 会话）、RabbitMQ（异步任务）、Elasticsearch（可选）
+- **存储 / 中间件**：MySQL（SQLAlchemy）、Redis（缓存 + 会话 + Stream 任务队列）
 - **数据源**：DataBull、Baostock、Akshare、Tushare、EODHD
 - **调度 / 部署**：APScheduler · Docker / docker-compose
 
@@ -27,11 +27,11 @@
 | `web_slave` | 8081 | `run_fastapi.py` | FastAPI REST API（从节点，负载均衡） |
 | `chat_app` | 8082→8000 | `run_chat_app.py` | FastAPI 流式对话 + MCP |
 | `scheduler` | — | `scheduler.py` | 收盘后数据 / 因子 / 信号调度 |
-| `job_server`(+slave) | — | `job/job_server_mq.py` | RabbitMQ 任务消费者 |
+| `job_server`(+slave) | — | `job/job_server.py` | Redis Stream 任务消费者（消费组） |
 | `news_server` | — | `job/news_server.py` | 新闻聚合 |
 | `log_comsumer` | — | `log_comsumer.py` | 日志消费 |
 
-**后端模块**：`app/`（FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应）、`routes/`（路由器）、`service/`（~30 个业务逻辑）、`llms/`（多模型封装）、`backtest/`（回测引擎 / 策略）、`job/`（12 个离线任务）、`models/`（db / redis / rabbitmq）、`utils/`、`prompts/`、`finfilo/`（框架内部件）、`config.py`（全局配置）。
+**后端模块**：`app/`（FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应）、`routes/`（路由器）、`service/`（~30 个业务逻辑）、`llms/`（多模型封装）、`backtest/`（回测引擎 / 策略）、`job/`（12 个离线任务）、`models/`（db / redis / 任务队列）、`utils/`、`prompts/`、`finfilo/`（框架内部件）、`config.py`（全局配置）。
 
 **前端视图**（`src/views/`）：market / stock / portfolios / quant / ai / trading / user / system / auth / uikit。
 
@@ -68,10 +68,10 @@ finfilo/
 ```bash
 pip install -r requirements.txt
 npm install
-cp .env.example .env      # 配置数据库 / Redis / RabbitMQ / 各 LLM API Key
+cp .env.example .env      # 配置数据库 / Redis / 各 LLM API Key
 ```
 
-主要环境变量（详见 `config.py`）：`DATABASE_CONN_STR`、`REDIS_*`、`RABBITMQ_*`、`*_APIKEY`、`DATABULL_HOST`、`MCP_HOST`。
+主要环境变量（详见 `config.py`）：`DATABASE_CONN_STR`、`REDIS_*`、`JOB_QUEUE_*`（任务队列 stream/消费组名等）、`*_APIKEY`、`DATABULL_HOST`、`MCP_HOST`。
 
 **并发配置**（见 `config.py` 的 `server_setting`）：
 
