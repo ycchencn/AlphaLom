@@ -103,10 +103,10 @@ def gen_quantstat(portfolio_id: str):
 
 
 @portfolio_router.post('/investment_portfolios')
-def create_portfolio(request: Request):
+async def create_portfolio(request: Request):
     """新建投资组合"""
     try:
-        data = request.json()
+        data = await request.json()
     except Exception:
         data = {}
 
@@ -132,10 +132,10 @@ def create_portfolio(request: Request):
 
 
 @portfolio_router.put('/investment_portfolios/{portfolio_id}')
-def update_portfolio(portfolio_id: str, request: Request):
+async def update_portfolio(portfolio_id: str, request: Request):
     """更新投资组合"""
     try:
-        data = request.json()
+        data = await request.json()
     except Exception:
         data = {}
 
@@ -176,9 +176,9 @@ def delete_portfolio(portfolio_id: str):
 
 
 @portfolio_router.put('/portfolio/{portfolio_id}')
-def update_portfolio_legacy(portfolio_id: str, request: Request):
+async def update_portfolio_legacy(portfolio_id: str, request: Request):
     """兼容旧路径的组合更新"""
-    return update_portfolio(portfolio_id, request)
+    return await update_portfolio(portfolio_id, request)
 
 
 @portfolio_router.post('/portfolio/{portfolio_id}/analyze')

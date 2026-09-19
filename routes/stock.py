@@ -86,13 +86,13 @@ def get_research_report_detail(report_id: int):
 
 
 @stock_router.put('/stocks/{symbol}')
-def update_stock(symbol: str, request: Request):
+async def update_stock(symbol: str, request: Request):
     """更新股票信息"""
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
 
     try:
-        data = request.json()
+        data = await request.json()
     except Exception:
         data = {}
 
@@ -115,7 +115,7 @@ def update_stock(symbol: str, request: Request):
 
     # 监控标记变了，列表缓存必须立即失效，否则用户改完看不到自己的改动
     # （后台任务直接改库的场景无法在这里挂钩，由 TTL 兜底）
-    FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
 
     return {'code': 0, 'message': 'Stock updated successfully!'}
 
