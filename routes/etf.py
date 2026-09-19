@@ -18,7 +18,8 @@ etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 # ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；写成 `async def`
 # 会让下面循环里的同步 databull HTTP 调用直接占死事件循环 → 全站一起卡。
 
-# ETF 监控清单（静态）。既用于列表接口，也作为详情页名称解析的兜底（上游 get_etf_list 在 dev 返回空）。
+# ETF 监控清单（静态）。仅作为列表接口的符号枚举来源（上游 get_etf_list 在 dev 返回空）；
+# 名称不再从这里取 —— 统一从 databull 的 get_etf_info 接口获取（见 _etf_name_from_databull）。
 ETF_MONITOR_LIST = [
     {"name": "中证100ETF易方达", "symbol": "159901"},
     {"name": "沪深300ETF", "symbol": "159919"},
@@ -31,6 +32,20 @@ ETF_MONITOR_LIST = [
 ETF_NAME_MAP = {str(e["symbol"]): e.get("name") for e in ETF_MONITOR_LIST}
 
 
+def _etf_name_from_databull(symbol: str, fallback: str = None) -> str:
+    """
+    ETF 名称统一从 databull 接口取（get_etf_info 返回的 data 含 name 字段）。
+    databull 不可用 / 无 name 时回退到 fallback（通常为静态清单名或代码本身）。
+    """
+    try:
+        info = databull.get_etf_info(symbol) or {}
+        if isinstance(info, dict) and info.get('name'):
+            return info['name']
+    except Exception as e:
+        logger.warning(f'get_etf_info (name) failed for {symbol}: {e}')
+    return fallback if fallback is not None else str(symbol)
+
+
 @etf_router.get('/etfs')
 @cache(expire=3600)
 def get_etfs():
@@ -39,6 +54,8 @@ def get_etfs():
     """
     etfs = [dict(e) for e in ETF_MONITOR_LIST]
     for etf in etfs:
+        # 名称统一从 databull 接口取，上游不可用时回退静态清单名
+        etf['name'] = _etf_name_from_databull(etf['symbol'], fallback=etf.get('name'))
         etf['52week_low'] = FactorValueService.get_latest_factor_value(
             ticker=etf['symbol'],
             factor_name='52week_low'
@@ -66,8 +83,8 @@ def get_etf_detail(symbol: str):
     """
     获取ETF详情：基础信息 + 实时行情 + 52周高低
     """
-    # 名称优先从监控清单解析（确定性、无网络依赖）；其余回退为代码本身
-    name = ETF_NAME_MAP.get(str(symbol), symbol)
+    # 名称统一从 databull 接口取（get_etf_info 含 name）；上游不可用时回退静态清单名/代码
+    name = _etf_name_from_databull(symbol, fallback=ETF_NAME_MAP.get(str(symbol), symbol))
 
     # 实时行情（get_last_tick 偶发返回 None，与列表接口一致做兜底处理）
     ohlc = databull.get_last_tick(symbol=symbol, tick_type='etf') or {}
@@ -127,20 +144,32 @@ def get_etf_history(
 
 
 @etf_router.get('/etf_composition/{symbol}')
-@cache(expire=3600)
+# @cache(expire=3600)
 def get_etf_composition(symbol: str):
     """
-    获取ETF成分股构成（上游不支持时返回空列表，前端优雅降级）
+    获取ETF成分股构成（databull get_etf_composition：component_code / component_name）。
+    上游返回空对象 {} 或查不到时返回空列表，前端优雅降级。
     """
     try:
+        # SDK 已修正路径并直接回传 data 数组；此处做 None/类型兜底
         data = databull.get_etf_composition(symbol)
         if data is None:
             return []
         if isinstance(data, dict):
+            # 防御：若将来 SDK 改回返回 {code,data} 整体
             data = data.get('data', data.get('items', data.get('list', [])))
         if not isinstance(data, list):
             return []
-        return data
+        # 取需要的字段并补默认值，字段缺失不至于让前端整列空白
+        result = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            result.append({
+                'code': item.get('component_code') or item.get('code') or '',
+                'name': item.get('component_name') or item.get('name') or '',
+            })
+        return result
     except Exception as e:
         logger.warning(f'get_etf_composition failed for {symbol}: {e}')
         return []

@@ -106,14 +106,7 @@ const chartIndicatorOptions = [
     {label: 'MTM', value: 'MTM'},
 ];
 
-// 成分股表头：优先用友好中文，未知字段回退原名
-const compLabelMap = {
-    symbol: '代码', name: '名称', weight: '权重(%)',
-    holding: '持仓', holding_ratio: '持仓占比(%)', proportion: '占比(%)',
-};
-const compColumns = computed(() =>
-    composition.value.length ? Object.keys(composition.value[0]) : []
-);
+// 后端 etf_composition 已归一化为 [{code, name}, ...]（按代码升序）
 
 // 后端返回 {date, open, high, low, close, volume} → 转成 klinecharts 需要的
 // {timestamp(ms), open, high, low, close, volume}
@@ -212,7 +205,11 @@ async function loadComposition() {
     compositionLoading.value = true;
     try {
         const r = await axios.get(`/api/v1/etf_composition/${symbol}`);
-        composition.value = Array.isArray(r.data) ? r.data : [];
+        const list = Array.isArray(r.data) ? r.data : [];
+        // 按代码升序，字段缺省排在后面
+        composition.value = [...list].sort((a, b) =>
+            String(a.code || '').localeCompare(String(b.code || ''))
+        );
     } catch (e) {
         composition.value = [];
     } finally {
@@ -289,48 +286,73 @@ onUnmounted(() => {
                 </span>
             </h1>
 
-            <!-- 概览卡片 -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 mt-5">
-                <Card>
-                    <template #title>涨跌额</template>
-                    <template #content>
-                        <div class="text-xl font-semibold font-mono"
-                             :class="{'text-red-500': isUp, 'text-green-600': isDown}">
-                            {{ (ohlc.lastPrice != null && ohlc.lastClose != null)
-                                ? formatCurrency(ohlc.lastPrice - ohlc.lastClose, true) : '--' }}
-                        </div>
-                        <div class="text-xs text-gray-500 mt-1">较昨收</div>
-                    </template>
-                </Card>
+            <!-- 第一行：概览卡片 + 52周价格区间 -->
+            <div class="flex flex-col lg:flex-row gap-4 mb-6 mt-5">
+                <!-- 概览卡片 -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+                    <Card>
+                        <template #title>涨跌额</template>
+                        <template #content>
+                            <div class="text-xl font-semibold font-mono"
+                                 :class="{'text-red-500': isUp, 'text-green-600': isDown}">
+                                {{ (ohlc.lastPrice != null && ohlc.lastClose != null)
+                                    ? formatCurrency(ohlc.lastPrice - ohlc.lastClose, true) : '--' }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">较昨收</div>
+                        </template>
+                    </Card>
 
-                <Card>
-                    <template #title>涨跌幅</template>
-                    <template #content>
-                        <div class="text-xl font-semibold font-mono"
-                             :class="{'text-red-500': isUp, 'text-green-600': isDown}">
-                            {{ ohlc.chg_pct != null ? formatPercentage(ohlc.chg_pct.toFixed(2), true) + '%' : '--' }}
-                        </div>
-                        <div class="text-xs text-gray-500 mt-1">当日</div>
-                    </template>
-                </Card>
+                    <Card>
+                        <template #title>涨跌幅</template>
+                        <template #content>
+                            <div class="text-xl font-semibold font-mono"
+                                 :class="{'text-red-500': isUp, 'text-green-600': isDown}">
+                                {{ ohlc.chg_pct != null ? formatPercentage(ohlc.chg_pct.toFixed(2), true) + '%' : '--' }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">当日</div>
+                        </template>
+                    </Card>
 
-                <Card>
-                    <template #title>成交额</template>
-                    <template #content>
-                        <div class="text-xl font-semibold text-blue-700 font-mono">
-                            {{ ohlc.amount != null ? formatStockTradeAmount(ohlc.amount) : '--' }}
-                        </div>
-                        <div class="text-xs text-gray-500 mt-1">当日成交</div>
-                    </template>
-                </Card>
+                    <Card>
+                        <template #title>成交额</template>
+                        <template #content>
+                            <div class="text-xl font-semibold text-blue-700 font-mono">
+                                {{ ohlc.amount != null ? formatStockTradeAmount(ohlc.amount) : '--' }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">当日成交</div>
+                        </template>
+                    </Card>
 
-                <Card>
-                    <template #title>昨收</template>
+                    <Card>
+                        <template #title>昨收</template>
+                        <template #content>
+                            <div class="text-xl font-semibold text-gray-700 font-mono">
+                                {{ ohlc.lastClose != null ? formatCurrency(ohlc.lastClose) : '--' }}
+                            </div>
+                            <div class="text-xs text-gray-500 mt-1">前收盘价</div>
+                        </template>
+                    </Card>
+                </div>
+
+                <!-- 52周价格区间（合并到第一行右侧） -->
+                <Card class="lg:w-80 shrink-0">
+                    <template #title>
+                        <i class="pi pi-chart-bar text-blue-500 mr-1"></i> 52周价格区间
+                    </template>
                     <template #content>
-                        <div class="text-xl font-semibold text-gray-700 font-mono">
-                            {{ ohlc.lastClose != null ? formatCurrency(ohlc.lastClose) : '--' }}
+                        <div v-if="hasRange">
+                            <PriceRange52Week
+                                :low52w="low52"
+                                :high52w="high52"
+                                :currentPrice="ohlc.lastPrice"
+                                style="width: 100%;"
+                            />
+                            <div class="flex justify-between text-xs text-gray-500 mt-2">
+                                <span>当前：<b class="text-gray-700">{{ formatCurrency(ohlc.lastPrice) }}</b></span>
+                                <span>高：{{ formatCurrency(high52) }} / 低：{{ formatCurrency(low52) }}</span>
+                            </div>
                         </div>
-                        <div class="text-xs text-gray-500 mt-1">前收盘价</div>
+                        <div v-else class="text-center text-gray-400 py-6">暂无52周区间数据</div>
                     </template>
                 </Card>
             </div>
@@ -348,28 +370,6 @@ onUnmounted(() => {
                         </div>
                     </div>
                     <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
-                </template>
-            </Card>
-
-            <!-- 52周价格区间 -->
-            <Card class="mb-6">
-                <template #title>
-                    <i class="pi pi-chart-bar text-blue-500 mr-1"></i> 52周价格区间
-                </template>
-                <template #content>
-                    <div v-if="hasRange">
-                        <PriceRange52Week
-                            :low52w="low52"
-                            :high52w="high52"
-                            :currentPrice="ohlc.lastPrice"
-                            style="width: 320px;"
-                        />
-                        <div class="flex justify-between text-xs text-gray-500 mt-2" style="width: 320px;">
-                            <span>当前：<b class="text-gray-700">{{ formatCurrency(ohlc.lastPrice) }}</b></span>
-                            <span>高：{{ formatCurrency(high52) }} / 低：{{ formatCurrency(low52) }}</span>
-                        </div>
-                    </div>
-                    <div v-else class="text-center text-gray-400 py-6">暂无52周区间数据</div>
                 </template>
             </Card>
 
@@ -421,19 +421,26 @@ onUnmounted(() => {
             <Card>
                 <template #title>
                     <i class="pi pi-list text-green-500 mr-1"></i> 成分股构成
+                    <span v-if="composition.length" class="text-sm font-light text-gray-400 ml-1">
+                        （共 {{ composition.length }} 只）
+                    </span>
                 </template>
                 <template #content>
                     <ProgressSpinner v-if="compositionLoading" style="width: 40px; height: 40px"/>
                     <DataTable v-else
                                :value="composition"
                                :paginator="composition.length > 10"
-                               :rows="10"
-                               dataKey="symbol"
+                               :rows="50"
+                               dataKey="code"
                                tableStyle="font-size: 12px"
                                :showGridlines="false"
-                               :rowHover="true">
+                               :rowHover="true"
+                               removableSort
+                               :sortField="'code'"
+                               :sortOrder="1">
                         <template #empty> 暂无成分股数据（上游未提供） </template>
-                        <Column v-for="col in compColumns" :key="col" :field="col" :header="compLabelMap[col] || col"/>
+                        <Column field="code" header="代码" sortable style="width: 30%"/>
+                        <Column field="name" header="名称" sortable/>
                     </DataTable>
                 </template>
             </Card>

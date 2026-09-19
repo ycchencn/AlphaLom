@@ -92,8 +92,12 @@ class DataBull:
         return self._request(f"{market}/etfs")
 
     def get_etf_composition(self, symbol: str, market: str = "cn") -> Optional[Union[list, dict]]:
-        """获取 ETF 成分股构成"""
-        return self._request(f"{market}/etf_composition", params={"symbol": symbol})
+        """获取 ETF 成分股构成（component_code / component_name 列表）
+        注：真实路径为 /{market}/etfs/etf_composition，旧实现拼成 /{market}/etf_composition
+        会返回 404，这里修正，并与 get_etf_info 一致只回传 data 数组。
+        """
+        res = self._request(f"{market}/etfs/etf_composition", params={"symbol": symbol})
+        return res.get("data") if isinstance(res, dict) else res
 
     def get_etf_info(self, symbol: str, market: str = "cn") -> Optional[Dict]:
         """获取单只 ETF 基本资料（名称、交易所、净值、申赎单位、类型、申赎开关、交易日等）"""
