@@ -87,16 +87,31 @@ class DataBull:
         """获取行业/概念板块分类列表"""
         return self._request(f"{market}/market/sector_data/{sector_type}")
 
-    def get_etf_list(self, market: str = "cn") -> Optional[Union[list, dict]]:
-        """获取 ETF 基金清单（全市场目录，每条含 symbol/name）；文档要求尾斜杠 /cn/etfs/"""
-        return self._request(f"{market}/etfs/")
+    def get_etf_list(self, market: str = "cn", search: Optional[str] = None, exchange: Optional[str] = None) -> Optional[Union[list, dict]]:
+        """获取 ETF 基金清单（可按关键词 search 或交易所 exchange 过滤）
+
+        search 映射到文档的 q 参数：按 ETF 代码或名称模糊匹配（大小写不敏感）；
+        exchange 为 SH/SZ。文档要求路径以 / 结尾（不带尾斜杠会收到 307 跳转），
+        搜索联想调用频繁，这里带上尾斜杠省掉一次重定向往返。
+        """
+        params = {}
+        if search:
+            params["q"] = search
+        if exchange:
+            params["exchange"] = exchange
+        return self._request(f"{market}/etfs/", params=params or None)
 
     def get_etf_composition(self, symbol: str, market: str = "cn") -> Optional[Union[list, dict]]:
         """获取 ETF 成分股构成（component_code / component_name 列表）
-        注：真实路径为 /{market}/etfs/etf_composition，旧实现拼成 /{market}/etf_composition
-        会返回 404，这里修正，并与 get_etf_info 一致只回传 data 数组。
+
+        注：实测上游接口路径为 /{market}/etfs/etf_composition，旧路径
+        /{market}/etf_composition 会 404 导致成分股恒为空。这里先走实测正确的
+        路径，失败时再回退旧路径，两条路径都能兜住，并与 get_etf_info 一致
+        只回传 data 数组。
         """
         res = self._request(f"{market}/etfs/etf_composition", params={"symbol": symbol})
+        if res is None:
+            res = self._request(f"{market}/etf_composition", params={"symbol": symbol})
         return res.get("data") if isinstance(res, dict) else res
 
     def get_etf_info(self, symbol: str, market: str = "cn") -> Optional[Dict]:

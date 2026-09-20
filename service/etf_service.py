@@ -81,17 +81,20 @@ class EtfService:
     @staticmethod
     def search_etf(keyword: str, market: str = 'cn', limit: int = 50):
         """
-        在全市场 ETF 目录里按代码/名称模糊搜索（databull get_etf_list）。
-        返回 [{symbol, name}] 列表，最多 limit 条。
+        按代码/名称搜索全市场 ETF 目录。
+
+        走 databull get_etf_list 的**服务端 search 过滤**（不再全量拉取后本地过滤），
+        因此关键字直接交给上游匹配，支持代码/名称模糊搜索。
+        返回 [{symbol, name}]，最多 limit 条。
         """
         keyword = (keyword or '').strip()
         if not keyword:
             return []
 
         try:
-            resp = databull.get_etf_list(market)
+            resp = databull.get_etf_list(market=market, search=keyword)
         except Exception as e:
-            logger.warning(f"get_etf_list failed: {e}")
+            logger.warning(f"get_etf_list(search={keyword}) failed: {e}")
             return []
 
         if resp is None:
@@ -103,15 +106,28 @@ class EtfService:
         else:
             items = resp.get('data') or resp.get('items') or resp.get('list') or []
 
-        kw = keyword.lower()
-        result = []
+        result, seen = [], set()
         for it in items:
             if not isinstance(it, dict):
                 continue
-            code = str(it.get('symbol') or it.get('code') or '')
-            nm = str(it.get('name') or '')
-            if kw in code.lower() or kw in nm.lower():
-                result.append({'symbol': code, 'name': nm})
-                if len(result) >= limit:
-                    break
-        return result
+            code = str(it.get('symbol') or it.get('code') or '').strip()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            result.append({'symbol': code, 'name': str(it.get('name') or '').strip()})
+
+        # 相关度排序：代码完全一致 > 代码前缀命中 > 代码包含 > 其余（名称命中）
+        kw = keyword.lower()
+
+        def _rank(item):
+            code = item['symbol'].lower()
+            if code == kw:
+                return 0
+            if code.startswith(kw):
+                return 1
+            if kw in code:
+                return 2
+            return 3
+
+        result.sort(key=_rank)
+        return result[:limit]

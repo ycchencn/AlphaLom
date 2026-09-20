@@ -2,7 +2,7 @@
 
 import {FilterMatchMode} from '@primevue/core/api';
 import {useNotification} from '@/composables/useNotification';
-import {onBeforeMount, ref} from 'vue';
+import {computed, onBeforeMount, ref} from 'vue';
 import Dialog from 'primevue/dialog';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
@@ -21,10 +21,18 @@ const searchKeyword = ref('');
 const searchResults = ref([]);
 const searching = ref(false);
 const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
+let searchSeq = 0;              // 搜索请求序号，用于丢弃过期响应
+
+// 已在监控列表中的代码集合，用于在搜索结果里标记「已添加」
+const watchedSymbols = computed(() => new Set(etfList.value.map(e => String(e.symbol))));
+
+function isWatched(symbol) {
+    return watchedSymbols.value.has(String(symbol));
+}
 
 function loadETFList() {
     loading1.value = true;
-    axios.get(`/api/v1/etfs`).then(response => {
+    return axios.get(`/api/v1/etfs`).then(response => {
         etfList.value = response.data;
     }).catch(() => {
         etfList.value = [];
@@ -37,29 +45,34 @@ function openAddModal() {
     modalVisible.value = true;
     searchKeyword.value = '';
     searchResults.value = [];
+    searchSeq++;   // 丢弃上一次打开时可能仍在途的搜索结果
 }
 
-// 输入防抖后调用搜索接口
+// 输入防抖后调用搜索接口（服务端按关键字过滤，见 EtfService.search_etf）
 let searchTimer = null;
 function onSearchInput() {
     if (searchTimer) clearTimeout(searchTimer);
     const kw = searchKeyword.value.trim();
     if (!kw) {
         searchResults.value = [];
+        searching.value = false;
+        searchSeq++;   // 让在途请求的结果失效
         return;
     }
     searchTimer = setTimeout(() => doSearch(kw), 300);
 }
 
 async function doSearch(kw) {
+    const seq = ++searchSeq;
     searching.value = true;
     try {
         const r = await axios.get('/api/v1/etf_search', {params: {keyword: kw, limit: 50}});
+        if (seq !== searchSeq) return;   // 已有更新的搜索，丢弃本次结果，避免乱序覆盖
         searchResults.value = Array.isArray(r.data) ? r.data : [];
     } catch (e) {
-        searchResults.value = [];
+        if (seq === searchSeq) searchResults.value = [];
     } finally {
-        searching.value = false;
+        if (seq === searchSeq) searching.value = false;
     }
 }
 
@@ -69,9 +82,8 @@ async function addEtf(row) {
     try {
         await axios.post('/api/v1/etf', {symbol, name: row.name || null});
         showSuccess(`已添加 ${row.name || symbol}`);
-        // 从搜索结果里移除，避免重复添加
-        searchResults.value = searchResults.value.filter(x => x.symbol !== symbol);
-        loadETFList();
+        // 刷新监控列表，该条结果会自动变为「已添加」状态
+        await loadETFList();
     } catch (e) {
         let msg = '添加失败，请重试';
         if (e.response && e.response.data && e.response.data.detail) msg = e.response.data.detail;
@@ -149,28 +161,37 @@ onBeforeMount(() => {
             <div v-if="searching" class="text-center text-gray-500 py-4">
                 <i class="pi pi-spin pi-spinner"/>
             </div>
-            <div v-else-if="searchKeyword.trim() && searchResults.length === 0" class="text-center text-gray-400 py-4">
+            <div v-else-if="!searchKeyword.trim()" class="text-center text-gray-400 py-4 text-sm">
+                输入 ETF 代码或名称，从全市场 ETF 目录中搜索
+            </div>
+            <div v-else-if="searchResults.length === 0" class="text-center text-gray-400 py-4 text-sm">
                 未找到匹配的 ETF
             </div>
-            <div v-else class="flex flex-col gap-2 max-h-80 overflow-auto">
-                <div v-for="item in searchResults" :key="item.symbol"
-                     class="flex items-center justify-between border rounded p-2">
-                    <div class="min-w-0">
-                        <div class="font-semibold truncate">{{ item.symbol }}</div>
-                        <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
+            <div v-else class="flex flex-col gap-2">
+                <div class="text-xs text-gray-400">共 {{ searchResults.length }} 条匹配</div>
+                <div class="flex flex-col gap-2 max-h-80 overflow-auto">
+                    <div v-for="item in searchResults" :key="item.symbol"
+                         class="flex items-center justify-between gap-2 border rounded p-2">
+                        <div class="min-w-0">
+                            <div class="font-semibold truncate">{{ item.symbol }}</div>
+                            <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
+                        </div>
+                        <Tag v-if="isWatched(item.symbol)" value="已添加" severity="secondary" class="shrink-0"/>
+                        <Button
+                            v-else
+                            icon="pi pi-plus"
+                            label="添加"
+                            size="small"
+                            class="shrink-0"
+                            :loading="addingSymbol === item.symbol"
+                            @click="addEtf(item)"
+                        />
                     </div>
-                    <Button
-                        icon="pi pi-plus"
-                        label="添加"
-                        size="small"
-                        :loading="addingSymbol === item.symbol"
-                        @click="addEtf(item)"
-                    />
                 </div>
             </div>
 
             <!-- 搜索无结果时，支持按代码直接添加（不依赖目录接口可用性） -->
-            <div v-if="searchKeyword.trim() && !searching" class="pt-1 border-t mt-2">
+            <div v-if="searchKeyword.trim() && !searching && searchResults.length === 0" class="pt-1 border-t mt-2">
                 <Button
                     label="按代码直接添加"
                     severity="secondary"
