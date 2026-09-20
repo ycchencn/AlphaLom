@@ -2,7 +2,7 @@ import AppLayout from '@/layout/AppLayout.vue';
 import { createRouter, createWebHashHistory } from 'vue-router';
 import { store } from '@/store';
 
-const main_title = 'LLMs Qunat Trading';
+const main_title = 'AlphaLom 一体化金融数据分析与智能投研平台';
 
 const router = createRouter({
     history: createWebHashHistory(),

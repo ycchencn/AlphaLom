@@ -87,9 +87,9 @@ const model = ref([
 </script>
 
 <template>
-    <div class="text-center mt-2">
+    <div class="menu-logo-wrap">
         <router-link to="/market/cn_market_overview" class="layout-topbar-logo">
-            <img src="/images/alphalom-logo-220.png" style="width: 180px"/>
+            <img src="/images/alphalom-logo-220.png" alt="AlphaLom" class="menu-logo"/>
         </router-link>
     </div>
     <Divider/>
@@ -108,4 +108,26 @@ const model = ref([
     </ul>
 </template>
 
-<style lang="scss" scoped></style>
+<style lang="scss" scoped>
+.menu-logo-wrap {
+    display: flex;
+    justify-content: center;
+    padding: 1rem 0 0.25rem;
+}
+
+.layout-topbar-logo {
+    display: inline-flex;
+    align-items: center;
+}
+
+/* 源图 976×204，这里按 CSS 缩放显示；用 height 定高、宽度自适应以保持比例。
+   侧边栏固定宽度 16rem(256px)，源图按 180px 宽显示时会占掉 70% 宽度、显得过大，
+   故改为定高 ~26px（约合宽度 124px，占侧边栏 48%），留出舒适边距。 */
+.menu-logo {
+    height: 1.6rem;       /* ≈25.6px → 渲染宽度约 122px */
+    width: auto;
+    max-width: 10rem;
+    object-fit: contain;
+    display: block;
+}
+</style>

@@ -31,6 +31,7 @@ job/*.xlsx
 
 # ---- Project internal / large artifacts ----
 .workbuddy/
+.logo_preview/
 scraped/
 df_cache/
 

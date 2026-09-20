@@ -82,10 +82,7 @@ function handleLogin() {
 
         <!-- Logo -->
         <div class="text-center mb-10">
-          <svg viewBox="0 0 54 40" fill="none" xmlns="http://www.w3.org/2000/svg" class="mb-6 w-16 shrink-0 mx-auto">
-             <!-- SVG Path -->
-             <path fill-rule="evenodd" clip-rule="evenodd" d="M17.1637 19.2467C..." fill="var(--primary-color)" />
-          </svg>
+          <img src="/images/alphalom-logo.png" alt="AlphaLom" class="login-logo mb-6 mx-auto" />
           <div class="text-surface-900 dark:text-surface-0 text-3xl font-medium mb-2">Welcome to AlphaLom!</div>
           <span class="text-muted-color font-medium">Sign in to System</span>
         </div>
@@ -129,3 +126,14 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+/* 源图 488×102，按 CSS 定高缩放；原先 w-56(224px) 偏大，收窄到 ~176px */
+.login-logo {
+  height: 2.2rem;   /* ≈35px → 渲染宽度约 168px */
+  width: auto;
+  max-width: 11rem;
+  object-fit: contain;
+  display: block;
+}
+</style>
