@@ -131,19 +131,18 @@ def job_sync_data():
     logger.info(f"全量股票基础信息同步完成，总标的{total_cnt}，成功{success_cnt}")
 
 def __sync_single_stock(stock):
-    profile = databull.get_company(stock['symbol'])
-    if profile is None:
-        profile = {}
-    StockService.upsert_stock({
+    """刷新**已在库**标的的基础信息与公司概况。
+
+    与 ensure_stock_from_api 的区别：这里不判在不在库、无条件覆盖更新，
+    也不碰 market / monitoring 字段（避免覆盖用户的监控开关）。
+    """
+    record = {
         'symbol': stock['symbol'],
         'name': stock['name'],
         'name_en': stock['name'],
-        'industry': profile.get('industry'),
-        'province': profile.get('province'),
-        'city': profile.get('city'),
-        'district': profile.get('district'),
-        'company_profile': profile
-    })
+    }
+    record.update(StockService.company_profile_fields(stock['symbol']))
+    StockService.upsert_stock(record)
     logger.debug(f"更新个股信息, {stock['symbol']}, {stock['name']}")
     return True
 

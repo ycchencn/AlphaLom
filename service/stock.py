@@ -413,6 +413,82 @@ class StockService:
             return False
 
     @staticmethod
+    def company_profile_fields(symbol: str, market: str = 'cn') -> Dict[str, Any]:
+        """拉取公司概况并压平成 stocks 表的行业 / 地域字段。
+
+        原先每个调用点都要自己写 `profile = databull.get_company(...)` +
+        `if profile is None: profile = {}` 再逐个 `.get()`，这里统一收口，
+        并把原始 profile 原样放进 `company_profile` 字段留档。
+
+        Args:
+            symbol: 股票代码
+            market: 市场，默认 cn
+
+        Returns:
+            形如 {'industry', 'province', 'city', 'district', 'company_profile'} 的字典。
+            上游无数据时前四项为 None、`company_profile` 为 {}（调用方不必再判空）
+        """
+        from utils.data_loader import databull   # 循环导入约束：只能函数内 import，见文件顶部
+        profile = databull.get_company(symbol, market)
+        # 上游无此标的时返回 None，异常结构也一并按空处理，避免下游 .get() 报错
+        if not isinstance(profile, dict):
+            profile = {}
+        return {
+            'industry': profile.get('industry'),
+            'province': profile.get('province'),
+            'city': profile.get('city'),
+            'district': profile.get('district'),
+            'company_profile': profile,
+        }
+
+    @staticmethod
+    def ensure_stock_from_api(
+        symbol: str,
+        market: str = 'cn',
+        securities_type: str = 'stock',
+        monitoring: int = 1,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """个股不在 stocks 表时，从 databull 补全基础信息后入库（幂等）。
+
+        「不在库 → 查 API → upsert」这段逻辑原先在 routes/stock.py、
+        job/job_stock_analysis.py、job/private/stock_pool_overide.py 里各抄了一份，
+        且已经漂移（只有 routes 那份带公司概况）。这里统一成一份：
+        名称取 get_stock_info，行业 / 省市 / 公司概况取 get_company。
+
+        注意：本方法是**幂等**的，已在库则直接返回 False、不做任何修改。
+        调用方若还要区分「已存在时更新调用方自己的字段」，可先判 StockService.exists。
+
+        Args:
+            symbol: 股票代码
+            market: 市场，默认 cn（info 与 profile 两个接口共用）
+            securities_type: 证券类型，默认 stock
+            monitoring: 是否纳入监控，默认 1
+            extra: 额外写入的字段（如 {'monitor_by': 'a500_20260920'}），同名键覆盖上面的默认值
+
+        Returns:
+            True = 原先不在库且写入成功；False = 已在库（未做任何修改）或写入失败
+        """
+        if StockService.exists(symbol):
+            return False
+
+        from utils.data_loader import databull   # 循环导入约束：只能函数内 import，见文件顶部
+        stock_api = databull.get_stock_info(symbol, market=market)
+        name = stock_api.get('name') if isinstance(stock_api, dict) else None
+
+        record: Dict[str, Any] = {
+            'symbol': symbol,
+            'name': name,
+            'market': market,
+            'securities_type': securities_type,
+            'monitoring': monitoring,
+        }
+        record.update(StockService.company_profile_fields(symbol, market))
+        if extra:
+            record.update(extra)
+        return StockService.upsert_stock(record)
+
+    @staticmethod
     def update_stock_by_id(id: int, update_data: Dict[str, Any]) -> bool:
         """根据 id 更新股票信息"""
         stock = db_session.query(Stock).filter_by(id=id).first()

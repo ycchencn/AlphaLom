@@ -96,30 +96,20 @@ async def update_stock(symbol: str, request: Request):
     except Exception:
         data = {}
 
-    # 从API获取个股信息同步到数据库
-    if not StockService.exists(symbol):
-        stock_api = databull.get_stock_info(symbol, market=data.get('market', 'cn'))
-        profile = databull.get_company(symbol)
-        if profile is None:
-            profile = {}
-        StockService.upsert_stock({
-            'symbol': symbol,
-            'name': stock_api.get('name'),
-            'market': data.get('market', 'cn'),
-            'securities_type': data.get('securities_type', 'stock'),
-            'industry': profile.get('industry'),
-            'province': profile.get('province'),
-            'city': profile.get('city'),
-            'district': profile.get('district'),
-            'company_profile': profile,
-            'monitoring': 1
-        })
-    else:
+    if StockService.exists(symbol):
+        # 已在库：只更新调用方显式传来的字段
         StockService.upsert_stock({
             'symbol': symbol,
             'market': data.get('market', 'cn'),
             'monitoring': data.get('monitoring', 1)
         })
+    else:
+        # 不在库：从 API 补全基础信息（名称 + 公司概况）后入库
+        StockService.ensure_stock_from_api(
+            symbol,
+            market=data.get('market', 'cn'),
+            securities_type=data.get('securities_type', 'stock'),
+        )
 
     # 监控标记变了，列表缓存必须立即失效，否则用户改完看不到自己的改动
     # （后台任务直接改库的场景无法在这里挂钩，由 TTL 兜底）

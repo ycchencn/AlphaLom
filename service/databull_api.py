@@ -62,7 +62,7 @@ class DataBull:
         except requests.exceptions.ConnectionError:
             print(f"{endpoint}, 网络连接失败")
         except ValueError as e:
-            print(f"{endpoint}, JSON 解析异常: ", exc_info=e)
+            print(f"{endpoint}, JSON 解析异常: ")
         except Exception as e:
             print(f"{endpoint}, 未知请求异常: {e}")
         return None

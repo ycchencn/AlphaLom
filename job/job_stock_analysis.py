@@ -10,22 +10,12 @@ from job.job_update_stock_greedy_data import job_update_stock_greedy_data
 from job.job_check_signal import job_check_signal
 from job.job_update_factors import job_update_stock_factor
 from job.job_stock_daily_update import job_fix_ohlc_last
-from utils.data_loader import databull
 
 
 def job_stock_analysis(stock_code, send_notification=False):
 
-    if not StockService.exists(stock_code):
-        # 个股不在数据库，查询api获取
-        stock_api = databull.get_stock_info(stock_code, market='cn')
-        # 自动添加
-        StockService.upsert_stock({
-            'symbol': stock_code,
-            'name': stock_api.get('name'),
-            'market': 'cn',
-            'securities_type': 'stock',
-            'monitoring': 1
-        })
+    # 不在数据库则自动添加（从 API 补全名称 + 公司概况）
+    StockService.ensure_stock_from_api(stock_code)
 
     # 计算走势指标
     job_update_stock_greedy_data(index_code=stock_code, override_all=True)
