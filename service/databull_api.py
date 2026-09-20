@@ -29,14 +29,6 @@ class DataBull:
     def _build_session(self):
         session = requests.Session()
 
-        # 放大连接池（按实际并发需求调整）
-        adapter = HTTPAdapter(
-            pool_connections=30,
-            pool_maxsize=30
-        )
-        session.mount("https://", adapter)
-        session.mount("http://", adapter)
-
         # 配置重试策略（防金融接口限流/瞬时丢包）
         retry = Retry(
             total=3,
@@ -44,7 +36,20 @@ class DataBull:
             status_forcelist=[429, 500, 502, 503, 504],
             raise_on_status=False
         )
-        session.mount("https://", HTTPAdapter(max_retries=retry))
+
+        # 连接池 + 重试必须塞进**同一个** adapter 再 mount。
+        # 原先先 mount 了 pool_maxsize=30 的 adapter、紧接着又 mount 了一个只带
+        # max_retries 的 adapter —— 后者会把前者整个替换掉，连接池被静默打回默认
+        # 的 10。表现为并发取行情时刷 "Connection pool is full, discarding
+        # connection ... Connection pool size: 10"，每个被丢弃的连接都要重新
+        # TCP+TLS 握手（ETF 成分股权重要逐只取价，282 只受影响明显）。
+        adapter = HTTPAdapter(
+            pool_connections=30,
+            pool_maxsize=30,
+            max_retries=retry
+        )
+        session.mount("https://", adapter)
+        session.mount("http://", adapter)
 
         return session
 
@@ -112,6 +117,26 @@ class DataBull:
         res = self._request(f"{market}/etfs/etf_composition", params={"symbol": symbol})
         if res is None:
             res = self._request(f"{market}/etf_composition", params={"symbol": symbol})
+        return res.get("data") if isinstance(res, dict) else res
+
+    def get_etf_pcf(self, symbol: str, market: str = "cn") -> Optional[Dict]:
+        """获取 ETF 申赎清单 PCF（Portfolio Composition File）：清单头 + 成分明细
+
+        与 get_etf_info 同源（两者清单头字段完全一致：cash_balance / report_unit /
+        nav_per_cu / ecc / max_cash_ratio / enable_creation...），**PCF 的增量价值全在
+        composition 里** —— 每只成分股带 component_volume（每篮子股数）、
+        component_exch_id、trading_day，这是 /etfs/etf_composition 只给 code+name
+        时所没有的。
+
+        实测注意（2026-09 复测）：
+        - composition 里的 replace_flag 恒为 563555556、replace_ratio/replace_balance
+          恒为 null —— 上游没真正填这三个字段，别拿去展示或参与计算；
+        - trading_day 是清单生成日（实测停在 2026-04-27），不是查询日，展示时必须
+          把日期一起透出，否则用户会把陈旧篮子当成当日清单。
+
+        无 PCF（货币 ETF 等）时 composition 为空数组，沿用返回值形态而非 None。
+        """
+        res = self._request(f"{market}/etfs/etf_pcf", params={"symbol": symbol})
         return res.get("data") if isinstance(res, dict) else res
 
     def get_etf_info(self, symbol: str, market: str = "cn") -> Optional[Dict]:
