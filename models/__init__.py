@@ -24,8 +24,7 @@ class Stock(Base):
     __tablename__ = 'stocks'
 
     id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    ts_code = Column(String(25), unique=True, comment='交易所标准代码，如 000001.SZ / 600519.SH')
-    symbol = Column(String(25), comment='股票代码，如 000001 / 600519')
+    symbol = Column(String(25), unique=True, comment='股票代码，如 000001 / 600519（唯一标识）')
     name = Column(String(50), comment='股票名称')
     name_en = Column(String(50), comment='英文名称')
     area = Column(String(50), comment='地区')
@@ -45,12 +44,11 @@ class Stock(Base):
     ohlc_last = Column(JSON, default={}, comment='最近 OHLC 行情快照（JSON）')
 
     def __repr__(self):
-        return f"<Stock(ts_code='{self.ts_code}', name='{self.name}')>"
+        return f"<Stock(symbol='{self.symbol}', name='{self.name}')>"
 
     def to_dict(self):
         return {
             'id': self.id,
-            'ts_code': self.ts_code,
             'symbol': self.symbol,
             'name': self.name,
             'name_en': self.name_en,

@@ -21,7 +21,6 @@ def job_stock_analysis(stock_code, send_notification=False):
         # 自动添加
         StockService.upsert_stock({
             'symbol': stock_code,
-            'ts_code': stock_api.get('ts_code'),
             'name': stock_api.get('name'),
             'market': 'cn',
             'securities_type': 'stock',

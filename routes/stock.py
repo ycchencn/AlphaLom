@@ -100,7 +100,6 @@ async def update_stock(symbol: str, request: Request):
         stock_api = databull.get_stock_info(symbol, market=data.get('market', 'cn'))
         StockService.upsert_stock({
             'symbol': symbol,
-            'ts_code': stock_api.get('ts_code'),
             'name': stock_api.get('name'),
             'market': data.get('market', 'cn'),
             'securities_type': data.get('securities_type', 'stock'),

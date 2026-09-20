@@ -40,7 +40,7 @@ def _normalize_stock_items(resp) -> List[Dict[str, str]]:
     for it in items:
         if not isinstance(it, dict):
             continue
-        code = str(it.get('symbol') or it.get('code') or it.get('ts_code') or '').strip()
+        code = str(it.get('symbol') or it.get('code') or '').strip()
         if not code or code in seen:
             continue
         seen.add(code)
@@ -173,7 +173,7 @@ class StockService:
         """
         多条件组合查询股票，支持字段筛选和排序。
 
-        :param keyword: 在 name 或 ts_code 中模糊匹配
+        :param keyword: 在 name 或 symbol 中模糊匹配
         :param market: 市场（如 'SZ', 'SH'）
         :param concepts: 概念
         :param securities_type: 证券类型
@@ -191,7 +191,8 @@ class StockService:
         if keyword:
             keyword = f"%{keyword}%"
             query = query.filter(or_(
-                Stock.name.like(keyword)
+                Stock.name.like(keyword),
+                Stock.symbol.like(keyword)
             ))
         if market:
             query = query.filter(Stock.market == market)
@@ -329,7 +330,7 @@ class StockService:
             return True
         except IntegrityError:
             db_session.rollback()
-            logger.debug(f"Duplicate ts_code: {stock_data.get('ts_code')}")
+            logger.debug(f"Duplicate symbol: {stock_data.get('symbol')}")
             return False
         except SQLAlchemyError as e:
             db_session.rollback()
@@ -358,11 +359,11 @@ class StockService:
             except IntegrityError:
                 db_session.rollback()
                 if not ignore_conflicts:
-                    logger.warning(f"Conflict on ts_code: {stock_data.get('ts_code')}")
+                    logger.warning(f"Conflict on symbol: {stock_data.get('symbol')}")
                 # else: 静默跳过
             except Exception as e:
                 db_session.rollback()
-                logger.error(f"Error inserting stock {stock_data.get('ts_code')}: {e}")
+                logger.error(f"Error inserting stock {stock_data.get('symbol')}: {e}")
         try:
             db_session.commit()
         except Exception as e:
@@ -374,7 +375,7 @@ class StockService:
     @staticmethod
     def upsert_stock(stock_data: Dict[str, Any]) -> bool:
         """
-        插入或更新股票（基于 ts_code）。
+        插入或更新股票（基于 symbol）。
         注意：SQLAlchemy ORM 无原生 upsert，此处采用“先查后插/更”策略。
         """
         symbol = stock_data.get('symbol')
@@ -417,26 +418,7 @@ class StockService:
             return True
         except Exception as e:
             db_session.rollback()
-            logger.error(f"Update by ts_code failed: {e}")
-            return False
-
-    @staticmethod
-    def update_stock_by_ts_code(ts_code: str, update_data: Dict[str, Any]) -> bool:
-        """根据 ts_code 更新股票信息"""
-        stock = db_session.query(Stock).filter_by(ts_code=ts_code).first()
-        if not stock:
-            logger.warning(f"Stock with ts_code {ts_code} not found for update")
-            return False
-        try:
-            update_data['last_update'] = get_today(_format='%Y-%m-%d %H:%M:%S')
-            for key, value in update_data.items():
-                if hasattr(stock, key):
-                    setattr(stock, key, value)
-            db_session.commit()
-            return True
-        except Exception as e:
-            db_session.rollback()
-            logger.error(f"Update by ts_code failed: {e}")
+            logger.error(f"Update by id failed: {e}")
             return False
 
     @staticmethod
@@ -444,7 +426,7 @@ class StockService:
         """根据 symbol 删除股票"""
         stock = db_session.query(Stock).filter_by(symbol=symbol).first()
         if not stock:
-            logger.warning(f"Record with ts_code {symbol} not found for deletion")
+            logger.warning(f"Record with symbol {symbol} not found for deletion")
             return False
         try:
             db_session.delete(stock)

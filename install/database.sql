@@ -389,7 +389,6 @@ CREATE TABLE IF NOT EXISTS `stock_news` (
 
 CREATE TABLE IF NOT EXISTS `stocks` (
   `id` int NOT NULL AUTO_INCREMENT,
-  `ts_code` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `symbol` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `name_en` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
@@ -413,8 +412,7 @@ CREATE TABLE IF NOT EXISTS `stocks` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `uni_symbol` (`symbol`),
   KEY `idx_securities_type` (`securities_type`),
-  KEY `idx_market` (`market`),
-  KEY `ts_code` (`ts_code`)
+  KEY `idx_market` (`market`)
 ) ENGINE=InnoDB AUTO_INCREMENT=37348 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
 
 CREATE TABLE IF NOT EXISTS `stocks_fear_greed` (
