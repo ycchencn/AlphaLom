@@ -50,7 +50,13 @@ class TestDatajiji(unittest.TestCase):
 
     def test_get_stock_financial_data(self):
         index_code = '000001'
-        res = databull.get_stock_financial_data(index_code, start_date='20240101', end_date='20240115')
+        res = databull.get_stock_financial_data(
+            index_code,
+            start_date='20260101',
+            end_date='20260611',
+            report_type='PershareIndex'
+        )
+        print(res)
         self.assertIsNotNone(res)
 
 if __name__ == '__main__':

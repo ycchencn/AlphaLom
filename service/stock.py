@@ -7,7 +7,14 @@
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import Stock
 from models.database import db_session
-from utils.data_loader import databull
+
+# ⚠️ 循环导入约束：databull 客户端只能**在函数内**延迟导入，不要提到模块顶层。
+# utils.data_loader 需要 service.databull_api.DataBull，而 service/__init__ 又会导入本模块，
+# 顶层导入即构成 utils.data_loader → service.__init__ → 本模块 → utils.data_loader(半初始化)
+# 的循环，报 ImportError: cannot import name 'databull' from partially initialized module
+# 'utils.data_loader'。只要入口先 import utils.data_loader 就会触发，例如
+# testcase/test_databull.py 与 job/dump_stocks_dcf.py。下面各函数体内的 import 都是此原因。
+
 from utils.logger import logger
 from utils.common import get_today
 from typing import List, Optional, Dict, Any
@@ -60,6 +67,7 @@ def _probe_stock_server_search(market: str = 'cn') -> bool:
     if _stock_server_search_supported is not None:
         return _stock_server_search_supported
     try:
+        from utils.data_loader import databull
         resp = databull.get_stock_list(market=market, search='__alphalom_no_such_keyword__')
         probe = _normalize_stock_items(resp)
         _stock_server_search_supported = bool(resp is not None and not probe)
@@ -81,6 +89,7 @@ def _get_stock_catalog(market: str = 'cn') -> List[Dict[str, str]]:
         if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
             return cached['items']
         try:
+            from utils.data_loader import databull
             items = _normalize_stock_items(databull.get_stock_list(market=market))
         except Exception as e:
             logger.warning(f"get_stock_list failed: {e}")
@@ -257,6 +266,7 @@ class StockService:
         candidates = []
         if _stock_server_search_supported is not False and _probe_stock_server_search(market):
             try:
+                from utils.data_loader import databull
                 raw = _normalize_stock_items(databull.get_stock_list(market=market, search=keyword))
                 candidates = [it for it in raw
                               if kw in it['symbol'].lower() or kw in it['name'].lower()]

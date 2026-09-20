@@ -7,7 +7,14 @@
 from sqlalchemy.exc import IntegrityError
 from models.database import db_session
 from models import EtfWatchlist
-from utils.data_loader import databull
+
+# ⚠️ 循环导入约束：databull 客户端只能**在函数内**延迟导入，不要提到模块顶层。
+# utils.data_loader 需要 service.databull_api.DataBull，而 service/__init__ 又会导入本模块，
+# 顶层导入即构成 utils.data_loader → service.__init__ → 本模块 → utils.data_loader(半初始化)
+# 的循环，报 ImportError: cannot import name 'databull' from partially initialized module
+# 'utils.data_loader'。只要入口先 import utils.data_loader 就会触发，例如
+# testcase/test_databull.py 与 job/dump_stocks_dcf.py。下面各函数体内的 import 都是此原因。
+
 from utils.logger import logger
 
 
@@ -42,6 +49,7 @@ class EtfService:
 
         if not name:
             try:
+                from utils.data_loader import databull
                 info = databull.get_etf_info(symbol) or {}
                 name = info.get('name') if isinstance(info, dict) else None
             except Exception as e:
@@ -92,6 +100,7 @@ class EtfService:
             return []
 
         try:
+            from utils.data_loader import databull
             resp = databull.get_etf_list(market=market, search=keyword)
         except Exception as e:
             logger.warning(f"get_etf_list(search={keyword}) failed: {e}")

@@ -60,7 +60,7 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         raise f"数据获取失败: {e}"
 
     # 2 获取股票基础信息
-    stock_detail = get_stock_detail(_stock_code=_stock_code, market=stock_info.get('market'))
+    stock_detail = get_stock_detail(_stock_code=_stock_code, market=stock_info.get('market', 'cn'))
 
     # 3 获取关联新闻供LLM分析
     relative_news = MarketNewsService.search(stock_code=_stock_code, page_size=30)
@@ -211,7 +211,7 @@ def dcf_report_extra(_stock_code, report_content):
 
 
 if __name__ == '__main__':
-    stock_code = '002185'
+    stock_code = '000001'
     job_stock_dcf_model_analysis(stock_code, skip_interval=True)
 
     # job_stock_dcf_model_analysis_daily(override=False)

@@ -56,15 +56,15 @@ class DataBull:
             resp.raise_for_status()
             return resp.json()
         except requests.exceptions.Timeout:
-            print("请求超时")
+            print(f"{endpoint}, 请求超时")
         except requests.exceptions.HTTPError as e:
-            print(f"HTTP {resp.status_code}: {resp.text}")
+            print(f"{endpoint}, HTTP {resp.status_code}: {resp.text}")
         except requests.exceptions.ConnectionError:
-            print("网络连接失败")
+            print(f"{endpoint}, 网络连接失败")
         except ValueError as e:
-            print("JSON 解析异常: ", exc_info=e)
+            print(f"{endpoint}, JSON 解析异常: ", exc_info=e)
         except Exception as e:
-            print(f"未知请求异常: {e}")
+            print(f"{endpoint}, 未知请求异常: {e}")
         return None
 
     @staticmethod
@@ -170,7 +170,16 @@ class DataBull:
         return self._to_dataframe(data.get("data") if isinstance(data, dict) else data)
 
     def get_stock_financial_data(self, symbol: str, start_date: str, end_date: str, report_type: str) -> Optional[Union[list, dict]]:
-        """获取上市公司财务指标数据"""
+        """获取上市公司财务指标数据（按公告日期区间倒序返回）
+
+        report_type 取值（据上游 OpenAPI）：Balance 资产负债表 / Income 利润表 /
+        CashFlow 现金流量表 / Capital 资本结构，文档默认 Balance。另外 PershareIndex
+        （主要财务指标）文档未列出但**实测可用**，fundamental_service 与 DCF 研报的
+        计算全部依赖它。**故意不给默认值**：报表类型不同，report_table 的字段也不同，
+        静默取默认值会让下游算出错误的基本面评分。
+
+        start_date / end_date 为公告日期区间，上游同时接受 YYYYMMDD 与 YYYY-MM-DD。
+        """
         return self._request("cn/stock/financial_data", params={
             "symbol": symbol, "start_date": start_date, "end_date": end_date, "report_type": report_type
         })

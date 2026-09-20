@@ -1,7 +1,15 @@
 import unittest
 
-# 引入被测试的文件
-from service.user_watchlist_service import UserWatchlistService
+# ⚠️ 本文件测的「关注清单」功能已下线：service/user_watchlist_service.py 与
+# user_watchlist 模型都不存在了（全库已无引用），只剩这份测试还指着它。
+# 直接 import 会在 collect 阶段抛 ModuleNotFoundError，而 pytest 遇到 collect error 会
+# **中断整个 testcase 目录**（Interrupted: 1 error during collection），让其它测试一个都跑不了。
+# 所以这里退化为显式 skip：既保住文件，又不再挡住其它测试。
+# 后续处理二选一：功能不恢复就直接删掉本文件；恢复则把导入改回来。
+try:
+    from service.user_watchlist_service import UserWatchlistService
+except ModuleNotFoundError as e:
+    raise unittest.SkipTest(f'UserWatchlistService 已下线，暂跳过本测试文件：{e}')
 
 class TestUserWatchlistService(unittest.TestCase):
     """
