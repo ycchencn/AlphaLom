@@ -363,10 +363,10 @@ onUnmounted(() => {
                     <i class="pi pi-info-circle text-indigo-500 mr-1"></i> 基本资料
                 </template>
                 <template #content>
-                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-4">
+                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
                         <div v-for="row in infoRows" :key="row.label" class="flex flex-col">
-                            <span class="text-xs text-gray-500">{{ row.label }}</span>
-                            <span class="text-sm font-medium text-gray-800 font-mono">{{ row.value }}</span>
+                            <span class="text-base text-gray-500">{{ row.label }}</span>
+                            <span class="text-xl font-semibold text-gray-800 font-mono">{{ row.value }}</span>
                         </div>
                     </div>
                     <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
@@ -430,7 +430,7 @@ onUnmounted(() => {
                     <DataTable v-else
                                :value="composition"
                                :paginator="composition.length > 10"
-                               :rows="50"
+                               :rows="25"
                                dataKey="code"
                                tableStyle="font-size: 12px"
                                :showGridlines="false"
