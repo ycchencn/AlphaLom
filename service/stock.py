@@ -7,11 +7,89 @@
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import Stock
 from models.database import db_session
+from utils.data_loader import databull
 from utils.logger import logger
 from utils.common import get_today
 from typing import List, Optional, Dict, Any
 from sqlalchemy import func, and_
 from sqlalchemy import or_, asc, desc
+
+import threading
+import time
+
+# ==================== 股票目录（搜索联想）缓存与探测 ====================
+# 上游 `GET /cn/stocks` 在 OpenAPI 中未定义任何查询参数，传 search/q 会被忽略并原样返回
+# 全量列表。因此这里：探测一次上游服务端过滤是否生效；不生效则缓存全量目录到进程内，
+# 后续按代码/名称本地过滤（目录属静态参照数据，按需更新而非每日刷新，TTL 取 1h）。
+_STOCK_CATALOG_TTL = 3600                       # 目录缓存有效期（秒）
+_stock_catalog_cache: Dict[str, Dict[str, Any]] = {}   # market -> {'ts': float, 'items': [...]}
+_stock_catalog_lock = threading.Lock()
+_stock_server_search_supported: Optional[bool] = None  # None=未探测, True/False=已探测
+
+
+def _normalize_stock_items(resp) -> List[Dict[str, str]]:
+    """把上游清单响应归一化为 [{symbol, name}]（兼容数组与 {code,data} 信封两种写法）。"""
+    if resp is None:
+        return []
+    if isinstance(resp, list):
+        items = resp
+    else:
+        items = resp.get('data') or resp.get('items') or resp.get('list') or []
+
+    result, seen = [], set()
+    for it in items:
+        if not isinstance(it, dict):
+            continue
+        code = str(it.get('symbol') or it.get('code') or it.get('ts_code') or '').strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        result.append({'symbol': code, 'name': str(it.get('name') or '').strip()})
+    return result
+
+
+def _probe_stock_server_search(market: str = 'cn') -> bool:
+    """
+    探测上游服务端关键词过滤是否真的生效，结果缓存在进程内（只探一次）。
+
+    判据：用一个必然搜不到的关键字调用；若上游**确实**按关键字过滤，应返回空列表；
+    若原样返回全量列表，说明该参数被忽略。响应无效（请求异常 / 返回 None）时保守判为
+    「不支持」，避免退化成每次按键都向上游拉一份全量清单。
+    """
+    global _stock_server_search_supported
+    if _stock_server_search_supported is not None:
+        return _stock_server_search_supported
+    try:
+        resp = databull.get_stock_list(market=market, search='__alphalom_no_such_keyword__')
+        probe = _normalize_stock_items(resp)
+        _stock_server_search_supported = bool(resp is not None and not probe)
+    except Exception as e:
+        logger.warning(f"probe stock server-side search failed: {e}")
+        _stock_server_search_supported = False
+    logger.info(f"stock server-side search supported = {_stock_server_search_supported}")
+    return _stock_server_search_supported
+
+
+def _get_stock_catalog(market: str = 'cn') -> List[Dict[str, str]]:
+    """获取（并缓存）全市场股票目录，供本地过滤使用。拉取失败时沿用旧缓存。"""
+    cached = _stock_catalog_cache.get(market)
+    if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
+        return cached['items']
+
+    with _stock_catalog_lock:
+        cached = _stock_catalog_cache.get(market)
+        if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
+            return cached['items']
+        try:
+            items = _normalize_stock_items(databull.get_stock_list(market=market))
+        except Exception as e:
+            logger.warning(f"get_stock_list failed: {e}")
+            items = []
+        if items:
+            _stock_catalog_cache[market] = {'ts': time.time(), 'items': items}
+            return items
+        return cached['items'] if cached else []
+
 
 class StockService:
 
@@ -156,6 +234,53 @@ class StockService:
         else:
             # 未指定字段，使用原有的 to_dict() 方法
             return [stock.to_dict() for stock in results]
+
+    @staticmethod
+    def search_stock_catalog(keyword: str, market: str = 'cn', limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        按代码/名称搜索全市场股票目录，返回 [{symbol, name}]，最多 limit 条。
+        用于「添加个股监控」弹窗的搜索联想。
+
+        实现说明：上游 `GET /cn/stocks` 的 OpenAPI 定义里**没有任何查询参数**，实测传
+        search/q 会被忽略并原样返回全量列表（keyword=600519 与 keyword=平安 返回同一份数据）。
+        所以这里不直接假设上游行为：
+          1) 若探测到上游服务端过滤真的生效 → 直接用上游结果（省掉本地全量过滤）；
+          2) 否则退化为「进程内缓存全量目录 + 本地按代码/名称过滤」，
+             避免每次按键都向上游拉一份全量清单。
+        """
+        keyword = (keyword or '').strip()
+        if not keyword:
+            return []
+        kw = keyword.lower()
+
+        candidates = []
+        if _stock_server_search_supported is not False and _probe_stock_server_search(market):
+            try:
+                raw = _normalize_stock_items(databull.get_stock_list(market=market, search=keyword))
+                candidates = [it for it in raw
+                              if kw in it['symbol'].lower() or kw in it['name'].lower()]
+            except Exception as e:
+                logger.warning(f"get_stock_list(search={keyword}) failed: {e}")
+
+        if not candidates:
+            # 上游不过滤（或过滤无结果）→ 用缓存的全量目录做本地匹配
+            catalog = _get_stock_catalog(market)
+            candidates = [it for it in catalog
+                          if kw in it['symbol'].lower() or kw in it['name'].lower()]
+
+        # 相关度排序：代码完全一致 > 代码前缀命中 > 代码包含 > 其余（名称命中）
+        def _rank(item):
+            code = item['symbol'].lower()
+            if code == kw:
+                return 0
+            if code.startswith(kw):
+                return 1
+            if kw in code:
+                return 2
+            return 3
+
+        candidates.sort(key=_rank)
+        return candidates[:limit]
 
     @staticmethod
     def exists(symbol: str) -> bool:

@@ -173,6 +173,19 @@ def get_stocks_greed_data(stock_code: str):
     return greed_data
 
 
+@stock_router.get('/stock_search')
+def search_stock_catalog(
+    keyword: str = Query('', description='代码或名称关键字'),
+    market: str = Query('cn'),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """
+    按代码/名称在全市场股票目录中模糊搜索（databull get_stock_list 的服务端 search 过滤）。
+    用于「添加个股监控」弹窗的搜索联想。
+    """
+    return StockService.search_stock_catalog(keyword, market=market, limit=limit)
+
+
 @stock_router.get('/stocks/{stock_code}')
 @cache(expire=3600)
 def get_stock(stock_code: str):

@@ -2,7 +2,7 @@
 
 import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
-import { onBeforeMount, ref } from 'vue';
+import { computed, onBeforeMount, ref } from 'vue';
 import { getMarketByCode, fearGreedToText } from '@/utils/function';
 import Dialog from 'primevue/dialog';
 import axios from 'axios';
@@ -12,14 +12,28 @@ const stock_list = ref([]);
 const filters1 = ref(null);
 const loading1 = ref(null);
 const modal_visible = ref(false);
-const modal_stock_code = ref(null);
 const { showSuccess, showError } = useNotification();
 const modal_analysis_interval = ref(1)
 const filter_market = ref('cn')
 
+// 添加个股弹窗：搜索状态
+const searchKeyword = ref('');
+const searchResults = ref([]);
+const searching = ref(false);
+const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
+let searchSeq = 0;              // 搜索请求序号，用于丢弃过期响应
+
+// 已在股票池中的代码集合，用于在搜索结果里标记「已添加」
+const watchedSymbols = computed(() => new Set(stock_list.value.map(s => String(s.symbol))));
+
+function isWatched(symbol) {
+    return watchedSymbols.value.has(String(symbol));
+}
+
 function loadStockList(){
     // 获取个股数据
-    axios.get(`/api/v1/stocks_monitored?page_size=300&page=1&market=${filter_market.value}&v=1.2`).then(response => {
+    loading1.value = true;
+    return axios.get(`/api/v1/stocks_monitored?page_size=300&page=1&market=${filter_market.value}&v=1.2`).then(response => {
         stock_list.value = response.data.map(item => {
             const ohlc = item.ohlc_last; // 可能为 null 或 undefined
             return {
@@ -48,6 +62,41 @@ onBeforeMount(() => {
     initFilters1();
 });
 
+function openAddModal() {
+    modal_visible.value = true;
+    searchKeyword.value = '';
+    searchResults.value = [];
+    searchSeq++;   // 丢弃上一次打开时可能仍在途的搜索结果
+}
+
+// 输入防抖后调用搜索接口（服务端按关键字过滤，见 StockService.search_stock_catalog）
+let searchTimer = null;
+function onSearchInput() {
+    if (searchTimer) clearTimeout(searchTimer);
+    const kw = searchKeyword.value.trim();
+    if (!kw) {
+        searchResults.value = [];
+        searching.value = false;
+        searchSeq++;   // 让在途请求的结果失效
+        return;
+    }
+    searchTimer = setTimeout(() => doSearch(kw), 300);
+}
+
+async function doSearch(kw) {
+    const seq = ++searchSeq;
+    searching.value = true;
+    try {
+        const r = await axios.get('/api/v1/stock_search', {params: {keyword: kw, limit: 50}});
+        if (seq !== searchSeq) return;   // 已有更新的搜索，丢弃本次结果，避免乱序覆盖
+        searchResults.value = Array.isArray(r.data) ? r.data : [];
+    } catch (e) {
+        if (seq === searchSeq) searchResults.value = [];
+    } finally {
+        if (seq === searchSeq) searching.value = false;
+    }
+}
+
 // 在 <script setup> 内部添加：
 function getFearGreedClass(greedValue) {
     if (greedValue >= 60) return 'fg-extreme-greed';
@@ -58,52 +107,26 @@ function getFearGreedClass(greedValue) {
 }
 
 /**
- * 添加股票到监控列表
- * @param {string} stockCode - 股票代码（如 '600519', 'AAPL', '00700.HK' 等）
+ * 把股票加入股票池（PUT /stocks/{symbol}，记录不存在时后端会自动拉取名称并入库）
+ * @param {string} symbol - 股票代码（如 '600519'）
+ * @returns {Promise<boolean>} 是否添加成功
  */
-async function addStockMonitor(stockCode) {
-    // === 1. 前置校验：stockCode 合法性 ===
-    if (!stockCode) {
-        showError('请输入股票代码');
-        return;
-    }
-
-    // 去除首尾空白
-    const trimmedCode = stockCode.trim();
-    if (trimmedCode.length === 0) {
-        showError('股票代码不能为空');
-        return;
-    }
-
-    // 可选：限制长度（例如最多20字符，覆盖 A股、港股、美股等）
-    if (trimmedCode.length > 20) {
-        showError('股票代码过长');
-        return;
-    }
-
-    // 可选：基础格式校验（允许字母、数字、点号、连字符，常见于全球股票代码）
-    const stockCodeRegex = /^[a-zA-Z0-9\.\-]+$/;
-    if (!stockCodeRegex.test(trimmedCode)) {
-        showError('股票代码包含非法字符');
-        return;
-    }
-
-    // === 2. 发起请求 ===
+async function putStockMonitoring(symbol) {
     try {
-        await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
+        await axios.put(`/api/v1/stocks/${encodeURIComponent(symbol)}`, {
             monitoring: 1,
             monitor_by: 'guest',
             securities_type: 'stock'
         });
-        showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
-        modal_stock_code.value = ""
+        showSuccess(`已添加监控：${symbol}`);
+        await loadStockList();
+        return true;
     } catch (error) {
         let message = '操作失败，请重试';
         if (axios.isAxiosError(error)) {
             if (error.response) {
-                const { status, data } = error.response;
-                message = data.message;
-                // 可继续扩展其他业务状态码
+                const { data } = error.response;
+                message = (data && (data.message || data.detail)) || message;
             } else if (error.request) {
                 message = '网络连接失败，请检查网络后重试';
             } else {
@@ -115,6 +138,50 @@ async function addStockMonitor(stockCode) {
             message = '发生未知错误';
         }
         showError(message);
+        return false;
+    }
+}
+
+/**
+ * 从搜索结果添加（保持弹窗打开，该条结果会自动变为「已添加」状态）
+ */
+async function addFromSearch(row) {
+    const symbol = row.symbol;
+    addingSymbol.value = symbol;
+    try {
+        await putStockMonitoring(symbol);
+    } finally {
+        addingSymbol.value = '';
+    }
+}
+
+/**
+ * 按代码直接添加（搜索无结果时的兜底，不依赖目录接口可用性）
+ */
+async function addByCode(stockCode) {
+    const trimmedCode = (stockCode || '').trim();
+    if (!trimmedCode) {
+        showError('请输入股票代码');
+        return;
+    }
+    if (trimmedCode.length > 20) {
+        showError('股票代码过长');
+        return;
+    }
+    // 允许字母、数字、点号、连字符（覆盖 A股 / 港股 / 美股等代码格式）
+    if (!/^[a-zA-Z0-9.\-]+$/.test(trimmedCode)) {
+        showError('股票代码包含非法字符');
+        return;
+    }
+    addingSymbol.value = trimmedCode;
+    try {
+        const ok = await putStockMonitoring(trimmedCode);
+        if (ok) {
+            searchKeyword.value = '';
+            searchResults.value = [];
+        }
+    } finally {
+        addingSymbol.value = '';
     }
 }
 
@@ -180,35 +247,79 @@ const getPhaseSeverity = (phaseInt) => {
 
 <template>
     <Toast />
-    <Dialog v-model:visible="modal_visible" modal header="添加个股监控" :style="{ width: '25rem' }">
-      <div class="flex flex-col gap-4">
-        <!-- 股票代码 -->
-        <div>
-          <label for="stock_code" class="font-semibold block mb-1">股票代码</label>
+    <!-- 添加个股弹窗：支持按代码/名称搜索 databull 全市场股票目录 -->
+    <Dialog v-model:visible="modal_visible" modal header="添加个股监控" :style="{ width: '30rem' }">
+      <div class="flex flex-col gap-3">
+        <IconField>
+          <InputIcon>
+            <i class="pi pi-search" />
+          </InputIcon>
           <InputText
-            id="stock_code"
-            v-model="modal_stock_code"
+            v-model="searchKeyword"
+            @input="onSearchInput"
+            placeholder="输入代码或名称搜索"
+            class="w-full"
             autocomplete="off"
-            placeholder="填写股票代码"
-            @keyup.enter="modal_visible=false; addStockMonitor(modal_stock_code);"
-            class="w-full mt-3"
           />
+        </IconField>
+
+        <div v-if="searching" class="text-center text-gray-500 py-4">
+          <i class="pi pi-spin pi-spinner" />
+        </div>
+        <div v-else-if="!searchKeyword.trim()" class="text-center text-gray-400 py-4 text-sm">
+          输入股票代码或名称，从全市场股票目录中搜索
+        </div>
+        <div v-else-if="searchResults.length === 0" class="text-center text-gray-400 py-4 text-sm">
+          未找到匹配的股票
+        </div>
+        <div v-else class="flex flex-col gap-2">
+          <div class="text-xs text-gray-400">共 {{ searchResults.length }} 条匹配</div>
+          <div class="flex flex-col gap-2 max-h-80 overflow-auto">
+            <div v-for="item in searchResults" :key="item.symbol"
+                 class="flex items-center justify-between gap-2 border rounded p-2">
+              <div class="min-w-0">
+                <div class="font-semibold truncate">{{ item.symbol }}</div>
+                <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
+              </div>
+              <Tag v-if="isWatched(item.symbol)" value="已添加" severity="secondary" class="shrink-0" />
+              <Button
+                v-else
+                icon="pi pi-plus"
+                label="添加"
+                size="small"
+                class="shrink-0"
+                :loading="addingSymbol === item.symbol"
+                @click="addFromSearch(item)"
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- 搜索无结果时，支持按代码直接添加（不依赖目录接口可用性） -->
+        <div v-if="searchKeyword.trim() && !searching && searchResults.length === 0" class="pt-1 border-t mt-2">
+          <Button
+            label="按代码直接添加"
+            severity="secondary"
+            size="small"
+            text
+            :loading="addingSymbol === searchKeyword.trim()"
+            @click="addByCode(searchKeyword.trim())"
+          />
+          <span class="text-xs text-gray-400 ml-2">未搜到？可直接用代码（如 600519）添加</span>
         </div>
 
         <!-- 分析周期 -->
-        <div>
-          <div class="flex justify-between items-center mb-1">
-            <label for="analysis_interval" class="font-semibold">分析周期（天）</label>
-          </div>
-            <Dropdown
-              v-model="modal_analysis_interval"
-              :options="stockIntervalOptions"
-              optionLabel="label"
-              optionValue="value"
-              placeholder="选择分析周期"
-              class="w-full mt-3"
-              @change="() => {}"
-            />
+        <div class="pt-2 border-t">
+          <label for="analysis_interval" class="font-semibold block mb-1">分析周期（天）</label>
+          <Dropdown
+            v-model="modal_analysis_interval"
+            :options="stockIntervalOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="选择分析周期"
+            class="w-full"
+            @change="() => {}"
+          />
         </div>
       </div>
 
@@ -217,14 +328,9 @@ const getPhaseSeverity = (phaseInt) => {
         <div class="flex justify-end gap-2">
           <Button
             type="button"
-            label="取消"
+            label="关闭"
             severity="secondary"
             @click="modal_visible = false"
-          />
-          <Button
-            type="button"
-            label="确认"
-            @click="modal_visible=false; addStockMonitor(modal_stock_code);"
           />
         </div>
       </template>
@@ -280,7 +386,7 @@ const getPhaseSeverity = (phaseInt) => {
                             icon="pi pi-plus"
                             size="small"
                             label="添加个股"
-                            @click="modal_visible = true"
+                            @click="openAddModal"
                             class="whitespace-nowrap"
                         />
                         <IconField>

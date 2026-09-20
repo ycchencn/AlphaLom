@@ -119,9 +119,14 @@ class DataBull:
         res = self._request(f"{market}/etfs/info", params={"symbol": symbol})
         return res.get("data") if isinstance(res, dict) else res
 
-    def get_stock_list(self, market: str = "cn") -> Optional[Union[list, dict]]:
-        """获取标的资产/股票全量清单"""
-        return self._request(f"{market}/stocks")
+    def get_stock_list(self, market: str = "cn", search: str = None, exchange: str = None) -> Optional[Union[list, dict]]:
+        """获取标的资产/股票全量清单（支持搜索：search 关键词、exchange 交易所 SH/SZ）"""
+        params = {}
+        if search:
+            params["q"] = search
+        if exchange:
+            params["exchange"] = exchange
+        return self._request(f"{market}/stocks", params=params or None)
 
     def get_company(self, symbol: str, market: str = "cn") -> Optional[Dict]:
         """获取公司基础资料 / 个股 Profile"""
