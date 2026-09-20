@@ -37,8 +37,50 @@ const periodOptions = [
 ];
 const periodDays = {'1M': 30, '3M': 90, '6M': 180, '1Y': 365, '3Y': 1095};
 
-const composition = ref([]);
+// 成分股：清单与权重是两条链路、耗时差一个数量级（清单 1 次上游请求，
+// 权重要逐只取最新价），所以拆成两个请求分别落两处状态，用 computed 合并 ——
+// 这样谁先回来都不会丢数据（直接往同一个数组里 merge 会踩到顺序竞态）。
+const compositionRaw = ref([]);
+const weightItems = ref({}); // code -> {code, price, weight}
 const compositionLoading = ref(false);
+// 清单元信息。trading_day 是**清单生成日**，上游快照可能明显早于今天，
+// 必须显示出来，否则用户会把陈旧的篮子股数当成当日数据；
+// source='pcf' 才有股数，'composition' 是回退链路（只有代码/名称）。
+const compositionMeta = ref({ count: 0, trading_day: null, source: null });
+// 权重估算状态。supported=false 表示这条 ETF 的篮子取不到 A 股报价
+// （跨境 ETF 的港股/美股成分），此时表格不显示「最新价 / 估算权重」两列。
+const weightMeta = ref({ loading: false, supported: false, reason: null, priced: 0, total: 0 });
+
+const composition = computed(() => compositionRaw.value.map(row => {
+    const w = weightItems.value[row.code];
+    return {...row, price: w ? w.price : null, weight: w ? w.weight : null};
+}));
+
+// 列随数据能力变化：股票型 ETF 多出「数量 / 最新价 / 估算权重」，
+// PCF 缺失或跨境篮子则自动少这几列，而不是留一堆空单元格。
+const compositionColumns = computed(() => {
+    const cols = [
+        {field: 'code', header: '代码', style: 'width: 20%'},
+        {field: 'name', header: '名称'},
+    ];
+    if (compositionMeta.value.source === 'pcf') {
+        cols.push({field: 'volume', header: '数量（股）', style: 'width: 18%', headerStyle: 'text-align: left'});
+    }
+    if (weightMeta.value.supported) {
+        cols.push({field: 'price', header: '最新价', style: 'width: 16%', headerStyle: 'text-align: left'});
+        cols.push({field: 'weight', header: '估算权重', style: 'width: 16%', headerStyle: 'text-align: left'});
+    }
+    return cols;
+});
+
+// 权重就绪后默认按权重从大到小（282 只成分股，先看大票才有意义），
+// 没有权重时退回按代码升序。DataTable 对 sortField/sortOrder 有 watcher，会跟着重排。
+const compositionSortField = computed(() => (weightMeta.value.supported ? 'weight' : 'code'));
+const compositionSortOrder = computed(() => (weightMeta.value.supported ? -1 : 1));
+
+function formatVolume(v) {
+    return v == null || v === '' ? '—' : Number(v).toLocaleString();
+}
 
 // ETF 基本资料（get_etf_info：交易所/净值/申赎单位/类型/申赎开关/交易日等）
 const etfInfo = ref({});
@@ -106,7 +148,8 @@ const chartIndicatorOptions = [
     {label: 'MTM', value: 'MTM'},
 ];
 
-// 后端 etf_composition 已归一化为 [{code, name}, ...]（按代码升序）
+// 成分股改走 PCF（申赎清单）：比 etf_composition 多出 component_volume（每篮子股数）。
+// 后端 /etf_pcf 已归一化为 {code, name, exchange, volume, trading_day}（按代码升序）。
 
 // 后端返回 {date, open, high, low, close, volume} → 转成 klinecharts 需要的
 // {timestamp(ms), open, high, low, close, volume}
@@ -204,16 +247,43 @@ async function loadHistory() {
 async function loadComposition() {
     compositionLoading.value = true;
     try {
-        const r = await axios.get(`/api/v1/etf_composition/${symbol}`);
-        const list = Array.isArray(r.data) ? r.data : [];
-        // 按代码升序，字段缺省排在后面
-        composition.value = [...list].sort((a, b) =>
-            String(a.code || '').localeCompare(String(b.code || ''))
-        );
+        const r = await axios.get(`/api/v1/etf_pcf/${symbol}`);
+        const d = r.data || {};
+        compositionRaw.value = Array.isArray(d.composition) ? d.composition : [];
+        compositionMeta.value = {
+            count: d.count || compositionRaw.value.length,
+            trading_day: d.trading_day || null,
+            source: d.source || null,
+        };
     } catch (e) {
-        composition.value = [];
+        compositionRaw.value = [];
+        compositionMeta.value = {count: 0, trading_day: null, source: null};
     } finally {
         compositionLoading.value = false;
+    }
+}
+
+// 权重单独拉：跨境 ETF 会在后端直接判定不支持，不发取价请求，这里拿到的是空表。
+async function loadWeights() {
+    weightMeta.value = {...weightMeta.value, loading: true};
+    try {
+        const r = await axios.get(`/api/v1/etf_pcf_weight/${symbol}`);
+        const d = r.data || {};
+        const map = {};
+        for (const it of (Array.isArray(d.items) ? d.items : [])) {
+            if (it && it.code) map[it.code] = it;
+        }
+        weightItems.value = map;
+        weightMeta.value = {
+            loading: false,
+            supported: !!d.supported,
+            reason: d.reason || null,
+            priced: d.priced || 0,
+            total: d.total || 0,
+        };
+    } catch (e) {
+        weightItems.value = {};
+        weightMeta.value = {loading: false, supported: false, reason: 'error', priced: 0, total: 0};
     }
 }
 
@@ -237,6 +307,8 @@ onMounted(async () => {
     loadHistory();
     loadComposition();
     loadEtfInfo();
+    // 不 await：清单先渲染，权重（要逐只取价）回来后再补上两列
+    loadWeights();
 });
 
 onUnmounted(() => {
@@ -366,7 +438,7 @@ onUnmounted(() => {
                     <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
                         <div v-for="row in infoRows" :key="row.label" class="flex flex-col">
                             <span class="text-base text-gray-500">{{ row.label }}</span>
-                            <span class="text-xl font-semibold text-gray-800 font-mono">{{ row.value }}</span>
+                            <span class="text-gray-800 font-mono">{{ row.value }}</span>
                         </div>
                     </div>
                     <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
@@ -417,15 +489,36 @@ onUnmounted(() => {
                 </template>
             </Card>
 
-            <!-- 成分股 -->
+            <!-- 成分股（申赎清单 PCF） -->
             <Card>
                 <template #title>
                     <i class="pi pi-list text-green-500 mr-1"></i> 成分股构成
                     <span v-if="composition.length" class="text-sm font-light text-gray-400 ml-1">
-                        （共 {{ composition.length }} 只）
+                        （共 {{ composition.length }} 只<template v-if="compositionMeta.trading_day"> · 清单日 {{ compositionMeta.trading_day }}</template>）
                     </span>
                 </template>
                 <template #content>
+                    <!-- 清单日期是「上游生成日」而不是查询日，单独说明一句，避免把旧篮子当成当日数据 -->
+                    <div v-if="composition.length && compositionMeta.source === 'pcf'"
+                         class="text-xs text-gray-400 mb-2">
+                        数量为每个申赎单位（最小申购赎回篮子）包含的股数{{ compositionMeta.trading_day ? `，清单生成于 ${compositionMeta.trading_day}` : '' }}。
+                    </div>
+                    <div v-if="weightMeta.loading" class="text-xs text-gray-400 mb-2">
+                        <i class="pi pi-spin pi-spinner mr-1"></i> 正在按最新价估算权重…
+                    </div>
+                    <div v-else-if="weightMeta.supported" class="text-xs text-gray-400 mb-2">
+                        权重为估算值：篮子股数 × 最新价后归一，已取到 {{ weightMeta.priced }}/{{ weightMeta.total }} 只报价。
+                    </div>
+                    <div v-else-if="composition.length" class="text-xs text-gray-400 mb-2">
+                        暂无权重估算{{
+                            weightMeta.reason === 'non_cn_components' ? '（篮子含港股/美股等非 A 股成分，没有对应报价源）' : ''
+                        }}。
+                    </div>
+                    <div v-if="!compositionLoading && composition.length && compositionMeta.source !== 'pcf'"
+                         class="text-xs text-gray-400 mb-2">
+                        上游未提供申赎清单，仅有代码与名称。
+                    </div>
+
                     <ProgressSpinner v-if="compositionLoading" style="width: 40px; height: 40px"/>
                     <DataTable v-else
                                :value="composition"
@@ -436,11 +529,29 @@ onUnmounted(() => {
                                :showGridlines="false"
                                :rowHover="true"
                                removableSort
-                               :sortField="'code'"
-                               :sortOrder="1">
+                               :sortField="compositionSortField"
+                               :sortOrder="compositionSortOrder">
                         <template #empty> 暂无成分股数据（上游未提供） </template>
-                        <Column field="code" header="代码" sortable style="width: 30%"/>
-                        <Column field="name" header="名称" sortable/>
+                        <Column v-for="col in compositionColumns"
+                                :key="col.field"
+                                :field="col.field"
+                                :header="col.header"
+                                :style="col.style"
+                                :headerStyle="col.headerStyle"
+                                sortable>
+                            <template #body="{ data, field }">
+                                <span v-if="field === 'volume'" class="block text-left font-mono">
+                                    {{ formatVolume(data.volume) }}
+                                </span>
+                                <span v-else-if="field === 'price'" class="block text-left font-mono">
+                                    {{ data.price != null ? formatCurrency(data.price) : '—' }}
+                                </span>
+                                <span v-else-if="field === 'weight'" class="block text-left font-mono">
+                                    {{ data.weight != null ? data.weight.toFixed(2) + '%' : '—' }}
+                                </span>
+                                <span v-else>{{ data[field] }}</span>
+                            </template>
+                        </Column>
                     </DataTable>
                 </template>
             </Card>
