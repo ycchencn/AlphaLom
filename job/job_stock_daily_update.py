@@ -139,6 +139,9 @@ def __sync_single_stock(stock):
         'name': stock['name'],
         'name_en': stock['name'],
         'industry': profile.get('industry'),
+        'province': profile.get('province'),
+        'city': profile.get('city'),
+        'district': profile.get('district'),
         'company_profile': profile
     })
     logger.debug(f"更新个股信息, {stock['symbol']}, {stock['name']}")

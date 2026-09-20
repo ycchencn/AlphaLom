@@ -108,6 +108,9 @@ async def update_stock(symbol: str, request: Request):
             'market': data.get('market', 'cn'),
             'securities_type': data.get('securities_type', 'stock'),
             'industry': profile.get('industry'),
+            'province': profile.get('province'),
+            'city': profile.get('city'),
+            'district': profile.get('district'),
             'company_profile': profile,
             'monitoring': 1
         })

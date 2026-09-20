@@ -27,7 +27,9 @@ class Stock(Base):
     symbol = Column(String(25), unique=True, comment='股票代码，如 000001 / 600519（唯一标识）')
     name = Column(String(50), comment='股票名称')
     name_en = Column(String(50), comment='英文名称')
-    area = Column(String(50), comment='地区')
+    province = Column(String(50), comment='省')
+    city = Column(String(50), comment='市')
+    district = Column(String(50), comment='区')
     industry = Column(String(50), comment='所属行业')
     market = Column(String(10), default='cn', comment='市场：cn-沪深, hk-港股, us-美股')
     last_update = Column(DateTime, comment='最后更新时间')
@@ -50,7 +52,9 @@ class Stock(Base):
             'symbol': self.symbol,
             'name': self.name,
             'name_en': self.name_en,
-            'area': self.area,
+            'province': self.province,
+            'city': self.city,
+            'district': self.district,
             'industry': self.industry,
             'market': self.market,
             'concepts': self.concepts,
