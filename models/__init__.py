@@ -70,39 +70,6 @@ class Stock(Base):
         }
 
 
-# 股票新闻表
-class UserWatchlist(Base):
-    __tablename__ = 'user_watchlist'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    stock_code = Column(String(10), comment='股票代码')
-    stock_name = Column(String(25), comment='股票名称')
-    topic = Column(String(50), comment='所属主题/题材')
-    desc = Column(String(255), comment='备注说明')
-    from_ai = Column(Integer, default=0, comment='是否由 AI 推荐加入：0-否, 1-是')
-    price = Column(Float(precision=2), default=0, comment='加入时价格')
-    diff = Column(Float(precision=2), default=0, comment='涨跌幅（%）')
-    created_at = Column(DateTime, default=datetime.now, comment='加入时间')
-    securities_type = Column(String(50), comment='证券类型：stock/etf 等')
-
-    def to_dict(self):
-        """
-        将对象的属性转换为字典
-        :return: 包含对象所有属性的字典
-        """
-        return {
-            'stock_code': self.stock_code,
-            'stock_name': self.stock_name,
-            'topic': self.topic,
-            'desc': self.desc,
-            'price': self.price,
-            'diff': self.diff,
-            'from_ai': self.from_ai,
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
-            'securities_type': self.securities_type
-        }
-
-
 # ETF 自选/监控列表（持久化，替代原静态 ETF_MONITOR_LIST）
 class EtfWatchlist(Base):
     __tablename__ = 'etf_watchlist'
@@ -124,110 +91,6 @@ class EtfWatchlist(Base):
             'symbol': self.symbol,
             'name': self.name,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
-        }
-
-
-# 策略组
-class StrategyGroup(Base):
-    __tablename__ = 'strategy_group'
-
-    group_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    group_name = Column(String(255), comment='策略组名称')
-    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
-    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
-
-    def to_dict(self):
-        return {
-            'group_id': self.group_id,
-            'group_name': self.group_name,
-            'created_at': self.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            'updated_at': self.updated_at.strftime("%Y-%m-%d %H:%M:%S")
-        }
-
-
-class BacktestTask(Base):
-    __tablename__ = 'backtest_tasks'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')  # 自增主键
-    backtest_id = Column(String(64), comment='回测唯一ID')
-    portfolio_id = Column(Integer, nullable=False, comment='投资组合编号')  # 投资组合编号
-    stock_code = Column(String(20), nullable=False, comment='资产代码')  # 资产代码
-    stock_name = Column(String(20), nullable=False, comment='资产名称')  # 资产名称
-    securities_type = Column(String(20), nullable=False, comment='资产类型')  # 资产类型
-    buy_volume = Column(Integer, nullable=False, comment='买入量')  # 买入量
-    sell_volume = Column(Integer, nullable=False, comment='卖出量')  # 卖出量
-    start_date = Column(Date, nullable=False, comment='开始日期')  # 开始日期
-    end_date = Column(Date, nullable=False, comment='结束日期')  # 结束日期
-    start_value = Column(DECIMAL(15, 2), nullable=False, comment='初始资金')  # 初始资金
-    end_value = Column(DECIMAL(15, 2), nullable=False, comment='结束时的资金')  # 结束时的资金
-    annualized_return = Column(DECIMAL(6, 4), comment='年化收益率')  # 年化收益率
-    sharp_ratio = Column(DECIMAL(15, 2), comment='夏普比率')  # 夏普比率
-    calmar_ratio = Column(DECIMAL(6, 4), comment='卡尔马比率')  # 卡尔马比率
-    profit = Column(DECIMAL(15, 2), nullable=False, comment='净利润')  # 净利润
-    max_drawdown = Column(DECIMAL(10, 8), comment='最大回撤')  # 最大回撤
-    stock_trading_config = Column(JSON, nullable=False, comment='交易配置（JSON）')  # 交易配置，以JSON格式存储
-    ai_audit_comment = Column(JSON, comment='AI 评估意见')  # AI 评估意见
-    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
-    trade_signal_match = Column(Integer, nullable=False, comment='是否触发当日信号：0-否, 1-是')  # 是否触发当日信号
-    last_signal_date = Column(Date, default=None, comment='最近信号触发日期')  # 最近信号触发日期
-    last_signal_trade_type = Column(String(32), nullable=False, comment='最近信号触发交易类型')  # 最近信号触发交易类型
-    strategy_code = Column(String(32), nullable=True, comment='策略代码')  # 策略代码
-    finished = Column(Integer, default=0, comment='回测是否完成：0-进行中, 1-已完成')
-
-    def to_dict(self):
-        """
-        将对象的属性转换为字典
-        :return: 包含对象所有属性的字典
-        """
-        return {
-            'id': self.id,
-            'backtest_id': self.backtest_id,
-            'portfolio_id': self.portfolio_id,
-            'stock_code': self.stock_code,
-            'stock_name': self.stock_name,
-            'securities_type': self.securities_type,
-            'buy_volume': self.buy_volume,
-            'sell_volume': self.sell_volume,
-            'start_date': str(self.start_date),
-            'end_date': str(self.end_date),
-            'start_value': float(self.start_value),
-            'end_value': float(self.end_value),
-            'annualized_return': float(self.annualized_return) if self.annualized_return is not None else None,
-            'sharp_ratio': float(self.sharp_ratio) if self.sharp_ratio is not None else None,
-            'calmar_ratio': float(self.calmar_ratio) if self.calmar_ratio is not None else None,
-            'profit': float(self.profit),
-            'max_drawdown': float(self.max_drawdown) if self.max_drawdown is not None else None,
-            'stock_trading_config': self.stock_trading_config,
-            'ai_audit_comment': self.ai_audit_comment,
-            'trade_signal_match': self.trade_signal_match,
-            'last_signal_trade_type': self.last_signal_trade_type,
-            'last_signal_date': self.last_signal_date.strftime('%Y-%m-%d') if self.last_signal_date else None,
-            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
-            'strategy_code': self.strategy_code
-        }
-
-
-class MarketDailyLimit(Base):
-    __tablename__ = 'market_daily_limit'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    date = Column(Date, nullable=False, unique=True, comment='交易日期')
-    rising = Column(Integer, nullable=False, comment='上涨家数')
-    limit_up = Column(Integer, nullable=False, comment='涨停家数')
-    falling = Column(Integer, nullable=False, comment='下跌家数')
-    limit_down = Column(Integer, nullable=False, comment='跌停家数')
-    flat = Column(BigInteger, nullable=False, comment='平盘家数')
-
-    def to_dict(self):
-        """将对象转换为字典格式"""
-        return {
-            'id': self.id,
-            'date': self.date.isoformat() if self.date else None,
-            'rising': self.rising,
-            'limit_up': self.limit_up,
-            'falling': self.falling,
-            'limit_down': float(self.limit_down) if self.limit_down is not None else None,
-            'flat': self.flat
         }
 
 
@@ -406,37 +269,6 @@ class StockFearGreed(Base):
             "fear_greed": float(self.fear_greed),
             "vol_score": float(self.vol_score),
             "mom_score": float(self.mom_score)
-        }
-
-
-class LlmPrompt(Base):
-    __tablename__ = 'llm_prompts'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    prompt_key = Column(String(128), nullable=False, index=True, comment='Prompt 唯一键，如 news_stock_relation')  # 如 'news_stock_relation'
-    name = Column(String(255), nullable=False, comment='Prompt 名称')
-    content = Column(Text, nullable=False, comment='Prompt 模板文本')  # Prompt 模板文本
-    variables = Column(JSON, nullable=True, comment='模板变量列表（JSON 数组，如 ["content"]）')  # 存为 JSON 字符串，如: ["content"]
-    output_format = Column(String(20), nullable=False, default='text', comment='输出格式：text/json_object/json_array')  # 'text' / 'json_object' / 'json_array'
-    description = Column(Text, nullable=True, comment='描述说明')
-    version = Column(Integer, nullable=False, default=1, comment='版本号')
-    is_active = Column(Boolean, nullable=False, default=True, comment='是否启用')
-    created_at = Column(DateTime, default=func.now(), comment='创建时间')
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now(), comment='更新时间')
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "prompt_key": self.prompt_key,
-            "name": self.name,
-            "content": self.content,
-            "variables": self.variables,  # 已是 list 或 None（MySQL JSON 自动转 Python 对象）
-            "output_format": self.output_format,
-            "description": self.description,
-            "version": self.version,
-            "is_active": self.is_active,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -645,7 +477,8 @@ class ScheduledTask(Base):
     kwargs = Column(JSON, default={}, comment='关键字参数（JSON 对象）')
 
     trigger_type = Column(Enum(), nullable=False, default=TriggerType.CRON, comment='触发类型：cron-定时, date-一次性')
-    cron_expression = Column(String(100), comment='Cron 表达式（仅当 trigger_type == cron 时有效）')  # 仅当 trigger_type == 'cron' 时有效
+    cron_expression = Column(String(100),
+                             comment='Cron 表达式（仅当 trigger_type == cron 时有效）')  # 仅当 trigger_type == 'cron' 时有效
     run_at = Column(DateTime, comment='执行时间（仅当 trigger_type == date 时有效）')  # 仅当 trigger_type == 'date' 时有效
 
     is_active = Column(Boolean, default=True, comment='是否启用')
@@ -827,6 +660,7 @@ class StockFinancialScore(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
 
 # 用户表（登录认证）
 class User(Base):

@@ -5,8 +5,6 @@
 """
 
 from service.stock import StockService
-from service.backtest_task_service import BacktestTaskService
-from service.market_daily_limit_service import MarketDailyLimitService
 from service.portfolio_assets_service import PortfolioAssetsService
 from service.investment_portfolio import InvestmentPortfolioService
 from service.market_news_service import MarketNewsService
