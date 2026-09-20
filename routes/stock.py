@@ -30,14 +30,32 @@ stock_router = APIRouter(prefix=api_prefix, tags=['个股'])
 MONITORED_STOCKS_NS = 'stocks_monitored'
 
 
-def _stock_reanalysis(symbol, sync_history=False, send_notification=False):
-    stock = StockService.get_stock_by_symbol(symbol)
-    if stock is None:
-        return
+def _dispatch_stock_analysis(symbol: str) -> None:
+    """把「个股分析」任务投递到任务队列（异步执行，实现见 job/job_stock_analysis.py）。
+
+    分析链路：恐惧贪婪走势 → 技术因子 → DCF 估值 → 技术信号 → 最新报价。
+    这些正是监控列表 / 详情页要展示的字段（fear_greed、main_force_behavior_phase、
+    52week_low/high、ohlc_last...），而它们平时只由 20:10 的日更任务按股票池全量重算，
+    所以**新入池的票必须立刻单独跑一次**，否则在第二天日更前页面上一片空白。
+
+    注意两点：
+    1. job_args 刻意与线上「重新分析」接口保持完全一致（只传 stock_code），
+       不新增键 —— 新增键会要求 web 与 job_server 同时部署，否则消费者 TypeError；
+       send_notification 走 job 函数默认值 False。
+    2. 队列是 Redis Stream 消费组、prefetch=1 串行消费（job/job_server.py），
+       这里只保证「已入队」，不保证何时算完。
+    """
     JobService.send_job({
         'job_func': 'job_stock_analysis',
         'job_args': {'stock_code': symbol}
     })
+
+
+def _stock_reanalysis(symbol):
+    """对已在库的个股重新投递一次分析（语义见 _dispatch_stock_analysis）"""
+    if StockService.get_stock_by_symbol(symbol) is None:
+        return
+    _dispatch_stock_analysis(symbol)
 
 
 @stock_router.get('/stock/dcf_research_report/{stock_code}')
@@ -96,18 +114,23 @@ async def update_stock(symbol: str, request: Request):
     except Exception:
         data = {}
 
-    if StockService.exists(symbol):
+    market = data.get('market', 'cn')
+    monitoring = data.get('monitoring', 1)
+    # 一次查询同时拿到「是否存在」与更新前的监控状态，省掉原先的 exists() 往返
+    before = StockService.get_stock_by_symbol(symbol, fields=['monitoring', 'securities_type'])
+
+    if before is not None:
         # 已在库：只更新调用方显式传来的字段
         StockService.upsert_stock({
             'symbol': symbol,
-            'market': data.get('market', 'cn'),
-            'monitoring': data.get('monitoring', 1)
+            'market': market,
+            'monitoring': monitoring
         })
     else:
         # 不在库：从 API 补全基础信息（名称 + 公司概况）后入库
         StockService.ensure_stock_from_api(
             symbol,
-            market=data.get('market', 'cn'),
+            market=market,
             securities_type=data.get('securities_type', 'stock'),
         )
 
@@ -115,7 +138,23 @@ async def update_stock(symbol: str, request: Request):
     # （后台任务直接改库的场景无法在这里挂钩，由 TTL 兜底）
     await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
 
-    return {'code': 0, 'message': 'Stock updated successfully!'}
+    # 「新增入库」或「从关闭监控翻回开启监控」= 刚入池，此时该票的分析结果必然不存在，
+    # 必须立刻投递一次个股分析（异步），否则用户加完看到的只有名称和代码。
+    # 已经是监控中的票再点一次不重复投递：一次分析含 DCF + 因子计算，很重；
+    # 需要强制重算走「重新分析」接口（PUT /stock/re_analysis/{symbol}）。
+    securities_type = data.get('securities_type') or (before or {}).get('securities_type') or 'stock'
+    just_added = securities_type == 'stock' and (
+        before is None or (not before.get('monitoring') and bool(monitoring))
+    )
+    if just_added:
+        _dispatch_stock_analysis(symbol)
+
+    return {
+        'code': 0,
+        'message': 'Stock updated successfully!',
+        # 前端据此提示「分析已提交、稍后刷新」；False = 本次只是改了已有标的的字段
+        'analysis_triggered': just_added,
+    }
 
 
 @stock_router.get('/stocks_monitored')

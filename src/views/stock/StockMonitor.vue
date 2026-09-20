@@ -113,12 +113,19 @@ function getFearGreedClass(greedValue) {
  */
 async function putStockMonitoring(symbol) {
     try {
-        await axios.put(`/api/v1/stocks/${encodeURIComponent(symbol)}`, {
+        const res = await axios.put(`/api/v1/stocks/${encodeURIComponent(symbol)}`, {
             monitoring: 1,
             monitor_by: 'guest',
             securities_type: 'stock'
         });
-        showSuccess(`已添加监控：${symbol}`);
+        // 后端对「刚入池」的票会顺带投递一次个股分析（恐惧贪婪 / 因子 / DCF / 报价）。
+        // 任务队列串行消费，跑完需要一段时间，所以提示里要说清「稍后刷新」——
+        // 刚加完就来查列表只会看到名称和代码，其余列是空的。
+        if (res.data && res.data.analysis_triggered) {
+            showSuccess(`已添加监控：${symbol}，正在后台分析数据，稍后点「刷新」查看`);
+        } else {
+            showSuccess(`已添加监控：${symbol}`);
+        }
         await loadStockList();
         return true;
     } catch (error) {
@@ -387,6 +394,16 @@ const getPhaseSeverity = (phaseInt) => {
                             size="small"
                             label="添加个股"
                             @click="openAddModal"
+                            class="whitespace-nowrap"
+                        />
+                        <Button
+                            type="button"
+                            icon="pi pi-refresh"
+                            size="small"
+                            label="刷新"
+                            severity="secondary"
+                            :loading="loading1"
+                            @click="loadStockList"
                             class="whitespace-nowrap"
                         />
                         <IconField>
