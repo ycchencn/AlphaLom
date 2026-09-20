@@ -9,7 +9,11 @@ from typing import Optional, Dict, Any, List
 
 from openai import OpenAI
 
+# llm_model_setting 仍然从 config 导入并在此 re-export（历史调用方可能直接取它）；
+# 但运行时**生效值**以 llms.llm_setting 的解析结果为准 = config 默认值 ← system_setting 表覆盖
 from config import llm_model_setting, zhipu_api
+from llms.llm_setting import (LLM_SETTING_GROUP, LLM_SETTING_SCENES, get_llm_model_settings,
+                              get_llm_setting, list_scenes, setting_key)
 from llms.llm_base_aliyun import LLMBaseAliyun
 from llms.llm_base_deepseek import LLMBaseDeepSeek
 from llms.llm_base_siliconflow import LLMBaseSiliconflow
@@ -47,15 +51,19 @@ def register_platform(platform: str, cls: type):
 def get_model_by_setting(_setting_name: str = 'stock_dcf_analysis', _setting: Optional[Dict[str, Any]] = None):
     """
     根据配置获取 LLM 实例
-    :param _setting_name: 配置名称（从 config.llm_model_setting 中查找）
+    :param _setting_name: 配置名称（场景名）。取值 = config.llm_model_setting 的默认值
+        被 system_setting 表覆盖后的结果，见 llms.llm_setting.get_llm_model_settings()
     :param _setting: 直接传入配置字典（优先级高于 _setting_name）
     :return: LLM 实例（已设置好模型名称）
     """
     if _setting is None:
-        _setting = llm_model_setting.get(_setting_name)
+        _setting = get_llm_setting(_setting_name)
 
     if not _setting:
-        raise ValueError(f"未找到 LLM 配置：{_setting_name}")
+        raise ValueError(
+            f"未找到 LLM 配置：{_setting_name}"
+            f"（可用场景：{', '.join(s['name'] for s in LLM_SETTING_SCENES)}）"
+        )
 
     platform = _setting.get('platform')
     if not platform:

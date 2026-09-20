@@ -94,6 +94,51 @@ class EtfWatchlist(Base):
         }
 
 
+# 系统配置表（通用 KV）：所有需要在线调整的系统参数都存这里，一张表容纳后续各类设置，
+# 不必每加一类设置就建一张表。行内用 setting_group 分组（如 llm_model_setting），
+# 同组一次读回；setting_key 全局唯一，形如 "<group>.<名称>"。
+class SystemSetting(Base):
+    __tablename__ = 'system_setting'
+
+    # ⚠️ 显式指定 charset/collate：库默认虽是 utf8mb4_bin，但历史表里 utf8mb4_bin /
+    # utf8mb4_unicode_ci / utf8mb4_0900_ai_ci 三种混用（见 install/database.sql），
+    # 不显式指定就会随环境漂移，日后与别的表 JOIN 会撞 1267 Illegal mix of collations。
+    # 配置键按精确匹配使用（区分大小写），bin 正合适。
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_bin', 'mysql_engine': 'InnoDB'}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    setting_key = Column(String(120), nullable=False, unique=True, index=True,
+                         comment='配置键（全局唯一），如 llm_model_setting.stock_dcf_analysis')
+    setting_group = Column(String(60), nullable=False, index=True,
+                           comment='配置分组，如 llm_model_setting')
+    setting_value = Column(JSON, nullable=True,
+                           comment='配置值（JSON，可存字符串/数字/布尔/对象/数组）')
+    value_type = Column(String(20), nullable=False, default='json',
+                        comment='值类型提示：json/string/int/float/bool（供前端渲染表单）')
+    description = Column(String(255), nullable=True, comment='说明')
+    updated_by = Column(String(50), nullable=True, comment='最后修改人')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    def __repr__(self):
+        return f"<SystemSetting(key='{self.setting_key}', value={self.setting_value})>"
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'setting_key': self.setting_key,
+            'setting_group': self.setting_group,
+            'setting_value': self.setting_value,
+            'value_type': self.value_type,
+            'description': self.description,
+            'updated_by': self.updated_by,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
+        }
+
+
 class InvestmentPortfolio(Base):
     __tablename__ = 'investment_portfolio'
     portfolio_id = Column(String(36), primary_key=True, comment='UUID组合唯一ID')
@@ -476,7 +521,13 @@ class ScheduledTask(Base):
     args = Column(JSON, default=[], comment='位置参数（JSON 数组）')
     kwargs = Column(JSON, default={}, comment='关键字参数（JSON 对象）')
 
-    trigger_type = Column(Enum(), nullable=False, default=TriggerType.CRON, comment='触发类型：cron-定时, date-一次性')
+    # ⚠️ Enum 必须带上取值。原先写成 `Enum()`（空参）会渲染出非法的 `ENUM()`，
+    # 使 init_database() 的 create_all 在**这张表**上抛 1064 并就此中断 ——
+    # 排在其后的 LlmConversationContext / AppLog / StockFinancialScore / User
+    # 在全新安装时都不会被自动建出来（线上因为表已存在才一直没暴露）。
+    # 取值与库里真实的 enum('cron','date') 一致，列上仍是普通字符串。
+    trigger_type = Column(Enum('cron', 'date', name='trigger_type'), nullable=False,
+                          default=TriggerType.CRON, comment='触发类型：cron-定时, date-一次性')
     cron_expression = Column(String(100),
                              comment='Cron 表达式（仅当 trigger_type == cron 时有效）')  # 仅当 trigger_type == 'cron' 时有效
     run_at = Column(DateTime, comment='执行时间（仅当 trigger_type == date 时有效）')  # 仅当 trigger_type == 'date' 时有效

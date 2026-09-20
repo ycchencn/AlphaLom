@@ -22,13 +22,11 @@ class TestDatajiji(unittest.TestCase):
     def test_get_history(self):
         index_code = '603163'
         res = databull.get_history(index_code, start_date='20240101', end_date='20240115')
-        # print(res)
         self.assertIsNotNone(res)
 
     def test_get_index_history(self):
         index_code = '000300'
         res = databull.get_index_history(index_code, start_date='20210101', end_date='20210115')
-        print(res)
         self.assertIsNotNone(res)
 
     def test_get_tick(self):
@@ -48,7 +46,11 @@ class TestDatajiji(unittest.TestCase):
 
     def test_etfs(self):
         res = databull.get_etf_list(market='cn')
-        print(res)
+        self.assertIsNotNone(res)
+
+    def test_get_stock_financial_data(self):
+        index_code = '000001'
+        res = databull.get_stock_financial_data(index_code, start_date='20240101', end_date='20240115')
         self.assertIsNotNone(res)
 
 if __name__ == '__main__':

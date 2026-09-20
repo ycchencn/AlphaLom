@@ -69,6 +69,12 @@ const model = ref([
         enable: true, // 若设为 false，则整个系统设置分组不显示
         items: [
             {
+                label: '大模型配置',
+                icon: 'pi pi-fw pi-sliders-h',
+                to: '/system/llm_setting',
+                enable: true,
+            },
+            {
                 label: '系统日志',
                 icon: 'pi pi-fw pi-stopwatch',
                 to: '/system/system_log',

@@ -130,6 +130,12 @@ const router = createRouter({
                     meta: { title: '策略组合详情', requiresAuth: true }
                 },
                 {
+                    path: '/system/llm_setting/',
+                    name: 'llm_setting_view',
+                    component: () => import('@/views/system/LlmModelSetting.vue'),
+                    meta: { title: '大模型配置', requiresAuth: true }
+                },
+                {
                     path: '/system/system_log/',
                     name: 'system_log_view',
                     component: () => import('@/views/system/SystemLog.vue'),
