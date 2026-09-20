@@ -96,13 +96,19 @@ async def update_stock(symbol: str, request: Request):
     except Exception:
         data = {}
 
+    # 从API获取个股信息同步到数据库
     if not StockService.exists(symbol):
         stock_api = databull.get_stock_info(symbol, market=data.get('market', 'cn'))
+        profile = databull.get_company(symbol)
+        if profile is None:
+            profile = {}
         StockService.upsert_stock({
             'symbol': symbol,
             'name': stock_api.get('name'),
             'market': data.get('market', 'cn'),
             'securities_type': data.get('securities_type', 'stock'),
+            'industry': profile.get('industry'),
+            'company_profile': profile,
             'monitoring': 1
         })
     else:

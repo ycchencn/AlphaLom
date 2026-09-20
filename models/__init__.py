@@ -30,10 +30,7 @@ class Stock(Base):
     area = Column(String(50), comment='地区')
     industry = Column(String(50), comment='所属行业')
     market = Column(String(10), default='cn', comment='市场：cn-沪深, hk-港股, us-美股')
-    act_name = Column(String(50), comment='曾用名')
-    act_ent_type = Column(String(50), comment='公司类型')
     last_update = Column(DateTime, comment='最后更新时间')
-    exchange = Column(String(50), comment='交易所')
     pe_ratio = Column(Float(precision=2), comment='市盈率 PE')
     pb_ratio = Column(Float(precision=2), comment='市净率 PB')
     concepts = Column(Text, comment='概念板块标签（文本）')
@@ -42,6 +39,7 @@ class Stock(Base):
     monitor_by = Column(String(50), comment='监控创建人/来源')
     setting = Column(JSON, default={}, comment='扩展设置（JSON）')
     ohlc_last = Column(JSON, default={}, comment='最近 OHLC 行情快照（JSON）')
+    company_profile = Column(JSON, default={}, comment='公司信息')
 
     def __repr__(self):
         return f"<Stock(symbol='{self.symbol}', name='{self.name}')>"
@@ -55,18 +53,16 @@ class Stock(Base):
             'area': self.area,
             'industry': self.industry,
             'market': self.market,
-            'act_name': self.act_name,
-            'act_ent_type': self.act_ent_type,
             'concepts': self.concepts,
             'last_update': self.last_update.strftime('%Y-%m-%d %H:%M:%S') if self.last_update else None,
-            'exchange': self.exchange,
             'pe_ratio': self.pe_ratio,
             'pb_ratio': self.pb_ratio,
             'securities_type': self.securities_type,
             'monitoring': self.monitoring,
             'monitor_by': self.monitor_by,
             'setting': self.setting,
-            'ohlc_last': self.ohlc_last
+            'ohlc_last': self.ohlc_last,
+            'company_profile': self.company_profile
         }
 
 
@@ -509,55 +505,6 @@ class ResearchReport(Base):
     @property
     def is_market_report(self) -> bool:
         return self.report_type in [2, 3]
-
-
-class ScheduledTask(Base):
-    __tablename__ = 'scheduled_task'
-
-    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    task_name = Column(String(100), nullable=False, unique=True, comment='任务名称（唯一）')
-    func_module = Column(String(255), nullable=False, comment='函数所在模块路径')
-    func_name = Column(String(100), nullable=False, comment='函数名')
-    args = Column(JSON, default=[], comment='位置参数（JSON 数组）')
-    kwargs = Column(JSON, default={}, comment='关键字参数（JSON 对象）')
-
-    # ⚠️ Enum 必须带上取值。原先写成 `Enum()`（空参）会渲染出非法的 `ENUM()`，
-    # 使 init_database() 的 create_all 在**这张表**上抛 1064 并就此中断 ——
-    # 排在其后的 LlmConversationContext / AppLog / StockFinancialScore / User
-    # 在全新安装时都不会被自动建出来（线上因为表已存在才一直没暴露）。
-    # 取值与库里真实的 enum('cron','date') 一致，列上仍是普通字符串。
-    trigger_type = Column(Enum('cron', 'date', name='trigger_type'), nullable=False,
-                          default=TriggerType.CRON, comment='触发类型：cron-定时, date-一次性')
-    cron_expression = Column(String(100),
-                             comment='Cron 表达式（仅当 trigger_type == cron 时有效）')  # 仅当 trigger_type == 'cron' 时有效
-    run_at = Column(DateTime, comment='执行时间（仅当 trigger_type == date 时有效）')  # 仅当 trigger_type == 'date' 时有效
-
-    is_active = Column(Boolean, default=True, comment='是否启用')
-    last_run_at = Column(DateTime, comment='上次执行时间')
-    next_run_at = Column(DateTime, comment='下次执行时间')
-    created_at = Column(DateTime, default=datetime.utcnow, comment='创建时间')
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, comment='更新时间')
-
-    def __repr__(self):
-        return f"<ScheduledTask(id={self.id}, task_name='{self.task_name}', type={self.trigger_type})>"
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "task_name": self.task_name,
-            "func_module": self.func_module,
-            "func_name": self.func_name,
-            "args": self.args or [],
-            "kwargs": self.kwargs or {},
-            "trigger_type": self.trigger_type,
-            "cron_expression": self.cron_expression,
-            "run_at": self.run_at.isoformat() if self.run_at else None,
-            "is_active": self.is_active,
-            "last_run_at": self.last_run_at.isoformat() if self.last_run_at else None,
-            "next_run_at": self.next_run_at.isoformat() if self.next_run_at else None,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
 
 
 class LlmConversationContext(Base):

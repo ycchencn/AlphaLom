@@ -110,7 +110,9 @@ def job_fix_ohlc_last(stock_code):
 
 
 def job_sync_data():
-    stock_list = databull.get_stock_list()['data']
+    # stock_list = databull.get_stock_list()['data']
+    market = 'cn'
+    stock_list = StockService.get_monitoring_stock_pool(market=market, per_page=10000)
     total_cnt = len(stock_list)
     success_cnt = 0
     logger.info(f"开始多线程全量同步股票基础信息，标的总数：{total_cnt}，并发数：{MAX_WORKERS//2}")
@@ -129,18 +131,24 @@ def job_sync_data():
     logger.info(f"全量股票基础信息同步完成，总标的{total_cnt}，成功{success_cnt}")
 
 def __sync_single_stock(stock):
+    profile = databull.get_company(stock['symbol'])
+    if profile is None:
+        profile = {}
     StockService.upsert_stock({
         'symbol': stock['symbol'],
         'name': stock['name'],
+        'name_en': stock['name'],
+        'industry': profile.get('industry'),
+        'company_profile': profile
     })
     logger.debug(f"更新个股信息, {stock['symbol']}, {stock['name']}")
     return True
 
 
 def job_stock_daily_update():
-    # job_sync_data()
-    job_fix_ohlc_last_all()
-    job_update_stock_beta_all() # 可选：如果beta不需要每日跑可以注释掉
+    job_sync_data()
+    # job_fix_ohlc_last_all()
+    # job_update_stock_beta_all() # 可选：如果beta不需要每日跑可以注释掉
 
 
 if __name__ == '__main__':
