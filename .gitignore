@@ -35,6 +35,9 @@ job/*.xlsx
 scraped/
 df_cache/
 
+# ---- Local helper scripts (品牌资源生成、截图、数据搬运等一次性工具) ----
+tools/
+
 # ---- Python / generated artifacts ----
 __pycache__/
 *.pyc

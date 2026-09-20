@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 700" width="1200" height="700" role="img" aria-label="AlphaLom 系统架构">
+  <defs>
+    <style>
+      .t  { font-family: system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif; }
+      .chip { fill: #f8f9fb; stroke: #e3e6ec; stroke-width: 1.5; }
+      .ct  { fill: #1f2937; font-size: 15px; }
+      .lt  { font-size: 15px; font-weight: 600; }
+      .chev { fill: none; stroke: #b9bec7; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="700" rx="18" fill="#ffffff" stroke="#e8eaee" stroke-width="1.5"/>
+
+  <text class="t" x="44" y="56" font-size="26" font-weight="700" fill="#16181d">AlphaLom 系统架构</text>
+  <text class="t" x="44" y="84" font-size="14" fill="#6b7280">单体仓库 + 多进程服务：同一镜像 alphalom-service 由 docker-compose 编排多个角色</text>
+
+  <!-- 1. 数据源 -->
+  <rect x="44" y="112" width="132" height="86" rx="12" fill="#fff1f0" stroke="#ffd9d5" stroke-width="1.5"/>
+  <text class="t lt" x="110" y="150" text-anchor="middle" fill="#b3271e">数据源</text>
+  <text class="t" x="110" y="172" text-anchor="middle" font-size="12" fill="#c9635c">Market Data</text>
+
+  <rect class="chip" x="196" y="131" width="140" height="48" rx="10"/>
+  <text class="t ct" x="266" y="161" text-anchor="middle">DataBull</text>
+  <rect class="chip" x="355" y="131" width="130" height="48" rx="10"/>
+  <text class="t ct" x="420" y="161" text-anchor="middle">Baostock</text>
+  <rect class="chip" x="504" y="131" width="125" height="48" rx="10"/>
+  <text class="t ct" x="566" y="161" text-anchor="middle">Akshare</text>
+  <rect class="chip" x="648" y="131" width="125" height="48" rx="10"/>
+  <text class="t ct" x="710" y="161" text-anchor="middle">Tushare</text>
+  <rect class="chip" x="792" y="131" width="115" height="48" rx="10"/>
+  <text class="t ct" x="849" y="161" text-anchor="middle">EODHD</text>
+  <rect class="chip" x="926" y="131" width="205" height="48" rx="10"/>
+  <text class="t ct" x="1028" y="161" text-anchor="middle">财经新闻 / 研报 / 公告</text>
+
+  <path class="chev" d="M604 206 L612 215 L620 206"/>
+  <path class="chev" d="M604 318 L612 327 L620 318"/>
+  <path class="chev" d="M604 430 L612 439 L620 430"/>
+  <path class="chev" d="M604 542 L612 551 L620 542"/>
+
+  <!-- 2. 采集与调度 -->
+  <rect x="44" y="224" width="132" height="86" rx="12" fill="#fff7e6" stroke="#ffe6b8" stroke-width="1.5"/>
+  <text class="t lt" x="110" y="262" text-anchor="middle" fill="#a3620a">采集与调度</text>
+  <text class="t" x="110" y="284" text-anchor="middle" font-size="12" fill="#c08a45">Collect</text>
+
+  <rect class="chip" x="196" y="243" width="300" height="48" rx="10"/>
+  <text class="t ct" x="346" y="273" text-anchor="middle">APScheduler 收盘后定时调度</text>
+  <rect class="chip" x="515" y="243" width="300" height="48" rx="10"/>
+  <text class="t ct" x="665" y="273" text-anchor="middle">Redis Stream 任务队列（消费组）</text>
+  <rect class="chip" x="834" y="243" width="298" height="48" rx="10"/>
+  <text class="t ct" x="983" y="273" text-anchor="middle">alphalom SDK 多源抓取</text>
+
+  <!-- 3. 存储 -->
+  <rect x="44" y="336" width="132" height="86" rx="12" fill="#eef4ff" stroke="#d5e2ff" stroke-width="1.5"/>
+  <text class="t lt" x="110" y="374" text-anchor="middle" fill="#1d4ed8">存储层</text>
+  <text class="t" x="110" y="396" text-anchor="middle" font-size="12" fill="#6f92e0">Storage</text>
+
+  <rect class="chip" x="196" y="355" width="460" height="48" rx="10"/>
+  <text class="t ct" x="426" y="385" text-anchor="middle">MySQL · 业务库（行情 / 财务 / 持仓 / 因子）</text>
+  <rect class="chip" x="675" y="355" width="457" height="48" rx="10"/>
+  <text class="t ct" x="903" y="385" text-anchor="middle">Redis · 接口缓存 / 会话 / 任务队列</text>
+
+  <!-- 4. 计算与智能研判 -->
+  <rect x="44" y="448" width="132" height="86" rx="12" fill="#f4f0ff" stroke="#e3daff" stroke-width="1.5"/>
+  <text class="t lt" x="110" y="486" text-anchor="middle" fill="#5b21b6">计算与研判</text>
+  <text class="t" x="110" y="508" text-anchor="middle" font-size="12" fill="#8b74cc">Compute</text>
+
+  <rect class="chip" x="196" y="467" width="224" height="48" rx="10"/>
+  <text class="t ct" x="308" y="497" text-anchor="middle">因子与信号计算</text>
+  <rect class="chip" x="432" y="467" width="224" height="48" rx="10"/>
+  <text class="t ct" x="544" y="497" text-anchor="middle">策略回测引擎</text>
+  <rect class="chip" x="668" y="467" width="224" height="48" rx="10"/>
+  <text class="t ct" x="780" y="497" text-anchor="middle">多模型 LLM 路由</text>
+  <rect class="chip" x="904" y="467" width="227" height="48" rx="10"/>
+  <text class="t ct" x="1017" y="497" text-anchor="middle">恐贪 / 情绪指标</text>
+
+  <!-- 5. 服务与交付 -->
+  <rect x="44" y="560" width="132" height="86" rx="12" fill="#eefaf1" stroke="#cdeeda" stroke-width="1.5"/>
+  <text class="t lt" x="110" y="598" text-anchor="middle" fill="#067647">服务与交付</text>
+  <text class="t" x="110" y="620" text-anchor="middle" font-size="12" fill="#5aa37c">Delivery</text>
+
+  <rect class="chip" x="196" y="579" width="300" height="48" rx="10"/>
+  <text class="t ct" x="346" y="609" text-anchor="middle">FastAPI REST API</text>
+  <rect class="chip" x="515" y="579" width="300" height="48" rx="10"/>
+  <text class="t ct" x="665" y="609" text-anchor="middle">流式对话 + MCP 工具调用</text>
+  <rect class="chip" x="834" y="579" width="298" height="48" rx="10"/>
+  <text class="t ct" x="983" y="609" text-anchor="middle">Vue 3 Web 控制台</text>
+
+  <text class="t" x="44" y="678" font-size="13" fill="#8b93a1">进程角色：web · chat_app · scheduler · job_server · news_server · log_comsumer　｜　部署：Docker / docker-compose</text>
+</svg>
