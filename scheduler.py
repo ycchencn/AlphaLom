@@ -41,7 +41,7 @@ if __name__ == '__main__':
     # 每天刷新个股信息
     scheduler.add_job(job_stock_daily_update, 'cron', hour=20, minute=10, timezone=beijing_tz)
 
-    # 个股因子计算任务
+    # 技术面因子计算任务（个股池 + ETF 监控清单，见 job_update_stock_factor_daily）
     scheduler.add_job(job_update_stock_factor_daily, 'cron', hour=20, minute=10, timezone=beijing_tz)
 
     # 个股走势技术分析

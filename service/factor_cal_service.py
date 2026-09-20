@@ -12,14 +12,27 @@ from utils.common import is_etf
 
 class FactorCalService:
 
-    @staticmethod
-    def _prepare_data(stock_code: str, start_date: str, end_date: str) -> pd.DataFrame:
+    # 52 周 = 252 个交易日。取数窗口必须覆盖它，否则 rolling(min_periods=1) 会静默退化成
+    # 「最近 N 个交易日的区间」而仍然算得出数（旧日更任务只取 120 个自然日 ≈ 82 根 K 线，
+    # 于是 52 周低点实际是 82 日低点）。因子本身照算，但不足窗口时打警告。
+    WEEK52_TRADING_DAYS = 252
 
-        """统一获取并标准化行情数据"""
+    @staticmethod
+    def _prepare_data(stock_code: str, start_date: str, end_date: str,
+                      asset_type: str = None) -> pd.DataFrame:
+
+        """统一获取并标准化行情数据
+
+        :param asset_type: 'etf' / 'stock'，显式指定取数接口。批量任务本来就知道标的是哪一类，
+            显式传入可绕开 `is_etf` 的号段启发式（历史上 562xxx 漏在白名单外，被当个股取数、
+            结果只拿到 2 根 K 线、因子全被 dropna 掉）。为 None 时按代码推断。
+        """
 
         from utils.data_loader import databull
 
-        if is_etf(stock_code):
+        is_fund = is_etf(stock_code) if asset_type is None else (asset_type == 'etf')
+
+        if is_fund:
             df = databull.get_etf_history(stock_code, start_date, end_date)
         else:
             # stock = StockService.get_stock_by_symbol(stock_code)
@@ -264,28 +277,43 @@ class FactorCalService:
             df: 包含 'high' 和 'low' 列的行情数据
 
         Returns:
-            pd.DataFrame: 增加了 52week_low 和 52week_high 列的 DataFrame
+            pd.DataFrame: 增加了 52week_low / 52week_high / 52week_position 列的 DataFrame
         """
+        window = FactorCalService.WEEK52_TRADING_DAYS
+
+        # 不足 252 根时 min_periods=1 仍让算式成立（次新标的不至于整段缺失），但此时得到的是
+        # 「上市以来」区间而非 52 周区间 —— 显式告警，避免被当成真的 52 周高低。
+        if len(df) < window:
+            logger.warning(
+                f"52周区间：行情仅 {len(df)} 根 K 线（< {window}），"
+                f"当前值为「最近 {len(df)} 个交易日」区间；请检查取数窗口是否过短"
+            )
+
         # 计算过去 252 个交易日 (约52周) 的最低价
-        df['52week_low'] = df['low'].rolling(window=252, min_periods=1).min()
+        df['52week_low'] = df['low'].rolling(window=window, min_periods=1).min()
 
         # 计算过去 252 个交易日 (约52周) 的最高价
-        df['52week_high'] = df['high'].rolling(window=252, min_periods=1).max()
+        df['52week_high'] = df['high'].rolling(window=window, min_periods=1).max()
 
-        # 在 update_52week_range 方法中添加：
         # 计算当前价格在52周区间的位置 (0-100之间)
         # (收盘价 - 52周最低) / (52周最高 - 52周最低) * 100
-        df['52week_position'] = (df['close'] - df['52week_low']) / (df['52week_high'] - df['52week_low']) * 100
+        # 区间宽度为 0（单根 K 线 / 长期停牌）会让分母为 0 得到 inf，DECIMAL(18,6) 存不下；
+        # 换成 NaN，由 save_factor_records_to_db 的 notna 判断自然过滤掉。
+        span = (df['52week_high'] - df['52week_low']).replace(0, np.nan)
+        df['52week_position'] = (df['close'] - df['52week_low']) / span * 100
 
         return df
 
     @classmethod
-    def calculate_all_factors(cls, stock_code: str, start_date: str, end_date: str) -> list:
+    def calculate_all_factors(cls, stock_code: str, start_date: str, end_date: str,
+                              asset_type: str = None) -> list:
         """
         计算所有支持的因子，并返回 record 格式的列表（每行一个 dict）
+
+        :param asset_type: 'etf' / 'stock'，透传给 _prepare_data；None 时按代码前缀推断
         """
 
-        df = cls._prepare_data(stock_code, start_date, end_date)
+        df = cls._prepare_data(stock_code, start_date, end_date, asset_type=asset_type)
 
         # 依次添加因子
 

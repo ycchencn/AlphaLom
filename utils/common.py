@@ -565,9 +565,25 @@ def send_feishu_markdown_message(title, webhook_url=feishu_webhook_url, markdown
         return False
 
 
+# ETF 代码前缀（按交易所号段匹配，不逐个列举 —— 逐个列举必然漏号段，
+# 历史上就漏掉了 562xxx，导致该 ETF 被当成个股走 get_history 取数、因子全被 dropna 掉）。
+#
+# 沪市：51x 单市场与货币、52x 跨境与商品、53x/55x/56x 新发、588/589 科创板 ETF。
+#   沪市股票在 600/601/603/605/688/689，不在 5x 号段里；50x 是封闭式基金/LOF，
+#   与旧行为一致地不当作 ETF。
+# 深市：159 为 ETF（深市股票在 000/001/002/003/300/301，不冲突）；
+#   508/180 为沪深公募 REITs，沿用旧行为也按基金接口取数。
+_ETF_PREFIXES = (
+    "51", "52", "53", "55", "56", "58",   # 沪市 ETF 号段
+    "508", "180",                          # 沪深公募 REITs
+    "159",                                 # 深市 ETF
+)
+
+
 def is_etf(stock_code):
     """
-    判断给定的股票代码是否为ETF
+    判断给定的股票代码是否为 ETF（决定行情取数接口：ETF 走 get_etf_history，个股走 get_history）。
+
     :param stock_code: 股票代码（字符串格式，例如"510050"）
     :return: True（是ETF）或 False（不是ETF）
     """
@@ -575,19 +591,8 @@ def is_etf(stock_code):
     if not isinstance(stock_code, str) or len(stock_code) != 6 or not stock_code.isdigit():
         return False
 
-    # 获取代码的前3位
-    prefix = stock_code[:3]
-
-    # 定义ETF的代码前缀范围
-    etf_prefixes = ["510", "511", "512", "513", "515", "560", "518", "159", "16", "520", "508", "180", "516"]
-
-    # 检查代码前缀是否在ETF范围内
-    if prefix in etf_prefixes:
-        return True
-    elif prefix.startswith("588"):  # 科创板ETF的特殊前缀
-        return True
-    else:
-        return False
+    # 前缀按号段匹配（含 2 位与 3 位两种长度，统一用 startswith 判断）
+    return stock_code.startswith(_ETF_PREFIXES)
 
 
 # 归一化评分
