@@ -11,19 +11,7 @@ services:
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
             REDIS_HOST: ${REDIS_HOST}
-        restart: always
-
-    web_slave:
-        image: alphalom-service:latest
-        ports:
-            - "8081:8080"
-        working_dir: /app
-        command: python3 /app/run_fastapi.py
-        environment:
-            ENV: production
-            PYTHONPATH: /app
-            DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            WEB_WORKERS: 3
         restart: always
 
     chat_app:
