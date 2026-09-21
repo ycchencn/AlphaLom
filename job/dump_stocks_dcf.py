@@ -88,8 +88,7 @@ def export_dcf_to_excel(
                     print(f"[跳过] {symbol} 无法获取现价")
                     continue
 
-            stock_info = databull.get_stock_info(symbol=symbol)
-            name = stock_info.get('name', 'N/A') if stock_info else 'N/A'
+            name = stock['name']
 
             if current_price == 0:
                 print(f"[跳过] {symbol} 现价为0")

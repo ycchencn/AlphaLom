@@ -148,9 +148,9 @@ def __sync_single_stock(stock):
 
 
 def job_stock_daily_update():
-    job_sync_data()
-    # job_fix_ohlc_last_all()
-    # job_update_stock_beta_all() # 可选：如果beta不需要每日跑可以注释掉
+    # job_sync_data()
+    job_fix_ohlc_last_all()
+    job_update_stock_beta_all() # 可选：如果beta不需要每日跑可以注释掉
 
 
 if __name__ == '__main__':
