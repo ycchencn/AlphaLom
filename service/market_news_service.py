@@ -8,6 +8,27 @@ from models import MarketNews
 from models.database import db_session
 from sqlalchemy.exc import SQLAlchemyError
 from utils.logger import logger
+# MARK: - 常量 -------------------------------------------------------------
+# 分页上限：路由层 /market/search_news 的 page_size 校验是 le=200，
+# 这里作为 Service 层兜底保持一致（原 search=1000 / get_list=100 两个值互相打架）。
+MAX_PAGE_SIZE = 200
+
+# MARK: - LIKE 通配符转义 ----------------------------------------------------
+# keyword / stock_code 都会拼进 LIKE 模式串，若不转义，用户输入的 '%' 会变成
+# 通配符、'_' 会变成单字符通配（搜 'a_b' 会命中 'axb'），既是结果污染也是注入面。
+# MySQL 的 LIKE 默认转义符是反斜杠，故统一转义 \ % _ 三者。
+_LIKE_ESCAPE_TABLE = str.maketrans({
+    '\\': '\\\\',
+    '%': '\\%',
+    '_': '\\_',
+})
+
+
+def _escape_like(value):
+    """转义 LIKE 模式串中的通配符，返回可安全拼进 %...% 的片段。"""
+    if value is None:
+        return ''
+    return str(value).translate(_LIKE_ESCAPE_TABLE)
 
 
 class MarketNewsService:
@@ -136,23 +157,75 @@ class MarketNewsService:
             return []
 
     @staticmethod
+    def _build_query(
+        keyword=None,
+        stock_code=None,
+        start_time=None,
+        end_time=None,
+        relation_level_only=True
+    ):
+        """
+        构造市场新闻的筛选 Query（不含排序 / 分页），供 search / get_list 复用。
+
+        :param keyword: 在 **digest（新闻摘要）** 中模糊搜索，不区分大小写；
+                        通配符已转义，用户输入的 % / _ 按字面匹配。
+        :param stock_code: 在 relations_stocks 中精确匹配股票代码（如 "600519"）
+        :param start_time: 起始时间（datetime）
+        :param end_time: 结束时间（datetime）
+        :param relation_level_only: 是否只取「已关联」新闻（relation_level > 0）。
+                        默认 True 保持历史行为；调用方要「全部新闻」时传 False。
+        :return: SQLAlchemy Query
+        """
+        query = db_session.query(MarketNews)
+
+        # 时间范围过滤
+        if start_time:
+            query = query.filter(MarketNews.news_time >= start_time)
+        if end_time:
+            query = query.filter(MarketNews.news_time <= end_time)
+
+        # 关键字搜索：digest 模糊匹配（忽略大小写）
+        # ⚠️ 这里过滤的是 digest。历史实现写的是 tags.ilike(...)，但 docstring 声称是
+        #    digest —— JSON 列的 LIKE 语义依赖方言、无法走索引，且 tags 里只存
+        #    「美联储」这类短词，用户按摘要用词搜索是搜不到的。
+        if keyword:
+            query = query.filter(MarketNews.digest.ilike(f"%{_escape_like(keyword)}%"))
+
+        # 股票代码匹配：relations_stocks 以 JSON 数组存储，如 [{"code": "600519", "name": "贵州茅台"}]
+        if stock_code:
+            # 精确匹配 JSON 字符串项，避免 "0519" 命中 "600519"
+            pattern = f'%"{_escape_like(stock_code)}"%'
+            query = query.filter(MarketNews.relations_stocks.like(pattern))
+
+        # 是否只取已关联新闻（历史默认行为）
+        if relation_level_only:
+            query = query.filter(MarketNews.relation_level > 0)
+
+        return query
+
+    @staticmethod
     def search(
         keyword=None,
         stock_code=None,
         start_time=None,
         end_time=None,
         page=1,
-        page_size=20
+        page_size=20,
+        relation_level_only=True
     ):
         """
         通用市场新闻搜索接口。
 
-        :param keyword: 在 digest（新闻摘要）中进行模糊搜索（不区分大小写）
-        :param stock_code: 在 relations_stocks 中精确匹配股票代码（如 "AAPL"）
+        :param keyword: 在 **digest（新闻摘要）** 中进行模糊搜索（不区分大小写）
+        :param stock_code: 在 relations_stocks 中精确匹配股票代码（如 "600519"）
         :param start_time: 起始时间（datetime）
         :param end_time: 结束时间（datetime）
         :param page: 页码（从 1 开始）
-        :param page_size: 每页数量（最大 100）
+        :param page_size: 每页数量（上限 MAX_PAGE_SIZE，与路由层校验一致）
+        :param relation_level_only: 是否只取 relation_level > 0 的新闻。
+                        **默认 True 仅为兼容历史行为**；个股新闻、事件驱动「全部新闻」
+                        等场景应显式传 False，否则 relation_level 为 0 / NULL 的新闻
+                        会被静默丢弃。
         :return: dict {
             'items': [news.to_dict(), ...],
             'total': int,
@@ -165,48 +238,38 @@ class MarketNewsService:
             page = 1
         if page_size < 1:
             page_size = 20
-        if page_size > 1000:
-            page_size = 1000
+        if page_size > MAX_PAGE_SIZE:
+            page_size = MAX_PAGE_SIZE
 
         try:
-            query = db_session.query(MarketNews)
+            query = MarketNewsService._build_query(
+                keyword=keyword,
+                stock_code=stock_code,
+                start_time=start_time,
+                end_time=end_time,
+                relation_level_only=relation_level_only
+            )
 
-            # 时间范围过滤
-            if start_time:
-                query = query.filter(MarketNews.news_time >= start_time)
-            if end_time:
-                query = query.filter(MarketNews.news_time <= end_time)
-
-            # 关键字搜索：digest 模糊匹配（忽略大小写）
-            if keyword:
-                # SQLite / MySQL / PostgreSQL 兼容写法
-                query = query.filter(MarketNews.tags.ilike(f"%{keyword}%"))
-
-            # 股票代码匹配：假设 relations_stocks 存储为 JSON 字符串数组，如 ["TSLA", "AAPL"]
-            if stock_code:
-                # 精确匹配元素：确保是独立的 JSON 字符串项
-                pattern = f'%"{stock_code}"%'
-                query = query.filter(MarketNews.relations_stocks.like(pattern))
-
-            # 默认取关联新闻
-            query = query.filter(MarketNews.relation_level > 0)
-
-            # 排序 + 分页
-            total = query.count()
-            items = (
+            # 排序 + 分页。
+            # 多取 1 条来判定 has_more，省掉一次独立的 COUNT 全表统计
+            # （原实现对同一条件先 count() 再取 items，是两次独立往返）。
+            rows = (
                 query
                 .order_by(MarketNews.news_time.desc())
                 .offset((page - 1) * page_size)
-                .limit(page_size)
+                .limit(page_size + 1)
                 .all()
             )
 
-            item_dicts = [item.to_dict() for item in items] if items else []
-            has_more = (page * page_size) < total
+            has_more = len(rows) > page_size
+            item_dicts = [item.to_dict() for item in rows[:page_size]]
 
             return {
                 "items": item_dicts,
-                "total": total,
+                # ⚠️ 这不是全表精确总数，而是「本页返回条数」下界。
+                #    要精确总数必须额外一次 COUNT；调用方若需要它（例如分页器显示
+                #    总页数），请改用 get_list()，不要拿这个值算 total_pages。
+                "total": len(item_dicts),
                 "page": page,
                 "page_size": page_size,
                 "has_more": has_more
@@ -310,36 +373,31 @@ class MarketNewsService:
             page = 1
         if page_size < 1:
             page_size = 20
-        if page_size > 100:
-            page_size = 100  # 防止过大查询
+        if page_size > MAX_PAGE_SIZE:
+            page_size = MAX_PAGE_SIZE  # 防止过大查询
 
         try:
-            query = db_session.query(MarketNews)
+            # 公开筛选条件复用 _build_query（relation_level_only=False）：
+            # 是否「只取关联新闻」由 relation_level 参数显式控制，不在这里隐式过滤。
+            query = MarketNewsService._build_query(
+                keyword=None,
+                stock_code=stock_code,
+                start_time=start_time,
+                end_time=end_time,
+                relation_level_only=False
+            )
 
-            # 筛选条件
             if bullish_level is not None:
                 query = query.filter(MarketNews.bullish_level == bullish_level)
             if relation_level is not None:
                 query = query.filter(MarketNews.relation_level == relation_level)
-            if start_time:
-                query = query.filter(MarketNews.news_time >= start_time)
-            if end_time:
-                query = query.filter(MarketNews.news_time <= end_time)
 
-            # 注意：JSON 字段的模糊查询依赖数据库方言
-            # 以下为通用方案（但 tags_contains 和 stock_code 在 SQLite/MySQL/PG 表现不同）
-
-            # 示例：tags 包含某个字符串（假设 tags 是字符串数组）
+            # tags 是 JSON 列，跨方言没有统一的「包含某字符串」写法：
+            #   MySQL 8 → JSON_CONTAINS(tags, JSON_QUOTE(:v))
+            #   PostgreSQL → tags ? :v
+            # 此处沿用通用（但无法走索引）的字符串模糊匹配，并转义通配符。
             if tags_contains:
-                # MySQL: JSON_CONTAINS(tags, '"value"')
-                # PostgreSQL: tags ? 'value'
-                # 这里使用通用方式：转换为字符串模糊匹配（不推荐用于生产，仅示例）
-                # 更佳做法是根据数据库类型写特定查询
-                query = query.filter(MarketNews.tags.like(f'%{tags_contains}%'))
-
-            # 示例：relations_stocks 包含某股票代码（简单字符串匹配）
-            if stock_code:
-                query = query.filter(MarketNews.relations_stocks.like(f'%"{stock_code}"%'))
+                query = query.filter(MarketNews.tags.like(f'%{_escape_like(tags_contains)}%'))
 
             # 总数（用于分页）
             total = query.count()

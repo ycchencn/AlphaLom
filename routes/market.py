@@ -41,14 +41,20 @@ def get_news(
 
 @market_router.get('/market/search_news')
 def search_news(
-    keyword: str = Query(''),
-    stock_code: str = Query(None),
-    start_time: str = Query(None),
-    end_time: str = Query(None),
+    keyword: str = Query('', description="在新闻摘要（digest）中模糊搜索"),
+    stock_code: str = Query(None, description="按关联股票代码精确匹配"),
+    start_time: str = Query(None, description="起始时间，ISO8601"),
+    end_time: str = Query(None, description="结束时间，ISO8601"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=200)
+    page_size: int = Query(20, ge=1, le=200),
+    relation_level_only: bool = Query(
+        True,
+        description="是否只返回「已关联」新闻（relation_level > 0）。"
+                    "个股新闻列表与事件驱动「全部新闻」需传 false，"
+                    "否则 relation_level 为 0/NULL 的新闻会被静默丢弃。"
+    )
 ):
-    """搜索新闻"""
+    """搜索市场新闻（按时间倒序分页）"""
     try:
         start_dt = None
         end_dt = None
@@ -63,7 +69,8 @@ def search_news(
             start_time=start_dt,
             end_time=end_dt,
             page=page,
-            page_size=page_size
+            page_size=page_size,
+            relation_level_only=relation_level_only
         )
         return result
     except Exception as e:

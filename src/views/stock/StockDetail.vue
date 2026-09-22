@@ -248,8 +248,12 @@ onMounted(async () => {
     chart.createIndicator({name: 'EMA', paneId: 'candle_pane'}, true)
 
     // 加载新闻关联数据
-    axios.get('/api/v1/market/search_news?c=1&stock_code=' + stock_code).then(response => {
-        news.value = response.data.items;
+    // ⚠️ 必须显式传 relation_level_only=false：该接口的默认行为是只返回 relation_level > 0 的新闻，
+    //    而个人股页需要看到全部关联新闻 —— 否则 relation_level 为 0 / NULL 的会被静默丢弃。
+    axios.get('/api/v1/market/search_news', {
+        params: {stock_code: stock_code, page_size: 20, relation_level_only: false}
+    }).then(response => {
+        news.value = response.data?.items || [];
     });
 
     // 获取技术分析报告
