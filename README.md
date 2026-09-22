@@ -174,28 +174,12 @@ npm run build                  # 构建到 dist/（由 FastAPI SPA 路由直接�
 </td>
 <td width="50%">
 <img src="public/readme/06-etf-detail.png" alt="ETF 详情">
-<b>ETF 详情</b><br>历史走势、基本资料、成分股穿透
-</td>
-</tr>
-<tr>
-<td width="50%">
-<img src="public/readme/07-portfolio.png" alt="策略组合详情">
-<b>策略组合详情</b><br>资产与风险指标、净值曲线、交易复盘与调仓计划
-</td>
-<td width="50%">
-<img src="public/readme/08-signals.png" alt="量化信号">
-<b>量化信号</b><br>多策略账户的仓位、当日盈亏与持仓概况
-</td>
-</tr>
-<tr>
-<td colspan="2" align="center" width="50%">
-<img src="public/readme/09-dcf.png" alt="DCF 估值" width="50%">
-<b>DCF 估值</b><br>乐观 / 中性 / 保守三档估值与安全边际
+<b>ETF 详情</b><br>历史走势、基本资料、申赎清单（PCF）成分股穿透
 </td>
 </tr>
 </table>
 
-> 以上截图取自真实运行的实例（沪深大盘 / 事件驱动 / 股票池 / 个股详情 / ETF 洞察 / ETF 详情 / 组合详情 / 量化信号 / DCF 估值）。
+> 以上截图取自真实运行的实例（沪深大盘 / 事件驱动 / 股票池 / 个股详情 / ETF 洞察 / ETF 详情），统一 1600×1050 取景。
 
 ## 👤 作者
 

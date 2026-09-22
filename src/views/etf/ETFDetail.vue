@@ -27,7 +27,7 @@ const error = ref(null);
 
 const history = ref([]);
 const historyLoading = ref(false);
-const period = ref('1Y');
+const period = ref('3Y');
 const periodOptions = [
     {label: '1月', value: '1M'},
     {label: '3月', value: '3M'},
@@ -435,7 +435,7 @@ onUnmounted(() => {
                     <i class="pi pi-info-circle text-indigo-500 mr-1"></i> 基本资料
                 </template>
                 <template #content>
-                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-4">
+                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-4">
                         <div v-for="row in infoRows" :key="row.label" class="flex flex-col">
                             <span class="text-base text-gray-500">{{ row.label }}</span>
                             <span class="text-gray-800 font-mono">{{ row.value }}</span>
@@ -477,7 +477,10 @@ onUnmounted(() => {
                             size="small"
                         />
                     </div>
-                    <div class="relative" style="height: 420px;">
+                    <!-- 240px：与 K 线下方「成分股构成」配合的紧凑高度。
+                         原来写 420px 会把成分股整块推到首屏之外（1600x1050 下文档高 2239px，
+                         成分股卡片起点 1073px），而 ETF 详情的核心信息正是成分股穿透。 -->
+                    <div class="relative" style="height: 240px;">
                         <div ref="chartEl" id="chart" style="width: 100%; height: 100%;"></div>
                         <ProgressSpinner v-if="historyLoading" style="width: 40px; height: 40px"
                                         class="absolute inset-0 m-auto"/>
@@ -523,7 +526,7 @@ onUnmounted(() => {
                     <DataTable v-else
                                :value="composition"
                                :paginator="composition.length > 10"
-                               :rows="25"
+                               :rows="10"
                                dataKey="code"
                                tableStyle="font-size: 12px"
                                :showGridlines="false"
