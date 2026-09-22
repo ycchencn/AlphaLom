@@ -4,7 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Query, HTTPException
 from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService
@@ -27,6 +27,61 @@ def get_market_sectors(
     """获取沪深板块涨跌幅数据"""
     market_sector = databull.get_market_sector(sector_type=sector_type)
     return json_resp(market_sector)
+
+
+@market_router.get('/market/fear_greed')
+@cache(expire=3600)
+def get_market_fear_greed(
+    index_code: str = Query(
+        '000001',
+        description="指数代码：000001-上证指数, 000300-沪深300, 399006-创业板指, 000905-中证500"
+    ),
+    days: int = Query(365, ge=1, le=1000, description="向前取多少个自然日"),
+):
+    """获取指数级「恐惧贪婪指数」日线（沪深大盘监控页）
+
+    数据源为上游 `/cn/market/fear_greed`，**直连不落库**，原因见 README 说明：
+
+    本地 `stocks_fear_greed` 表虽然字段与上游完全一致（trade_date / index_code /
+    close / fear_greed / vol_score / mom_score），但里面存的是**个股**的恐惧贪婪
+    （由 job_update_stock_greedy_data 本地计算写入），`index_code` 列实际放的是
+    股票代码 —— 例如 `000001` 是平安银行（close≈11.73 元）而不是上证指数
+    （close≈3949 点）。若把上游指数数据写进同一张表，主键 (trade_date, index_code)
+    会与个股数据直接冲突并**覆盖掉平安银行的历史**。故指数维度单独走上游。
+
+    字段说明：
+    - fear_greed  综合指数 0~100（越高越贪婪）
+    - vol_score   波动率分项
+    - mom_score   动量分项
+    """
+    start_date = (datetime.now() - timedelta(days=days)).strftime('%Y%m%d')
+    end_date = datetime.now().strftime('%Y%m%d')
+
+    df = databull.get_market_fear_greed(
+        index_code=index_code, start_date=start_date, end_date=end_date
+    )
+    if df is None or df.empty:
+        logger.warning(f"指数 {index_code} 恐惧贪婪数据为空")
+        return []
+
+    # get_market_fear_greed 内部走 _to_dataframe(默认 date_col="date")，而上游返回的
+    # 日期列名是 `trade_date` —— 列名对不上，所以**不会**被设成索引，
+    # trade_date 仍是一个普通列（这也是下面能直接取 row['trade_date'] 的原因）。
+    # reset_index() 只在恰好有名为 index 的列时才可能撞名，这里保留它是为了
+    # 万一将来上游/封装对齐了列名也不会崩。排序保证前端折线是从旧到新。
+    df = df.reset_index().sort_values('trade_date')
+    records = []
+    for row in df.to_dict('records'):
+        trade_date = row.get('trade_date')
+        records.append({
+            'trade_date': trade_date.strftime('%Y-%m-%d') if hasattr(trade_date, 'strftime') else str(trade_date),
+            'index_code': row.get('index_code') or index_code,
+            'close': row.get('close'),
+            'fear_greed': row.get('fear_greed'),
+            'vol_score': row.get('vol_score'),
+            'mom_score': row.get('mom_score'),
+        })
+    return records
 
 
 @market_router.get('/market/news')
