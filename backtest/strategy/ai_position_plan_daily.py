@@ -250,19 +250,29 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False, use_agent=True
     if portfolio_id is None:
         return False
 
-    # ⚠️ chat_id 带日期维度：原来的 chat_id 是固定的 prof_analysis_chat_{id}，
-    # 而历史上下文会被无差别地喂给下一次分析 → 昨天的行情判断会污染今天。
-    # 每天一个会话，天然做到「当天内多轮可续、跨日不串味」。
-    chat_id = f"prof_analysis_chat_{portfolio_id}_{get_today()}"
-    index_data = databull.get_index_history(index_code='000001', start_date=get_date_by_n(-30), end_date=get_today())
-
     # 获取持仓信息
     investment_info = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
-    holding_assets = PortfolioAssetsService.get_all_by_portfolio_id(portfolio_id)
-    holding_assets_dict = {ass['stock_code']: ass for ass in holding_assets}
+    if not investment_info:
+        logger.warning(f"#{portfolio_id}, 组合不存在，跳过调仓分析")
+        return False
 
-    # 调仓计划
-    position_plan_old = investment_info.get('position_plan')
+    # ⚠️ 前置校验：llm_prompt 为空时**必须在这里拦掉**，不能让它流到下面。
+    # 崩溃原理：`Template(None)` 本身不报错（__init__ 只是把值存起来），
+    # 直到 `safe_substitute()` 内部执行 `self.pattern.sub(convert, self.template)`
+    # 才抛 `TypeError: expected string or bytes-like object, got 'NoneType'` ——
+    # 也就是 `re.sub` 的第二个参数（被替换文本）是 None。
+    # 报错点与根因隔着一层库函数，日志里只能看到一句与业务无关的正则错误。
+    # 表定义 `llm_prompt = Column(Text, default='')` 只约束「新增且未显式传值」的行，
+    # 存量数据或绕过 ORM 的写入仍可能留下 NULL，所以这里按「可能为 None」防御。
+    llm_prompt_str = investment_info.get('llm_prompt')
+    # ⚠️ 用 `.strip()` 判空而不是单纯判 None：纯空白（空格/换行）提示词同样无效 ——
+    # 它不会抛异常，但会让模板替换产出一个空白 prompt，模型只能凭空编造，
+    # 而这种「有输出、无依据」的失败比直接报错更难发现。
+    if not llm_prompt_str or not llm_prompt_str.strip():
+        # 这属于「未配置」而不是「运行出错」：该组合尚未启用大模型调仓，
+        # 用 warning 提示管理员即可，批量任务里由调用方 continue 跳过。
+        logger.warning(f"#{portfolio_id}, 未配置 llm_prompt，跳过调仓分析")
+        return False
 
     # 大模型设置
     llm_setting = investment_info.get('llm_setting')
@@ -272,8 +282,16 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False, use_agent=True
     staff.role_base = prompt_quant_decision
     staff.set_response_json()
 
-    # 大模型提示词
-    llm_prompt_str = investment_info.get('llm_prompt')
+    # ⚠️ chat_id 带日期维度：原来的 chat_id 是固定的 prof_analysis_chat_{id}，
+    # 而历史上下文会被无差别地喂给下一次分析 → 昨天的行情判断会污染今天。
+    # 每天一个会话，天然做到「当天内多轮可续、跨日不串味」。
+    chat_id = f"prof_analysis_chat_{portfolio_id}_{get_today()}"
+
+    holding_assets = PortfolioAssetsService.get_all_by_portfolio_id(portfolio_id)
+    holding_assets_dict = {ass['stock_code']: ass for ass in holding_assets}
+
+    # 调仓计划
+    position_plan_old = investment_info.get('position_plan')
 
     # 可用资金
     available_money = int(investment_info.get('current_cash'))
@@ -283,6 +301,11 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False, use_agent=True
 
     # 近期新闻
     recent_news = MarketNewsService.get_by_time_range(limit=strategy_setting.get('news_limit'))
+
+    # 上证指数近 30 天行情（模板里的 market_data_csv）
+    index_data = databull.get_index_history(
+        index_code='000001', start_date=get_date_by_n(-30), end_date=get_today()
+    )
 
     template = Template(llm_prompt_str)
     holdings_text = format_holdings_text(holding_assets)
@@ -448,6 +471,13 @@ def job_position_plan_daily_all(trade_day_override=False, use_agent=True):
         # 跳过没有设置大模型的策略
         if prof.get('llm_setting') is None:
             continue
+        # ⚠️ 与上一行同理：缺提示词属于「该组合未启用调仓」，不是「运行出错」。
+        # 在这里提前跳过，既能省掉后面一整轮取数 + 大模型调用，
+        # 也让日志不会把「未配置」误报成「调仓计划运行失败」。
+        # 判空要连纯空白一起拦（理由见 job_position_plan_daily 内同名校验处的注释）。
+        if not (prof.get('llm_prompt') or '').strip():
+            logger.info(f"未配置 llm_prompt，跳过。#{prof.get('portfolio_id')}")
+            continue
         if prof.get('position_plan') is not None and len(prof.get('position_plan')) > 0:
             logger.info(f"调仓计划已存在，跳过。#{prof.get('portfolio_id')}")
             continue
@@ -460,6 +490,6 @@ def job_position_plan_daily_all(trade_day_override=False, use_agent=True):
 
 if __name__ == '__main__':
 
-    # job_position_plan_daily_all(trade_day_override=True)
+    job_position_plan_daily_all(trade_day_override=True)
 
-    job_position_plan_daily(portfolio_id=13, send_feishu=False)
+    # job_position_plan_daily(portfolio_id=13, send_feishu=False)
