@@ -8,14 +8,8 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict, Any, Optional
 
-# ⚠️ 循环导入约束：databull 客户端只能**在函数内**延迟导入，不要提到模块顶层。
-# utils.data_loader 需要 service.databull_api.DataBull，而 service/__init__ 又会导入本模块，
-# 顶层导入即构成 utils.data_loader → service.__init__ → 本模块 → utils.data_loader(半初始化)
-# 的循环，报 ImportError: cannot import name 'databull' from partially initialized module
-# 'utils.data_loader'。只要入口先 import utils.data_loader 就会触发，例如
-# testcase/test_databull.py 与 job/dump_stocks_dcf.py。下面各函数体内的 import 都是此原因。
-
 from utils.logger import logger
+from utils.data_loader import databull
 
 # ---------- 基本面因子权重 ----------
 FUNDAMENTAL_WEIGHTS = {
@@ -62,7 +56,6 @@ def compute_fundamental_scores(
     try:
         # 只拉一张表，速度最快
         # 获取财务报告数据
-        from utils.data_loader import databull
         report_pershare_index = databull.get_stock_financial_data(
             symbol=stock_code,
             start_date=start_date,
@@ -94,7 +87,7 @@ def compute_fundamental_scores(
         debt_ratio = latest_report.get(PS_FIELDS["debt_ratio"], 50.0) or 50.0
 
         # 计算pe
-        _tick = databull.get_last_tick(stock_code)
+        _tick = databull.get_realtime(stock_code)
         eps = latest_report.get(PS_FIELDS["eps_basic"], 0) or 0.0
         pe = _calc_pe_from_eps(_tick['lastPrice'], eps)
 

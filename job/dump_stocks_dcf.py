@@ -72,7 +72,7 @@ def export_dcf_to_excel(
                 continue
 
             # 获取最新报价
-            last_tick = databull.get_last_tick(symbol=symbol)
+            last_tick = databull.get_realtime(symbol=symbol)
 
             # 获取公司信息
             com_info = StockService.get_stock_by_symbol(symbol)

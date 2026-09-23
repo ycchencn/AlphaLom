@@ -52,11 +52,13 @@ def job_check_signal(_stock_code):
     end_date = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')
 
     # 公司基本信息
-    profile = databull.get_company(_stock_code, stock_info.get('market'))
+    # SDK 的 get_company_profile 返回 {code, data} 信封，取内层 data 交给大模型
+    _profile_resp = databull.get_company_profile(_stock_code, stock_info.get('market'))
+    profile = _profile_resp.get('data') if isinstance(_profile_resp, dict) else _profile_resp
 
     # 1 数据预处理 - 入库行情、新闻、题材、财报、技术因子、动量数据
     try:
-        market_data = databull.get_history(
+        market_data = databull.get_stock_history(
             symbol=_stock_code,
             start_date=start_date,
             end_date=end_date,

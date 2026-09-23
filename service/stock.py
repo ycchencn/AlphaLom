@@ -8,14 +8,8 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from models import Stock
 from models.database import db_session
 
-# ⚠️ 循环导入约束：databull 客户端只能**在函数内**延迟导入，不要提到模块顶层。
-# utils.data_loader 需要 service.databull_api.DataBull，而 service/__init__ 又会导入本模块，
-# 顶层导入即构成 utils.data_loader → service.__init__ → 本模块 → utils.data_loader(半初始化)
-# 的循环，报 ImportError: cannot import name 'databull' from partially initialized module
-# 'utils.data_loader'。只要入口先 import utils.data_loader 就会触发，例如
-# testcase/test_databull.py 与 job/dump_stocks_dcf.py。下面各函数体内的 import 都是此原因。
-
 from utils.logger import logger
+from utils.data_loader import databull
 from utils.common import get_today
 from typing import List, Optional, Dict, Any
 from sqlalchemy import func, and_
@@ -67,7 +61,6 @@ def _probe_stock_server_search(market: str = 'cn') -> bool:
     if _stock_server_search_supported is not None:
         return _stock_server_search_supported
     try:
-        from utils.data_loader import databull
         resp = databull.get_stock_list(market=market, search='__alphalom_no_such_keyword__')
         probe = _normalize_stock_items(resp)
         _stock_server_search_supported = bool(resp is not None and not probe)
@@ -89,7 +82,6 @@ def _get_stock_catalog(market: str = 'cn') -> List[Dict[str, str]]:
         if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
             return cached['items']
         try:
-            from utils.data_loader import databull
             items = _normalize_stock_items(databull.get_stock_list(market=market))
         except Exception as e:
             logger.warning(f"get_stock_list failed: {e}")
@@ -266,7 +258,6 @@ class StockService:
         candidates = []
         if _stock_server_search_supported is not False and _probe_stock_server_search(market):
             try:
-                from utils.data_loader import databull
                 raw = _normalize_stock_items(databull.get_stock_list(market=market, search=keyword))
                 candidates = [it for it in raw
                               if kw in it['symbol'].lower() or kw in it['name'].lower()]
@@ -416,8 +407,8 @@ class StockService:
     def company_profile_fields(symbol: str, market: str = 'cn') -> Dict[str, Any]:
         """拉取公司概况并压平成 stocks 表的行业 / 地域字段。
 
-        原先每个调用点都要自己写 `profile = databull.get_company(...)` +
-        `if profile is None: profile = {}` 再逐个 `.get()`，这里统一收口，
+        原先每个调用点都要自己写 `resp = databull.get_company_profile(...)` +
+        `profile = resp.get('data')` 再逐个 `.get()`，这里统一收口，
         并把原始 profile 原样放进 `company_profile` 字段留档。
 
         Args:
@@ -428,9 +419,11 @@ class StockService:
             形如 {'industry', 'province', 'city', 'district', 'company_profile'} 的字典。
             上游无数据时前四项为 None、`company_profile` 为 {}（调用方不必再判空）
         """
-        from utils.data_loader import databull   # 循环导入约束：只能函数内 import，见文件顶部
-        profile = databull.get_company(symbol, market)
-        # 上游无此标的时返回 None，异常结构也一并按空处理，避免下游 .get() 报错
+        # ⚠️ SDK 的 get_company_profile 返回 {code, data} 信封（旧本地客户端已解包成 data 本身），
+        # 必须自己取内层 data —— 否则 industry/province 等全部取到 None 且不报错。
+        resp = databull.get_company_profile(symbol, market)
+        profile = resp.get('data') if isinstance(resp, dict) else None
+        # 上游无此标的时 data 为空，异常结构也一并按空处理，避免下游 .get() 报错
         if not isinstance(profile, dict):
             profile = {}
         return {
@@ -454,7 +447,7 @@ class StockService:
         「不在库 → 查 API → upsert」这段逻辑原先在 routes/stock.py、
         job/job_stock_analysis.py、job/private/stock_pool_overide.py 里各抄了一份，
         且已经漂移（只有 routes 那份带公司概况）。这里统一成一份：
-        名称取 get_stock_info，行业 / 省市 / 公司概况取 get_company。
+        名称取 get_stock_info，行业 / 省市 / 公司概况取 get_company_profile。
 
         注意：本方法是**幂等**的，已在库则直接返回 False、不做任何修改。
         调用方若还要区分「已存在时更新调用方自己的字段」，可先判 StockService.exists。
@@ -472,7 +465,6 @@ class StockService:
         if StockService.exists(symbol):
             return False
 
-        from utils.data_loader import databull   # 循环导入约束：只能函数内 import，见文件顶部
         stock_api = databull.get_stock_info(symbol, market=market)
         name = stock_api.get('name') if isinstance(stock_api, dict) else None
 

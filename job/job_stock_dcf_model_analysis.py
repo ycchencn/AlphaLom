@@ -24,7 +24,9 @@ prompt_template = Path(CURRENT_DIR / './prompt_stock_dcf_analysis.md').read_text
 
 
 def get_stock_detail(_stock_code, market):
-    return databull.get_company(_stock_code, market)
+    """取公司概况。SDK 返回 {code, data} 信封，这里只把内层 data 交给大模型。"""
+    resp = databull.get_company_profile(_stock_code, market)
+    return resp.get('data') if isinstance(resp, dict) else resp
 
 
 def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notification=False):
@@ -42,7 +44,10 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     staff.set_response_text()
 
     trade_date = FactorValueService.get_latest_trading_date()
-    stock_info = databull.get_company(_stock_code)
+    _profile_resp = databull.get_company_profile(_stock_code)
+    stock_info = _profile_resp.get('data') if isinstance(_profile_resp, dict) else {}
+    if not isinstance(stock_info, dict):
+        stock_info = {}
     stock_name = stock_info.get('company_name')
 
     start_date = get_date_by_n(-120, _format='%Y%m%d')  # 获取120天的行情
@@ -50,7 +55,7 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
 
     # 1 数据预处理 - 入库行情、新闻、题材、财报、技术因子、动量数据
     try:
-        market_data = databull.get_history(
+        market_data = databull.get_stock_history(
             symbol=_stock_code,
             start_date=start_date,
             end_date=end_date)

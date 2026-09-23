@@ -7,6 +7,7 @@
 import pandas as pd
 import numpy as np
 from service import FactorValueService, StockService
+from utils.data_loader import databull
 from utils.logger import logger
 from utils.common import is_etf
 
@@ -28,8 +29,6 @@ class FactorCalService:
             结果只拿到 2 根 K 线、因子全被 dropna 掉）。为 None 时按代码推断。
         """
 
-        from utils.data_loader import databull
-
         is_fund = is_etf(stock_code) if asset_type is None else (asset_type == 'etf')
 
         if is_fund:
@@ -37,7 +36,7 @@ class FactorCalService:
         else:
             # stock = StockService.get_stock_by_symbol(stock_code)
             # assert stock is not None
-            df = databull.get_history(stock_code, start_date, end_date, period='d', market='cn')
+            df = databull.get_stock_history(stock_code, start_date, end_date, period='d', market='cn')
 
         df = df.reset_index()
 

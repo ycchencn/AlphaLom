@@ -255,7 +255,7 @@ def get_stock_history(
     if end_date is None:
         end_date = get_today()
 
-    securities_data = databull.get_history(stock_code, start_date, end_date, period)
+    securities_data = databull.get_stock_history(stock_code, start_date, end_date, period)
     securities_data.reset_index(inplace=True)
     securities_data['date'] = securities_data['date'].dt.strftime('%Y-%m-%d')
     securities_data_dict = securities_data.to_dict(orient='records')
@@ -289,8 +289,10 @@ def get_stock_profile(symbol: str):
     """获取公司信息"""
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
-    profile = databull.get_company(symbol, market='cn')
-    return profile
+    # SDK 的 get_company_profile 返回 {code, data} 信封（旧本地客户端已解包），
+    # 这里取内层 data 再返回，前端是按 profile 的字段直接读的。
+    resp = databull.get_company_profile(symbol, market='cn')
+    return resp.get('data') if isinstance(resp, dict) else resp
 
 
 @stock_router.get('/stock/fundamental_scores/{symbol}')

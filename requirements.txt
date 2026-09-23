@@ -53,3 +53,4 @@ aiohttp
 uvicorn
 quantstats
 werkzeug
+databull

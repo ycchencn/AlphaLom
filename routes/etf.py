@@ -11,6 +11,7 @@ from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 from typing import Optional
 from app.fastapi_app import api_prefix
+from databull import DataBullError
 from utils.data_loader import databull
 from service import FactorValueService
 from service.etf_service import EtfService
@@ -85,7 +86,15 @@ def get_etfs():
                 ticker=symbol, factor_name='52week_high'
             ),
         }
-        ohlc = databull.get_last_tick(symbol=symbol, tick_type='etf') or {}
+        try:
+            ohlc = databull.get_realtime(symbol=symbol, tick_type='etf')
+        except DataBullError as e:
+            # 新 SDK 失败即抛异常。这里是列表接口的循环体，不能因为单只 ETF 取不到报价
+            # 就把整个 /etfs 打成 500。
+            logger.warning(f'get_realtime(etf) failed for {symbol}: {e}')
+            ohlc = None
+        if not isinstance(ohlc, dict):
+            ohlc = {}
         # 远端偶发返回空结果（实测 159990 就会返回 {}）。原实现直接 ohlc['lastPrice'] 下标取值，
         # 一旦为空就 KeyError，导致**整个 ETF 列表接口 500**、全页打不开。
         # 前端对 ohlc_last 的各字段都有 `!= null` 兜底（显示 '--'），所以这里只需保证
@@ -149,8 +158,14 @@ def get_etf_detail(symbol: str):
     # 名称统一从 databull 接口取（get_etf_info 含 name）；上游不可用时回退静态清单名/代码
     name = _etf_name_from_databull(symbol, fallback=ETF_NAME_MAP.get(str(symbol), symbol))
 
-    # 实时行情（get_last_tick 偶发返回 None，与列表接口一致做兜底处理）
-    ohlc = databull.get_last_tick(symbol=symbol, tick_type='etf') or {}
+    # 实时行情：与列表接口一致做兜底 —— 新 SDK 失败即抛异常，不能让它把详情页打成 500
+    try:
+        ohlc = databull.get_realtime(symbol=symbol, tick_type='etf')
+    except DataBullError as e:
+        logger.warning(f'get_realtime(etf) failed for {symbol}: {e}')
+        ohlc = None
+    if not isinstance(ohlc, dict):
+        ohlc = {}
     last_price, last_close = ohlc.get('lastPrice'), ohlc.get('lastClose')
     if last_price is not None and last_close:
         ohlc['chg_pct'] = (last_price - last_close) / last_close * 100
@@ -214,12 +229,12 @@ def get_etf_composition(symbol: str):
     上游返回空对象 {} 或查不到时返回空列表，前端优雅降级。
     """
     try:
-        # SDK 已修正路径并直接回传 data 数组；此处做 None/类型兜底
+        # SDK 的部分方法解包、部分不解包：get_etf_composition 返回 {code,data} 信封，
+        # 这里统一按信封处理，并做 None / 类型兜底。
         data = databull.get_etf_composition(symbol)
         if data is None:
             return []
         if isinstance(data, dict):
-            # 防御：若将来 SDK 改回返回 {code,data} 整体
             data = data.get('data', data.get('items', data.get('list', [])))
         if not isinstance(data, list):
             return []
@@ -259,11 +274,14 @@ def _pcf_composition(symbol: str):
     rows = []
 
     try:
-        pcf = databull.get_etf_pcf(symbol)
-    except Exception as e:
+        resp = databull.get_etf_pcf(symbol)
+    except DataBullError as e:
         logger.warning(f'get_etf_pcf failed for {symbol}: {e}')
-        pcf = None
+        resp = None
 
+    # ⚠️ SDK 的 get_etf_pcf 返回 {code, data} 信封（旧本地客户端已解包成 data 本身）。
+    # 不取内层 data 会拿不到 composition，于是静默退化成「没有股数」的回退链路。
+    pcf = resp.get('data') if isinstance(resp, dict) else resp
     if isinstance(pcf, dict):
         day = pcf.get('trading_day')
         items = pcf.get('composition')
@@ -337,7 +355,7 @@ def _fetch_latest_prices(codes: list) -> dict:
 
     def _one(code):
         try:
-            tick = databull.get_last_tick(symbol=code, tick_type='stock') or {}
+            tick = databull.get_realtime(symbol=code, tick_type='stock') or {}
             price = tick.get('lastPrice') if isinstance(tick, dict) else None
             return code, float(price) if price else None
         except Exception:
