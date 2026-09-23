@@ -30,6 +30,7 @@ from routes.index import index_router
 from routes.syslog import syslog_router
 from routes.llm import llm_router
 from routes.system_setting import settings_router
+from routes.backtest import backtest_router
 
 app.include_router(stock_router)
 app.include_router(market_router)
@@ -40,6 +41,7 @@ app.include_router(index_router)
 app.include_router(syslog_router)
 app.include_router(llm_router)
 app.include_router(settings_router)
+app.include_router(backtest_router)
 
 # ==================== 登录接口 ====================
 @app.post(f'{api_prefix}/auth/login')

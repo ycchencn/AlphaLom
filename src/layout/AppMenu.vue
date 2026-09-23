@@ -37,6 +37,12 @@ const model = ref([
                 icon: 'pi pi-fw pi-clone',
                 to: '/quant/stock_monitor',
                 enable: true,
+            },
+            {
+                label: '组合回测',
+                icon: 'pi pi-fw pi-chart-line',
+                to: '/quant/portfolio_backtest',
+                enable: true,
             }
         ]
     },

@@ -130,6 +130,12 @@ const router = createRouter({
                     meta: { title: '策略组合详情', requiresAuth: true }
                 },
                 {
+                    path: '/quant/portfolio_backtest',
+                    name: 'portfolio_backtest',
+                    component: () => import('@/views/portfolios/PortfolioBacktest.vue'),
+                    meta: { title: '组合回测', requiresAuth: true }
+                },
+                {
                     path: '/system/llm_setting/',
                     name: 'llm_setting_view',
                     component: () => import('@/views/system/LlmModelSetting.vue'),
