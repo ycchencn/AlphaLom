@@ -30,7 +30,7 @@ def calculate_beta(stock_code, index_code='000001', start_date="20200101", end_d
         index_close = index_df['close']
 
         # 获取ETF价格
-        stock_df = databull.get_history(stock_code, start_date, end_date, 'd', stock.get('market'))
+        stock_df = databull.get_stock_history(stock_code, start_date, end_date, 'd', stock.get('market'))
         if stock_df is None:
             return 0.0
         stock_close = stock_df.loc[start_date:end_date]["close"]
