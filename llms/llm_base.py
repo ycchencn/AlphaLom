@@ -39,6 +39,16 @@ class LLMBase:
     # MCP 服务配置
     mcp_base_url: str = mcp_host
 
+    # 工具结果回灌给大模型时的单条字符上限。
+    # ⚠️ MCP 的 get_stock_detail 会返回整段公司简介/经营范围（实测单只票几千字），
+    # 不截断的话几轮工具调用就能把上下文撑爆（token 成本 + 触发截断丢历史）。
+    tool_result_max_chars: int = 6000
+
+    # 工具调用循环的硬上限。
+    # ⚠️ 缺失这个上限时 `while True` 是**无界**的：模型反复要求查数据就能一直烧 token
+    # （缓存未命中时每次调用都是真实计费），且失败重试型模型会陷入死循环。
+    max_tool_rounds: int = 8
+
     def __init__(self, client: OpenAI):
         """
         初始化 LLM 基类
@@ -153,6 +163,22 @@ class LLMBase:
             logger.error(f"MCP 工具调用失败：{e}")
             return {"code": 500, "msg": f"MCP 服务异常：{e}", "data": None}
 
+    def _serialize_tool_result(self, tool_result: dict) -> str:
+        """
+        把工具返回值序列化成回灌给大模型的文本，并做长度截断。
+
+        ⚠️ 截断而不是丢弃：MCP 的部分工具（get_stock_detail）返回体里
+        `company_introduction` / `business_scope` 这类长文本占了绝大部分体积，
+        而模型真正需要的是行情/财务数值。直接截断既控住 token，又保留前半段的数值字段。
+        """
+        payload = tool_result.get('data') if tool_result.get('code') == 0 else tool_result.get('msg')
+        text = json.dumps(payload, ensure_ascii=False)
+        limit = self.tool_result_max_chars
+        if limit and len(text) > limit:
+            # 明确告诉模型「被截断了」，否则它会以为数据就这么少，据此下错结论
+            text = text[:limit] + f'\n...[工具结果过长已截断，原始长度 {len(text)} 字符]'
+        return text
+
     def create_completion_with_tools(self, messages: list) -> dict:
         """
         带工具调用的对话生成：兼容 Qwen/OpenAI 标准格式 + DeepSeek 自定义格式
@@ -167,6 +193,7 @@ class LLMBase:
         mcp_tools = self._get_mcp_tools()
         valid_function_names = {tool["function"]["name"] for tool in mcp_tools} if mcp_tools else set()
 
+        rounds = 0
         while True:
             completion = self.client.chat.completions.create(
                 model=self.model,
@@ -186,6 +213,20 @@ class LLMBase:
             tool_calls = self._parse_tool_calls(assistant_message, valid_function_names)
 
             if tool_calls:
+                rounds += 1
+                # 用完配额：不再把 tool 结果回灌，而是让模型基于已有信息直接收尾。
+                # 直接把最后一次的 content 当答案返回，比抛异常更稳（调用方多半只要一段文本）。
+                if rounds > self.max_tool_rounds:
+                    logger.warning(
+                        f"工具调用达到上限 {self.max_tool_rounds} 轮，强制结束并返回当前内容"
+                    )
+                    return {
+                        "final_answer": assistant_message.content or '',
+                        "tool_calls": tool_call_history,
+                        "raw_response": completion,
+                        "truncated": True,
+                    }
+
                 # 处理工具调用
                 tool_call_results = []
                 for tool_call in tool_calls:
@@ -212,10 +253,7 @@ class LLMBase:
                     new_messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(
-                            tool_result.get('data') if tool_result.get('code') == 0 else tool_result.get('msg'),
-                            ensure_ascii=False
-                        )
+                        "content": self._serialize_tool_result(tool_result)
                     })
                 current_messages.extend(new_messages)
             else:

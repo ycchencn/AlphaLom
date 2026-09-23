@@ -26,6 +26,53 @@ prompt_quant_decision = """
 '请以JSON格式输出'
 """
 
+# ===== Agent 调研阶段 =====
+# 设计：两阶段而不是一阶段。
+#   阶段一（调研）：挂 MCP 工具，模型自由决定查什么，多轮直到自己收口 → 得到一段自然语言结论。
+#   阶段二（决策）：沿用原来的单轮调用，要求严格 JSON → 保证落库契约不变。
+# 为什么不合并成一阶段：`response_format=json_object` 与 `tools` 同时下发时，
+#   部分平台会让模型「直接编一个 JSON」而完全不调工具（工具形同虚设），且解析失败风险高。
+#   拆开后，落库链路（json.loads → adjust_position_plan → update）一行都不用改，回归面最小。
+prompt_agent_research = """你是一名资深 A 股投资经理，正在为「$portfolio_name」这个组合做调仓前的调研。
+
+## 组合当前状态
+- 当前持仓：
+$holdings_text
+- 可用资金：$available_money 元
+- 组合定位：$portfolio_desc
+
+## 你要做的事
+在给出调仓结论之前，**先自己去查数据**。你可以调用工具获取行情、财务与个股详情。
+请围绕下面这些问题做调研：
+
+1. 持仓中每只标的**最近 20 个交易日**的走势如何？是否跌破关键均线、是否放量下跌？
+2. 大盘（上证指数 000001）近期是偏强还是偏弱？当前处于什么位置？
+3. 对考虑买入/卖出的标的，确认它最近的**收盘价与涨跌幅**，不要凭记忆猜价格。
+4. 如果某只标的基本面可疑（业绩、负债、行业景气度），查一下它的财务数据。
+
+## ⚠️ 日期纪律（最重要，务必遵守）
+**今天是 $current_date。** 查行情时必须让查询区间**覆盖到最近这几天**。
+
+工具的 start_date / end_date 参数有各自的默认值，**不要依赖默认值，也不要凭想象填**。
+请显式传入形如 `start_date=$recent_start, end_date=$current_compact` 的区间，
+即「从最近一段时间的起点 一直查到今天」。
+
+反面例子（会导致你拿到一份**过时的**数据、进而做出错误判断）：
+- 只传一个过去的 date，或把区间填在几个月甚至一年前；
+- 不传 end_date 就以为它等于今天（它有自己的默认值）。
+
+每查到一份数据，先瞄一眼返回里的日期，确认它确实是**最近的交易日**再往下用。
+
+## 输出要求
+用**中文自然语言**输出你的调研结论，包含：
+- 每只持仓标的的近期走势判断（用你查到的真实数字，**并标明该数字对应的日期**）
+- 大盘环境判断
+- 你认为接下来应该重点考虑买入、卖出还是继续持有，以及理由
+
+⚠️ 只基于你**实际查到**的数据下结论。查不到的就明说「未获取到」，**不要编造数字**。
+⚠️ 调研要克制：不要为了填满内容而反复查同样的数据，通常 5~10 次工具调用足够。
+"""
+
 
 def adjust_position_plan(position_plan, holding_assets_dict):
     assert 'actions' in position_plan
@@ -81,11 +128,132 @@ def get_lot_size(stock_code):
         return 100  # 默认
 
 
-def job_position_plan_daily(portfolio_id=None, send_feishu=False):
+def run_agent_research(staff, portfolio_info, holdings_text, available_money):
+    """
+    阶段一：Agent 调研。
+
+    挂上 MCP 工具让大模型自主多轮取数，返回 (调研结论文本, 工具调用轨迹)。
+    失败一律降级为「返回空结论」而不是抛异常 —— 调研是增强项，
+    它挂掉不应该让整次调仓分析跟着失败（调用方据此退回原来的单轮模式）。
+
+    :return: (research_text, tool_calls)；research_text 为空字符串表示调研未成功
+    """
+    template = Template(prompt_agent_research)
+    today = get_today()                      # 形如 20260923
+    recent_start = get_date_by_n(-30)        # 覆盖约 20 个交易日
+    prompt = template.safe_substitute(
+        portfolio_name=portfolio_info.get('name') or '',
+        holdings_text=holdings_text,
+        available_money=available_money,
+        portfolio_desc=portfolio_info.get('desc') or '（未描述）',
+        current_date=today,
+        current_compact=today,
+        recent_start=recent_start,
+    )
+
+    try:
+        # ⚠️ 阿里云百炼（qwen）在 response_format=json_object 时**强制校验 prompt 里必须出现
+        # "json" 字样**，否则直接 400 InvalidParameter：
+        #   "'messages' must contain the word 'json' in some form, to use 'response_format' of type 'json_object'"
+        # 调研阶段的本意是自然语言作答，但 staff 在进入本函数前已被 set_response_json() 改过，
+        # 这里临时切回 text，避免把 JSON 模式强加给一次「散文式调研」。
+        # （此前若不切，调研段 100% 400 并静默降级 —— 表面上不报错，实际 agent 从未生效。）
+        prev_format = staff.response_format
+        staff.set_response_text()
+        try:
+            result = staff.create_completion_with_tools([{'role': 'user', 'content': prompt}])
+        finally:
+            # 恢复 JSON 模式，阶段二的决策调用仍然要严格 JSON
+            staff.response_format = prev_format
+    except Exception as e:
+        logger.warning(f"Agent 调研阶段失败，降级为单轮模式：{e}")
+        return '', []
+
+    tool_calls = result.get('tool_calls') or []
+    research_text = (result.get('final_answer') or '').strip()
+
+    if result.get('truncated'):
+        logger.warning("Agent 调研达到工具调用轮数上限，结论可能不完整")
+
+    # 轨迹写进日志：排查「模型到底查了什么、据此下了什么结论」时这是唯一证据
+    if tool_calls:
+        summary = ', '.join(
+            f"{t['function_name']}({json.dumps(t['parameters'], ensure_ascii=False)})"
+            for t in tool_calls
+        )
+        logger.info(f"Agent 调研共 {len(tool_calls)} 次工具调用：{summary}")
+        _warn_if_queries_are_stale(tool_calls, today)
+    else:
+        logger.info("Agent 调研未产生工具调用（模型直接作答）")
+
+    return research_text, tool_calls
+
+
+def _warn_if_queries_are_stale(tool_calls, today):
+    """
+    巡检模型查行情时用的日期区间是否「过时」，只告警不改行为。
+
+    ⚠️ 为什么需要这个：MCP 的 get_stock_history / get_index_history 的 start_date、
+    end_date **各自有默认值**（实测默认落在 2025-01-01 ~ 2026-12-31 这种固定区间）。
+    模型很可能只传 symbol 而让日期走默认，于是拿到一份几个月前、甚至一年前的行情，
+    却照样写出言之凿凿的结论 —— 表面上「有数据」，实际是**在拿旧价格做今天的决策**。
+
+    这种失败不抛异常、不报错，是本次改造里最危险的一类静默错误，所以专门巡检一次。
+    """
+    today_compact = str(today).replace('-', '')
+    try:
+        today_int = int(today_compact)
+    except ValueError:
+        return
+
+    stale = []
+    for call in tool_calls:
+        params = call.get('parameters') or {}
+        # 只看行情类工具：财务数据的报告期本来就滞后，不算过时
+        if call.get('function_name') not in ('get_stock_history', 'get_index_history'):
+            continue
+        end = str(params.get('end_date') or '')
+        if not end.isdigit():
+            stale.append(f"{call['function_name']} 未显式传 end_date")
+            continue
+        # 允许 10 个自然日的宽容（长假 + 模型把「最近」理解成上一周）
+        gap_days = _days_between(end, today_compact)
+        if gap_days is None or gap_days > 10:
+            stale.append(f"{call['function_name']}(end_date={end}) 距今 {gap_days} 天")
+
+    if stale:
+        logger.warning(
+            f"⚠️ Agent 调研存在 {len(stale)} 处可能的过时查询，结论可能基于旧行情："
+            + '；'.join(stale)
+        )
+
+
+def _days_between(date_a: str, date_b: str):
+    """两个 YYYYMMDD 字符串相差的自然日数，解析失败返回 None。"""
+    from datetime import datetime
+    try:
+        a = datetime.strptime(date_a, '%Y%m%d')
+        b = datetime.strptime(date_b, '%Y%m%d')
+    except ValueError:
+        return None
+    return abs((b - a).days)
+
+
+def job_position_plan_daily(portfolio_id=None, send_feishu=False, use_agent=True):
+    """
+    每日调仓计划。
+
+    :param use_agent: 是否启用 Agent 调研阶段（默认开）。
+        ⚠️ 保留开关而不是写死：调研阶段会多消耗一次「多轮工具调用」的 token，
+        模型或平台不支持工具调用时要能一键回退到原来的单轮行为。
+    """
     if portfolio_id is None:
         return False
 
-    chat_id = f"prof_analysis_chat_{portfolio_id}"
+    # ⚠️ chat_id 带日期维度：原来的 chat_id 是固定的 prof_analysis_chat_{id}，
+    # 而历史上下文会被无差别地喂给下一次分析 → 昨天的行情判断会污染今天。
+    # 每天一个会话，天然做到「当天内多轮可续、跨日不串味」。
+    chat_id = f"prof_analysis_chat_{portfolio_id}_{get_today()}"
     index_data = databull.get_index_history(index_code='000001', start_date=get_date_by_n(-30), end_date=get_today())
 
     # 获取持仓信息
@@ -120,11 +288,14 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
     holdings_text = format_holdings_text(holding_assets)
     stock_pool_text = format_stock_pool_text(stock_pool)
 
-    logger.info(f"#{portfolio_id}, 进行调仓分析。大模型：{staff.model}")
+    logger.info(f"#{portfolio_id}, 进行调仓分析。大模型：{staff.model}，Agent 调研：{'开' if use_agent else '关'}")
 
-    # 1. 获取历史上下文
-    history = DialogueManager.get_context(chat_id)
-    history = []
+    # 1. 读取历史上下文（当天会话内的多轮）
+    # ⚠️ 原来这里紧接着有一行 `history = []`，把刚读出来的历史当场覆盖掉，
+    # 导致下面的 `if len(history) == 0` **恒为真**、else 分支从未执行过 ——
+    # 即「多轮对话」实际上从来没生效，而 append_messages 又在持续写库，
+    # 于是 llm_conversation_context 里堆着一份谁都不读的对话。
+    history = DialogueManager.get_context(chat_id) or []
 
     if len(history) == 0:
         # 用户预设 prompt
@@ -151,6 +322,26 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
                   f"上证指数最新数据：{index_last}\n"
                   f"继续思考调仓计划")
 
+    # 1.5 Agent 调研阶段：让模型自己调 MCP 工具查数据
+    if use_agent:
+        research_text, agent_tool_calls = run_agent_research(
+            staff, investment_info, holdings_text, available_money
+        )
+        if research_text:
+            # 把调研结论拼进 prompt，交给阶段二做 JSON 决策。
+            # ⚠️ 放在 prompt **最前面**且显式标注：模型对靠后的长 JSON 指令遵循度更高，
+            # 若把调研结论追加在末尾，会与「只输出 JSON」的指令争抢注意力，导致输出带解释文字。
+            prompt = (
+                "## 前期调研结论（你自己刚刚查到的，请以此为准）\n"
+                f"{research_text}\n\n"
+                "---\n\n"
+                "## 原始依赖数据与调仓要求\n"
+                f"{prompt}\n\n"
+                "请结合上面的调研结论，输出调仓计划 JSON。"
+            )
+        else:
+            logger.warning(f"#{portfolio_id}, Agent 调研无结论，按原单轮模式继续")
+
     # 2. 构建请求消息列表（包含 system 和历史 + 当前消息）
     messages = history.copy()
     messages.append({"role": "user", "content": prompt})
@@ -170,7 +361,7 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
 
     ai_ans = reply_content.replace("```json", "")
     ai_ans = ai_ans.replace("```", "")
-    answer_json = json.loads(ai_ans)
+    answer_json = parse_llm_json(ai_ans)
 
     logger.info(answer_json)
 
@@ -188,6 +379,36 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
         send_feishu_markdown_message(f"{investment_info.get('name')} - 交易复盘与策略", markdown_text=report_md)
 
     return True
+
+
+def parse_llm_json(text):
+    """
+    从大模型回复里抠出 JSON 对象。
+
+    ⚠️ 为什么不能直接 json.loads：接入 Agent 调研阶段后，prompt 里混进了大段自然语言
+    调研结论，模型偶尔会「先总结两句再给 JSON」（即使 response_format=json_object，
+    部分平台也只是把它当软约束）。直接 json.loads 会抛 JSONDecodeError，
+    而这发生在**已经花掉多次 LLM 调用之后**，一次失败就白烧一整轮成本。
+
+    策略：先试整体解析 → 再退化为「截取第一个 { 到最后一个 }」。
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find('{')
+    end = text.rfind('}')
+    if start != -1 and end > start:
+        candidate = text[start:end + 1]
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as e:
+            logger.error(f"截取 JSON 片段后仍解析失败：{e}")
+            raise
+
+    logger.error(f"回复中未找到 JSON 对象，原文前 200 字：{text[:200]}")
+    raise ValueError('大模型回复中未找到 JSON 对象')
 
 
 def format_holdings_text(holdings: List[Dict]) -> str:
@@ -210,9 +431,11 @@ def format_stock_pool_text(stock_pool: List[Dict]) -> str:
     return ", ".join(items)
 
 
-def job_position_plan_daily_all(trade_day_override=False):
+def job_position_plan_daily_all(trade_day_override=False, use_agent=True):
     """
     交易日运行策略
+
+    :param use_agent: 透传给 job_position_plan_daily，控制是否启用 Agent 调研阶段
     """
 
     # 判断交易日
@@ -229,14 +452,14 @@ def job_position_plan_daily_all(trade_day_override=False):
             logger.info(f"调仓计划已存在，跳过。#{prof.get('portfolio_id')}")
             continue
         try:
-            job_position_plan_daily(portfolio_id=prof.get('portfolio_id'))
+            job_position_plan_daily(portfolio_id=prof.get('portfolio_id'), use_agent=use_agent)
         except Exception as e:
-            logger.warn(f"调仓计划运行失败：{e}")
+            logger.warning(f"调仓计划运行失败：{e}")
             continue
 
 
 if __name__ == '__main__':
 
-    job_position_plan_daily_all(trade_day_override=True)
+    # job_position_plan_daily_all(trade_day_override=True)
 
-    # job_position_plan_daily(portfolio_id=1, send_feishu=False)
+    job_position_plan_daily(portfolio_id=13, send_feishu=False)

@@ -623,8 +623,13 @@ onBeforeUnmount(() => {
 .backtest-page {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
-    padding: 0.25rem;
+    /* 区块间距对齐全站约定：MarketOverview 用 1.5rem、PortfolioView 用 gap-4(1rem)，
+       取 1.5rem 与同组页面观感一致 */
+    gap: 1.5rem;
+    /* 左右 2rem / 上下 1.5rem —— 与 PortfolioList(.card padding 0 24px 24px)、
+       MarketOverview(padding 18px) 的横向留白对齐。
+       原先写的是 0.25rem(3px)，几乎等于没有边距，卡片会顶到内容区左边缘。 */
+    padding: 1.5rem 2rem;
 }
 
 /* ---------- 条件区 ---------- */
@@ -637,7 +642,8 @@ onBeforeUnmount(() => {
 .cond-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.75rem 1rem;
+    /* 行距 1rem / 列距 1.25rem —— 与全局表单/卡片间距一致，原先 0.75rem 偏挤 */
+    gap: 1rem 1.25rem;
 }
 
 .cond-item {
@@ -655,7 +661,8 @@ onBeforeUnmount(() => {
 .cond-label {
     font-size: 1rem; /* 12px（根字号 12px） */
     color: #64748b;
-    margin-bottom: 0.25rem;
+    /* 0.5rem：标签与控件之间要有明显分界，0.25rem 在 12px 根字号下只有 3px */
+    margin-bottom: 0.5rem;
 }
 
 .range-row {
@@ -684,8 +691,9 @@ onBeforeUnmount(() => {
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
-    margin-top: 0.75rem;
-    padding-top: 0.6rem;
+    /* 与上方条件网格拉开距离：1rem + 0.75rem 的内边距 */
+    margin-top: 1rem;
+    padding-top: 0.75rem;
     border-top: 1px solid #f1f5f9;
 }
 
@@ -799,11 +807,13 @@ onBeforeUnmount(() => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 0.4rem;
-    padding: 4rem 1rem;
+    gap: 0.5rem;
+    /* 5rem 1rem：与 MarketOverview .empty-tip(2rem 1rem) 同量级，
+       但本页空态后面没有别的区块，给得更舒展一些 */
+    padding: 5rem 1rem;
     background: #fff;
     border: 1px dashed #e2e8f0;
-    border-radius: 0.375rem;
+    border-radius: 0.5rem;
     color: #94a3b8;
 }
 
@@ -830,7 +840,8 @@ onBeforeUnmount(() => {
 .metric-row {
     display: grid;
     grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 0.6rem;
+    /* 1rem 对齐全站卡片间距（原先 0.6rem 让 6 张卡几乎糊在一起） */
+    gap: 1rem;
 }
 
 .bench-row {
@@ -840,8 +851,9 @@ onBeforeUnmount(() => {
 .metric-card {
     background: #fff;
     border: 1px solid #eef1f6;
-    border-radius: 0.375rem;
-    padding: 0.55rem 0.7rem;
+    border-radius: 0.5rem;
+    /* 0.75rem 1rem：给数值留出呼吸空间，和 Card 组件的默认内容内边距贴近 */
+    padding: 0.75rem 1rem;
 }
 
 .bench-card {
@@ -884,7 +896,7 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     font-size: 1rem;
     color: #94a3b8;
-    margin-top: 0.35rem;
+    margin-top: 0.75rem;
 }
 
 /* 窄屏收敛成两列 / 一列，避免 3 列网格在小屏被挤爆 */
@@ -903,10 +915,30 @@ onBeforeUnmount(() => {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    /* 窄屏把左右留白收到 1rem：2rem 在 430px 宽下会吃掉近 1/10 的可视宽度 */
+    .backtest-page {
+        padding: 1rem;
+        gap: 1rem;
+    }
+
     /* 窄屏下条件区变单列，提示文字会挤掉按钮，改为上下排布 */
     .cond-actions {
         flex-direction: column;
         align-items: stretch;
     }
+
+    /* 6 列指标卡在窄屏收成 2 列，避免每张卡只有几十 px 宽 */
+    .metric-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .bench-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
+.p-card {
+    border: 1px solid #dedede;
 }
 </style>
