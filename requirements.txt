@@ -1,20 +1,17 @@
-akshare
+# ===== Python 依赖清单 =====
+# 说明：本项目原先按 pip freeze 全量罗列，含大量传递依赖。已清理掉代码零引用、
+# 且无任何保留包依赖它的条目。标 ⚠️ 的条目在代码里搜不到 import，但运行期必需，勿删。
+
 pandas~=3.0.3
 sqlalchemy~=2.0.50
-pymysql~=1.2.0
+pymysql~=1.2.0    # ⚠️ 代码里不 import：只在 DATABASE_CONN_STR 的 mysql+pymysql:// 里用，删了连不上库
 redis
 openai
-pytest~=9.0.3
+pytest~=9.0.3    # 仅测试用（pytest testcase -q），线上运行不需要
 apscheduler
-markdown2~=2.5.5
-distro~=1.9.0
-wheel~=0.46.3
 protobuf~=4.24.3
-pyOpenSSL~=26.2.0
-lxml~=5.3.0
-bs4~=0.0.2
+lxml~=5.3.0    # ⚠️ 代码里不 import：以 BeautifulSoup(html, 'lxml') 的字符串形式加载，删了解析器缺失
 beautifulsoup4~=4.15.0
-html5lib~=1.1
 sniffio~=1.3.1
 Pygments~=2.16.1
 rich~=13.5.3
@@ -24,26 +21,16 @@ pydantic~=2.10.5
 numpy
 requests
 urllib3
-jsonpath
-webencodings~=0.5.1
 certifi
 openpyxl~=3.1.5
 et_xmlfile~=2.0.0
 annotated-types~=0.7.0
 matplotlib~=3.10.8
 contourpy~=1.3.1
-sympy~=1.12
 python-dateutil
-simplejson
 cachetools
-polygon-api-client
-pyxt
 zai-sdk
 pytz
-fake-useragent
-massive
-eodhd
-tushare
 python-dotenv
 elasticsearch
 websockets
