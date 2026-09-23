@@ -14,6 +14,7 @@ from utils.common import send_feishu_markdown_message
 from typing import List, Dict
 from utils.gen_feishu_report import generate_feishu_report
 from config import strategy_setting
+from databull import DataBullError
 from utils.data_loader import databull
 from service.dialogue_manager import DialogueManager
 from utils.logger import logger
@@ -138,7 +139,12 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False):
             recent_news=json.dumps(recent_news, ensure_ascii=False)
         )
     else:
-        index_last = databull.get_last_tick(symbol='000001', tick_type='index')
+        try:
+            index_last = databull.get_realtime(symbol='000001', tick_type='index')
+        except DataBullError as e:
+            # 新 SDK 失败即抛异常；这里只是给大模型补一条附带信息，取不到不该中断调仓
+            logger.warning(f"index tick failed: {e}")
+            index_last = None
         prompt = (f"今天是：{get_today()}\n"
                   f"当前持仓：{holdings_text}\n"
                   f"可用资金：{available_money}\n"

@@ -168,9 +168,9 @@ class StrategyRunner:
 
                 # 从数据库获取行情数据
                 if is_etf(code):
-                    last_tick = databull.get_last_tick(code, 'etf', 'cn')
+                    last_tick = databull.get_realtime(code, 'etf', 'cn')
                 else:
-                    last_tick = databull.get_last_tick(code, 'stock', 'cn')
+                    last_tick = databull.get_realtime(code, 'stock', 'cn')
 
                 if last_tick is None or 'open' not in last_tick:
                     logger.warning(f"⚠️ 行情缺失: {code} 在 {trading_date} 无数据")

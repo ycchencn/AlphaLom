@@ -25,7 +25,7 @@ def get_market_sectors(
     sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级")
 ):
     """获取沪深板块涨跌幅数据"""
-    market_sector = databull.get_market_sector(sector_type=sector_type)
+    market_sector = databull.get_sector_data(sector_type=sector_type)
     return json_resp(market_sector)
 
 

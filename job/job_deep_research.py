@@ -48,7 +48,11 @@ def job_deep_research(_stock_code, save_local_html=False, force=False, interval_
     # 给到 24K 输出预算，避免长研报被截断在章节中途。
     staff.set_max_tokens(24576)
 
-    stock_info = databull.get_company(_stock_code)
+    # SDK 的 get_company_profile 返回 {code, data} 信封，取内层 data
+    _profile_resp = databull.get_company_profile(_stock_code)
+    stock_info = _profile_resp.get('data') if isinstance(_profile_resp, dict) else {}
+    if not isinstance(stock_info, dict):
+        stock_info = {}
     stock_name = stock_info.get('company_name')
     trade_date = FactorValueService.get_latest_trading_date()
     start_date = get_date_by_n(-120, _format='%Y%m%d')  # 获取120天的行情
@@ -56,7 +60,7 @@ def job_deep_research(_stock_code, save_local_html=False, force=False, interval_
 
     # 1 数据预处理 - 入库行情、新闻、题材、财报、技术因子、动量数据
     try:
-        market_data = databull.get_history(
+        market_data = databull.get_stock_history(
             symbol=_stock_code,
             start_date=start_date,
             end_date=end_date)

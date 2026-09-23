@@ -24,7 +24,7 @@ def job_update_stock_greedy_data(index_code, override_all=False):
         if is_etf(index_code):
             market_data = databull.get_etf_history(symbol=index_code, start_date="20250101", end_date=get_today())
         else:
-            market_data = databull.get_history(symbol=index_code, start_date="20250101", end_date=get_today())
+            market_data = databull.get_stock_history(symbol=index_code, start_date="20250101", end_date=get_today())
         # 构建指数
         result = build_fear_greed_index(market_data)
     except Exception as e:

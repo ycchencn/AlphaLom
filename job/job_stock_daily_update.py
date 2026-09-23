@@ -96,7 +96,7 @@ def job_fix_ohlc_last_all():
 
 
 def job_fix_ohlc_last(stock_code):
-    tick_last = databull.get_last_tick(symbol=stock_code)
+    tick_last = databull.get_realtime(symbol=stock_code)
     if 'lastPrice' not in tick_last:
         return False
     tick_last['close'] = tick_last['lastPrice']
