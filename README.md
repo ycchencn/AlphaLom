@@ -150,7 +150,7 @@ npm run build                  # 构建到 dist/（由 FastAPI SPA 路由直接�
 <tr>
 <td width="50%">
 <img src="public/readme/01-market-overview.png" alt="沪深大盘监控">
-<b>沪深大盘监控</b><br>指数行情卡片 + 申万一级行业涨跌排行
+<b>沪深大盘监控</b><br>指数行情卡片 + 大盘恐惧贪婪指数 + 申万三级行业排行
 </td>
 <td width="50%">
 <img src="public/readme/02-event-driven.png" alt="事件驱动">
