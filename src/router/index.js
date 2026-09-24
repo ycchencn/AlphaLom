@@ -148,6 +148,13 @@ const router = createRouter({
                     meta: { title: '系统日志', requiresAuth: true }
                 },
                 {
+                    path: '/system/user_manage',
+                    name: 'user_manage_view',
+                    component: () => import('@/views/system/UserManage.vue'),
+                    // requiresAdmin 是「前端拦一道」，后端 /users 仍有 require_admin 兜底
+                    meta: { title: '用户管理', requiresAuth: true, requiresAdmin: true }
+                },
+                {
                     path: '/ai/chat/',
                     name: 'ai_chat_view',
                     component: () => import('@/views/ai/chat.vue'),
@@ -184,6 +191,11 @@ router.beforeEach((to, from, next) => {
         if (!store.getters.isAuthenticated) {
             // 如果用户未认证，重定向到登录页面
             next({ path: '/auth/login' });
+        } else if (to.matched.some(record => record.meta.requiresAdmin) && !store.getters.isAdmin) {
+            // 需要管理员但当前用户不是 → 送回首屏，别留在空白页
+            // （⚠️ 用户角色以 localStorage 缓存为准，启动时 /auth/me 会刷新它；
+            //   真正的鉴权仍在后端 require_admin。）
+            next({ path: '/market/cn_market_overview' });
         } else {
             // 用户已认证，允许访问
             next();

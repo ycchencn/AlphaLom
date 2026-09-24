@@ -6,7 +6,7 @@
 
 from sqlalchemy import Text, DateTime, BigInteger
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, Enum, Numeric, Boolean, SmallInteger
-from sqlalchemy import Float, DECIMAL, JSON
+from sqlalchemy import Float, DECIMAL, JSON, UniqueConstraint
 from sqlalchemy.sql import func
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
@@ -70,24 +70,69 @@ class Stock(Base):
         }
 
 
+# 用户股票池（多用户隔离）：谁关注了哪只票。
+#
+# 原实现把「关注」直接记在 `stocks.monitoring` 标记位上，而 `stocks.symbol` 是**全局唯一**的
+# —— 一只票只能有一个监控状态，两个用户没法各存各的池子。改成本关联表后职责是这样切的：
+#   - `user_stock_pool` 是「用户私有」的唯一事实来源（谁加了什么票、什么时候加的）；
+#   - `stocks.monitoring` 降级为**并集标记**（「至少有一个用户关注这只票」），
+#     由写路径同步维护。日更任务仍按 `monitoring=1` 枚举要更新的标的，
+#     **不必改任何 job** —— 这是这次改造风险最小的切法，千万别顺手把它删掉。
+#
+# ⚠️ 唯一约束必须是 (user_id, symbol) 复合：只给 symbol 加唯一键会让第二个用户
+# 加同一只票时静默命中已有行（看起来「加成功了」，其实加到了别人的池子里）。
+class UserStockPool(Base):
+    __tablename__ = 'user_stock_pool'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    user_id = Column(Integer, nullable=False, index=True, comment='所属用户（users.id）')
+    symbol = Column(String(25), nullable=False, index=True, comment='股票代码')
+    market = Column(String(10), default='cn', comment='市场：cn/hk/us')
+    monitor_by = Column(String(50), comment='加入来源标签（沿用原 stocks.monitor_by 的取值习惯）')
+    created_at = Column(DateTime, default=datetime.now, comment='加入时间')
+
+    # ⚠️ 显式指定 charset/collate：库内历史表里 utf8mb4_bin / utf8mb4_unicode_ci /
+    # utf8mb4_0900_ai_ci 三种混用，不指定就会随环境漂移，日后与 stocks JOIN 会撞
+    # 1267 Illegal mix of collations。这里与 stocks 对齐用 unicode_ci。
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', name='uniq_user_symbol'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'symbol': self.symbol,
+            'market': self.market,
+            'monitor_by': self.monitor_by,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+
 # ETF 自选/监控列表（持久化，替代原静态 ETF_MONITOR_LIST）
 class EtfWatchlist(Base):
     __tablename__ = 'etf_watchlist'
 
-    # ⚠️ 主键 = 自增 id；symbol 加唯一约束，避免同一只 ETF 被重复加入。
-    # 不要改成 (symbol) 复合/单字段主键 —— 否则 ORM 身份映射在批量查询时会按 symbol 去重。
+    # ⚠️ 主键 = 自增 id；唯一约束是 **(user_id, symbol) 复合**，不是 symbol 单列。
+    # 原来 symbol 全局唯一 → 同一只 ETF 只能属于一个用户的清单，两个用户没法各存各的。
+    # 改复合唯一后：同一用户不能重复加同一只（幂等靠它挡），不同用户互不影响。
+    # 不要改成主键 —— 否则 ORM 身份映射在批量查询时会按该列去重。
     id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    symbol = Column(String(25), unique=True, nullable=False, index=True, comment='ETF代码，如 159901')
+    user_id = Column(Integer, nullable=True, index=True, comment='所属用户（users.id）')
+    symbol = Column(String(25), nullable=False, index=True, comment='ETF代码，如 159901')
     name = Column(String(100), comment='ETF名称（加入时从 databull 取，可空）')
     created_at = Column(DateTime, default=datetime.now, comment='加入时间')
 
     __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', name='uniq_user_symbol'),
         {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'}
     )
 
     def to_dict(self):
         return {
             'id': self.id,
+            'user_id': self.user_id,
             'symbol': self.symbol,
             'name': self.name,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
@@ -141,8 +186,19 @@ class SystemSetting(Base):
 
 class InvestmentPortfolio(Base):
     __tablename__ = 'investment_portfolio'
-    portfolio_id = Column(String(36), primary_key=True, comment='UUID组合唯一ID')
-    name = Column(String(100), nullable=False, unique=True, comment='组合名称')
+
+    # ⚠️ 线上真实主键是 `int AUTO_INCREMENT`，不是 UUID。
+    # 这里原来声明成 String(36)，而 POST 路由生成 `str(uuid.uuid4())` 往里写 ——
+    # 线上 sql_mode 为空（非严格模式），uuid 字符串被**静默截断成 0**：
+    # 第一次新建落库 id=0（不报错），第二次必然主键冲突失败。
+    # 声明 Integer + autoincrement、由数据库分配 id，才是与表结构一致的做法。
+    portfolio_id = Column(Integer, primary_key=True, autoincrement=True, comment='组合唯一ID（自增）')
+    # 多用户隔离：组合所属用户。DB 列名是历史遗留的 `uid`（早就有这列，只是代码从没读写过），
+    # 这里映射成 user_id 便于阅读，**不改列名**（少一次线上 DDL 就少一份风险）。
+    user_id = Column('uid', Integer, nullable=True, index=True, comment='所属用户（users.id）')
+    # ⚠️ 唯一约束必须是 (user_id, name) 复合：原来 name 是全局唯一，
+    # 两个用户不能有同名策略（如都叫「豆包操盘手」）。
+    name = Column(String(100), nullable=False, comment='组合名称')
     strategy_type = Column(Integer, nullable=False, default=1, comment='策略类型')
     total_position_pct = Column(DECIMAL(5, 2), nullable=False, comment='总仓位百分比')
     base_currency = Column(String(10), default='USD', comment='基准货币')
@@ -154,16 +210,21 @@ class InvestmentPortfolio(Base):
     update_time = Column(DateTime, onupdate=datetime.now, comment='更新时间')
     llm_prompt = Column(Text, default='', comment='大模型提示词')
     llm_setting = Column(JSON, nullable=True, comment='大模型配置（JSON）')
-    portfolio_assets = relationship("PortfolioAssets", back_populates="portfolio")
     desc = Column(Text, comment='组合描述')
     enable = Column(Integer, nullable=False, default=1, comment='是否启用：0-停用, 1-启用')
     market = Column(String(50), nullable=False, default='cn', comment='市场：cn/hk/us 等')
     quantstat_json = Column(JSON, nullable=True, comment='量化绩效统计（JSON）')
 
+    __table_args__ = (
+        UniqueConstraint(user_id, name, name='uniq_uid_name'),
+        {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'}
+    )
+
     def to_dict(self):
         """将对象转换为字典格式"""
         return {
             'portfolio_id': self.portfolio_id,
+            'user_id': self.user_id,
             'name': self.name,
             'total_position_pct': float(self.total_position_pct) if self.total_position_pct is not None else None,
             'base_currency': self.base_currency,
@@ -186,7 +247,12 @@ class InvestmentPortfolio(Base):
 class PortfolioAssets(Base):
     __tablename__ = 'portfolio_assets'
     asset_id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
-    portfolio_id = Column(String(36), ForeignKey('investment_portfolio.portfolio_id'), comment='投资组合ID')
+    # ⚠️ 这里**故意不声明 ForeignKey**：线上 `portfolio_assets.portfolio_id` 是 varchar(36)，
+    # 而 `investment_portfolio.portfolio_id` 是 int —— 类型本就不兼容，且线上根本没有外键约束
+    # （install/database.sql 里也没有）。保留 ForeignKey 声明会让「空库首次 create_all」
+    # 去建一个 int PK ← varchar FK 的约束，MySQL 直接报 3780 无法创建。
+    # 曾被两个 relationship() 引用，但那两处 relationship 在全仓从未被遍历使用，已一并删掉。
+    portfolio_id = Column(String(36), comment='投资组合ID（与 investment_portfolio.portfolio_id 对应）')
     stock_code = Column(String(20), nullable=False, comment='股票/ETF标的代码')
     asset_name = Column(String(100), nullable=False, comment='标的名称')
     position_pct = Column(DECIMAL(5, 2), nullable=False, default=0.0, comment='标的仓位百分比')
@@ -200,7 +266,6 @@ class PortfolioAssets(Base):
     stop_loss_percent = Column(Float, nullable=False, comment='止损线（%）', default=0)
     take_profit_percent = Column(Float, nullable=False, comment='止盈线（%）', default=0)
     remark = Column(Text, comment='备注')
-    portfolio = relationship("InvestmentPortfolio", back_populates="portfolio_assets")
 
     def to_dict(self):
         """将对象转换为字典格式"""
@@ -678,6 +743,15 @@ class User(Base):
     last_login_at = Column(DateTime, nullable=True, comment='最后登录时间')
     created_at = Column(DateTime, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    # ⚠️ email 上有唯一索引：邮箱也是登录凭证（`UserService.find_by_identifier` 会
+    # 在用户名没命中时按邮箱查），重复邮箱会让「邮箱登录」退化成随机进某个账号。
+    # MySQL 唯一索引允许多个 NULL，所以「不填邮箱」不受影响 —— 写入时统一把空值
+    # 归一化成 NULL（`UserService.normalize_email`），别写空串。
+    __table_args__ = (
+        UniqueConstraint('email', name='uniq_email'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_bin', 'mysql_engine': 'InnoDB'},
+    )
 
     def to_dict(self):
         """转为字典，隐藏密码哈希等敏感字段"""

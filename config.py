@@ -120,6 +120,17 @@ cache_setting = {
     'etfs': int(os.getenv('CACHE_ETFS', 60))
 }
 
+# ===== 登录鉴权（多用户）=====
+# 登录 token 存 Redis：键 = token_prefix + token，值 = 该 token 所属用户的 id，
+# 到点自动过期。登出 = 删键，改密码/禁用 = 按前缀扫删该用户的全部令牌。
+# 与旧实现的关键差别：旧 token 是「只发号不落库」的 uuid4，全仓无人校验，
+# 等于后端没有鉴权；现在后端能由 token 反查「当前用户」，多用户隔离才成立。
+# 每次校验成功都会续期（滑动过期），避免用户正在使用时被踢下线。
+auth_setting = {
+    'token_prefix': os.getenv('AUTH_TOKEN_PREFIX', 'alphalom:auth:token:'),
+    'token_ttl': int(os.getenv('AUTH_TOKEN_TTL', 7 * 24 * 3600)),   # 秒，默认 7 天
+}
+
 # ===== 大模型路由配置 =====
 # key 为业务场景名，get_model_by_setting(key) 据此返回对应 LLM 实例
 llm_model_setting = {

@@ -6,7 +6,7 @@ import { useNotification } from '@/composables/useNotification';
 import { ref } from 'vue';
 import axios from 'axios';
 import { store } from '@/store'
-const email = ref('');
+const identifier = ref('');
 const password = ref('');
 const checked = ref(true);
 const { showSuccess, showError } = useNotification();
@@ -20,11 +20,14 @@ const images = [
 const currentIndex = ref(Math.floor(Math.random() * (images.length)))
 
 function handleLogin() {
-    // 去除前后空格后判断是否为空
-    const username = email.value?.trim();
+    // ⚠️ 账号字段既接受**用户名**也接受**邮箱**（后端 find_by_identifier 先按用户名、
+    // 没命中再按邮箱查），所以这里绝不能做「必须是邮箱格式」的校验 —— 否则
+    // 用户名（如 admin）会被前端自己拦下来。标签也就写成「用户名 / 邮箱」，
+    // 历史上前端标签写 Email、后端却只认 username，导致填邮箱永远登不上。
+    const account = identifier.value?.trim();
     const pwd = password.value?.trim();
 
-    if (!username) {
+    if (!account) {
         showError('请输入用户名或邮箱');
         return;
     }
@@ -34,20 +37,27 @@ function handleLogin() {
     }
 
     axios.post('/api/v1/auth/login', {
-        username: username,
+        username: account,
         password: pwd
     }).then(response => {
-        showSuccess('登录成功');
         if (response.status === 200 && response.data.status === 1) {
-            // 存储 token
-            store.state.token = response.data.token;
-            localStorage.setItem('token', response.data.token);
+            // 存令牌与当前用户：走 mutation（原实现直接改 store.state，
+            // localStorage 也要手写一遍，容易漏），后续请求由 main.js 的
+            // 拦截器自动带上 Authorization 头。
+            store.commit('setToken', response.data.token);
+            store.commit('setUser', response.data.user);
+            showSuccess('登录成功');
             // 跳转页面
             router.push({ path: '/market/cn_market_overview' });
         }
     }).catch(error => {
-        // 可选：更详细的错误提示（如区分网络错误与认证失败）
-        showError('登录失败，用户名或密码错误！');
+        // 区分「账号密码错」与「后端鉴权服务不可用」：后者重试才有意义，
+        // 提示成密码错会让人白试很多次。
+        if (error?.response?.status === 503) {
+            showError('鉴权服务暂不可用，请稍后再试');
+        } else {
+            showError('登录失败，用户名/邮箱或密码错误！');
+        }
     });
 }
 
@@ -89,8 +99,8 @@ function handleLogin() {
 
         <!-- 表单字段 -->
         <div>
-          <label for="email1" class="block text-surface-900 dark:text-surface-0 text-lg font-medium mb-2">Email</label>
-          <InputText id="email1" type="text" placeholder="Email address" class="w-full mb-6" v-model="email" />
+          <label for="loginAccount" class="block text-surface-900 dark:text-surface-0 text-lg font-medium mb-2">用户名 / 邮箱</label>
+          <InputText id="loginAccount" type="text" placeholder="用户名或邮箱" class="w-full mb-6" v-model="identifier" />
 
           <label for="password1" class="block text-surface-900 dark:text-surface-0 font-medium text-lg mb-2">Password</label>
           <Password id="password1" v-model="password" placeholder="Password" :toggleMask="true" class="mb-6" fluid :feedback="false" @keyup.enter="handleLogin"></Password>
@@ -109,23 +119,6 @@ function handleLogin() {
     </div>
   </div>
 </template>
-
-<script>
-export default {
-  data() {
-    return {
-      email: '',
-      password: '',
-      checked: false
-    }
-  },
-  methods: {
-    handleLogin() {
-      // 登录逻辑
-    }
-  }
-}
-</script>
 
 <style scoped>
 /* 源图 488×102，按 CSS 定高缩放；原先 w-56(224px) 偏大，收窄到 ~176px */

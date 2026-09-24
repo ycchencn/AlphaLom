@@ -47,9 +47,11 @@ CREATE TABLE IF NOT EXISTS `etf_watchlist` (
   `symbol` varchar(25) NOT NULL COMMENT 'ETF代码，如 159901',
   `name` varchar(100) DEFAULT NULL COMMENT 'ETF名称（加入时从 databull 取，可空）',
   `created_at` datetime DEFAULT NULL COMMENT '加入时间',
+  `user_id` int DEFAULT NULL COMMENT '所属用户（users.id）',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `ix_etf_watchlist_symbol` (`symbol`)
-) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  UNIQUE KEY `uniq_user_symbol` (`user_id`,`symbol`),
+  KEY `ix_etf_watchlist_user_id` (`user_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `factor_values` (
   `trade_date` date NOT NULL COMMENT '交易日期，如 2024-12-01',
@@ -126,8 +128,8 @@ CREATE TABLE IF NOT EXISTS `investment_portfolio` (
   `market` varchar(50) COLLATE utf8mb4_bin DEFAULT 'cn',
   `quantstat_json` json DEFAULT NULL,
   PRIMARY KEY (`portfolio_id`),
-  UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='投资组合管理表';
+  UNIQUE KEY `uniq_uid_name` (`uid`,`name`)
+) ENGINE=InnoDB AUTO_INCREMENT=25 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='投资组合管理表';
 
 CREATE TABLE IF NOT EXISTS `investment_portfolio_copy` (
   `portfolio_id` int NOT NULL AUTO_INCREMENT COMMENT 'UUID组合唯一ID',
@@ -500,19 +502,33 @@ CREATE TABLE IF NOT EXISTS `system_setting` (
   KEY `ix_system_setting_setting_group` (`setting_group`)
 ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS `user_stock_pool` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  `user_id` int NOT NULL COMMENT '所属用户（users.id）',
+  `symbol` varchar(25) COLLATE utf8mb4_unicode_ci NOT NULL COMMENT '股票代码',
+  `market` varchar(10) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '市场：cn/hk/us',
+  `monitor_by` varchar(50) COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '加入来源标签（沿用原 stocks.monitor_by 的取值习惯）',
+  `created_at` datetime DEFAULT NULL COMMENT '加入时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_user_symbol` (`user_id`,`symbol`),
+  KEY `ix_user_stock_pool_symbol` (`symbol`),
+  KEY `ix_user_stock_pool_user_id` (`user_id`)
+) ENGINE=InnoDB AUTO_INCREMENT=130 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
   `username` varchar(50) COLLATE utf8mb4_bin NOT NULL COMMENT '登录用户名（唯一）',
   `password_hash` varchar(255) COLLATE utf8mb4_bin NOT NULL COMMENT '密码哈希（bcrypt/pbkdf2，不存明文）',
   `nickname` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '昵称',
-  `email` varchar(100) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '邮箱',
+  `email` varchar(100) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '邮箱（唯一；也是登录账号）',
   `role` varchar(20) COLLATE utf8mb4_bin NOT NULL COMMENT '角色：admin-管理员, user-普通用户',
   `is_active` int NOT NULL COMMENT '是否启用：0-禁用, 1-启用',
   `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
   `created_at` datetime DEFAULT NULL COMMENT '创建时间',
   `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  UNIQUE KEY `username` (`username`)
+  UNIQUE KEY `username` (`username`),
+  UNIQUE KEY `uniq_email` (`email`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 /*!40103 SET TIME_ZONE=IFNULL(@OLD_TIME_ZONE, 'system') */;

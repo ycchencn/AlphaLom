@@ -1,6 +1,8 @@
 import {createApp} from 'vue';
 import App from './App.vue';
 import router from './router';
+import axios from 'axios';
+import { store } from './store';
 
 import Aura from '@primeuix/themes/aura';
 import PrimeVue from 'primevue/config';
@@ -51,6 +53,55 @@ app.use(PrimeVue, {
 })
 app.use(ToastService);
 app.use(ConfirmationService);
+
+// ==================== 登录令牌注入与 401 统一处理 ====================
+// 后端已是多用户：股票池 / 量化策略 / ETF 自选这些「用户私有」接口不带令牌一律 401，
+// 所以每个请求都必须带上 `Authorization: Bearer <token>`。
+// 这里在 axios 全局实例上挂拦截器（各页面是直接 `import axios` 用的同一个实例，
+// 因此一处注册即全局生效），避免 22 个页面各写一遍、漏一个就那个页面报未登录。
+axios.interceptors.request.use(config => {
+    const token = store.state.token;
+    if (token) {
+        config.headers = config.headers || {};
+        // 不覆盖调用方显式设置的 Authorization（便于临时用别的凭证调试）
+        if (!config.headers.Authorization) {
+            config.headers.Authorization = `Bearer ${token}`;
+        }
+    }
+    return config;
+});
+
+// 401 = 未登录 / 令牌失效（后端 Redis 里查不到或已过期）：
+// 清掉本地令牌并送回登录页，否则用户会停在一个「每个请求都失败」的页面里。
+axios.interceptors.response.use(
+    response => response,
+    error => {
+        const status = error?.response?.status;
+        if (status === 401) {
+            store.commit('removeToken');
+            const current = router.currentRoute.value;
+            if (current.path !== '/auth/login') {
+                router.replace({ path: '/auth/login' });
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
+// 启动时用 /auth/me 复核一次登录态：localStorage 里的令牌可能已经被服务端撤销
+// （管理员改了密码 / 禁用账号 / 用户在别处登出 / Redis TTL 到期）。不复核的话，
+// 用户会先进入一个「每个请求都失败」的页面，等服务端 401 回来才被弹回登录页。
+if (store.state.token) {
+    axios.get('/api/v1/auth/me')
+        .then(response => {
+            // 顺手刷新本地缓存的用户信息（角色可能已被管理员改过，isAdmin 依赖它）
+            store.commit('setUser', response.data);
+        })
+        .catch(() => {
+            // 401 已由上面的响应拦截器统一处理（清令牌 + 跳登录页）；
+            // 网络异常时保持现状，避免把用户从离线可看的页面上踢走。
+        });
+}
 
 app.config.globalProperties.$echarts = echarts;
 

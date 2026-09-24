@@ -1,7 +1,8 @@
 <script setup>
-import {ref} from 'vue'
+import { computed, ref } from 'vue'
 
 import AppMenuItem from './AppMenuItem.vue'
+import { store } from '@/store'
 
 const model = ref([
     {
@@ -87,6 +88,14 @@ const model = ref([
                 enable: true,
             },
             {
+                label: '用户管理',
+                icon: 'pi pi-fw pi-users',
+                to: '/system/user_manage',
+                enable: true,
+                // 只有管理员可见（普通用户看不到、进去也会被路由守卫挡回）
+                adminOnly: true,
+            },
+            {
                 label: 'API文档',
                 icon: 'pi pi-fw pi-twitch',
                 url: 'https://www.databull.cn/docs',
@@ -96,6 +105,17 @@ const model = ref([
         ]
     }
 ])
+
+// 侧边栏菜单按角色过滤：管理员能看到 `adminOnly` 的项（用户管理），普通用户看不到。
+// ⚠️ 这只是「不显示」，真正的权限边界在后端（`require_admin` 会返回 403）——
+// 别把前端隐藏当成鉴权。
+const visibleModel = computed(() => {
+    if (store.getters.isAdmin) return model.value
+    return model.value.map(group => {
+        if (!group.items) return group
+        return { ...group, items: group.items.filter(item => !item.adminOnly) }
+    })
+})
 </script>
 
 <template>
@@ -106,7 +126,7 @@ const model = ref([
     </div>
     <Divider/>
     <ul class="layout-menu">
-        <template v-for="(item, i) in model" :key="item">
+        <template v-for="(item, i) in visibleModel" :key="item">
             <!-- 当顶层分组 enable 不为 false 时才渲染 -->
             <template v-if="item.enable !== false">
                 <app-menu-item

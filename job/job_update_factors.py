@@ -103,15 +103,16 @@ def job_update_stock_factor_daily():
         return
 
     stocks = StockService.search_stocks(securities_type='stock', monitoring=1, per_page=10000)
-    etfs = EtfService.list_watchlist()
+    # ⚠️ ETF 取「全部用户自选的去重并集」：本任务没有用户上下文，因子是按标的算的公共数据
+    etf_symbols = EtfService.list_all_symbols()
 
     # 循环对个股进行每日挖掘
     _send_factor_jobs([stock['symbol'] for stock in stocks], asset_type='stock')
 
     # ETF 监控清单：和个股同一套因子，只是行情接口不同
-    _send_factor_jobs([etf.symbol for etf in etfs], asset_type='etf')
+    _send_factor_jobs(etf_symbols, asset_type='etf')
 
-    logger.info(f"因子日更任务已投递：个股 {len(stocks)} 只、ETF {len(etfs)} 只")
+    logger.info(f"因子日更任务已投递：个股 {len(stocks)} 只、ETF {len(etf_symbols)} 只")
 
 
 def job_update_stock_factor_daily_all():
@@ -122,8 +123,8 @@ def job_update_stock_factor_daily_all():
         job_update_stock_factor(stock_code=stock['symbol'], asset_type='stock',
                                 save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
-    for etf in EtfService.list_watchlist():
-        job_update_stock_factor(stock_code=etf.symbol, asset_type='etf',
+    for symbol in EtfService.list_all_symbols():
+        job_update_stock_factor(stock_code=symbol, asset_type='etf',
                                 save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
 
@@ -133,10 +134,10 @@ def job_update_etf_factor_all():
 
     新加入监控的 ETF 在下一个日更任务跑之前是没有因子的，可以先跑这个补上。
     """
-    etfs = EtfService.list_watchlist()
-    logger.info(f"开始回填 ETF 因子，共 {len(etfs)} 只")
-    for etf in etfs:
-        job_update_stock_factor(stock_code=etf.symbol, asset_type='etf',
+    symbols = EtfService.list_all_symbols()
+    logger.info(f"开始回填 ETF 因子，共 {len(symbols)} 只")
+    for symbol in symbols:
+        job_update_stock_factor(stock_code=symbol, asset_type='etf',
                                 save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
 

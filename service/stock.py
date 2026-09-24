@@ -5,7 +5,7 @@
 """
 
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
-from models import Stock
+from models import Stock, UserStockPool
 from models.database import db_session
 
 from utils.logger import logger
@@ -137,15 +137,147 @@ class StockService:
         return [stock.to_dict() for stock in stocks]
 
     @staticmethod
-    def get_monitoring_stock_pool(page=1, per_page=25, market=None) -> List[Dict[str, Any]]:
-        stocks = StockService.search_stocks(
+    def get_monitoring_stock_pool(page=1, per_page=25, market=None,
+                                  user_id=None) -> List[Dict[str, Any]]:
+        """
+        取「监控中」的个股池。
+
+        - `user_id=None` → **全局并集**（至少有一个用户关注的票）。日更类任务用这个，
+          它们没有用户上下文，也不该有（行情/因子是按标的算的公共数据）。
+        - `user_id=k`   → 只返回用户 k 自己的池子。Web 接口用这个。
+
+        `user_stock_pool` 是用户私有数据的唯一事实来源，所以按用户查询时不再叠加
+        `monitoring=1` 条件（那是给任务用的并集标记，万一没同步上不该让用户看不到自己的票）。
+        """
+        if user_id is not None:
+            symbols = StockService.get_user_pool_symbols(user_id, market=market)
+            if not symbols:
+                return []
+            # ⚠️ 先取代码列表、再 in_([...])，不要 JOIN user_stock_pool：
+            # 库内各表 symbol 的排序规则并不统一（utf8mb4_unicode_ci / 0900_ai_ci 混用），
+            # 直接 JOIN 会撞 1267 Illegal mix of collations。
+            query = db_session.query(Stock).filter(
+                Stock.symbol.in_(symbols),
+                Stock.securities_type == 'stock',
+            )
+            if market:
+                query = query.filter(Stock.market == market)
+            offset = (page - 1) * per_page
+            return [s.to_dict() for s in query.offset(offset).limit(per_page).all()]
+
+        return StockService.search_stocks(
             securities_type='stock',
             monitoring=1,
             page=page,
             per_page=per_page,
             market=market
         )
-        return stocks
+
+    # ---------- 用户股票池（多用户隔离）----------
+
+    @staticmethod
+    def get_user_pool_symbols(user_id, market=None) -> List[str]:
+        """某用户股票池里的全部代码（纯字符串列表，供跨表过滤/批量判断使用）。"""
+        try:
+            query = db_session.query(UserStockPool.symbol).filter(
+                UserStockPool.user_id == int(user_id))
+            if market:
+                query = query.filter(UserStockPool.market == market)
+            return [row[0] for row in query.all() if row[0]]
+        except Exception as e:
+            logger.error(f"get_user_pool_symbols failed (user_id={user_id}): {e}")
+            return []
+
+    @staticmethod
+    def is_in_user_pool(user_id, symbol) -> bool:
+        """某用户的池子里是否有这只票（ETF 详情页判断成分股「是否已加入」用）。"""
+        try:
+            return db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol == symbol,
+            ).first() is not None
+        except Exception as e:
+            logger.error(f"is_in_user_pool failed (user_id={user_id}, {symbol}): {e}")
+            return False
+
+    @staticmethod
+    def sync_monitoring_flag(symbol) -> bool:
+        """
+        按 `user_stock_pool` 的真实引用情况重算 `stocks.monitoring`（并集标记）。
+
+        ⚠️ 必须用「还有没有别的用户引用」来判定，不能「移除后直接置 0」：
+        同一只票可能同时在多个用户的池子里，A 移除后 B 还留着，
+        盲目置 0 会让这只票从日更任务的枚举里消失（B 的票再也不更新行情/因子）。
+        """
+        try:
+            referenced = db_session.query(UserStockPool).filter(
+                UserStockPool.symbol == symbol).first() is not None
+            db_session.query(Stock).filter(Stock.symbol == symbol).update(
+                {'monitoring': 1 if referenced else 0}, synchronize_session=False)
+            db_session.commit()
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"sync_monitoring_flag failed for {symbol}: {e}")
+            return False
+
+    @staticmethod
+    def add_to_user_pool(user_id, symbol, market='cn', monitor_by=None) -> bool:
+        """
+        把某只票加入指定用户的池子（幂等：已存在则只补齐 market/来源标签）。
+
+        只写 `user_stock_pool`；`stocks.monitoring` 由 `sync_monitoring_flag` 统一重算
+        —— 两处都手写标记迟早会漂移（一个用户移除后把公共标记清掉）。
+        """
+        if not user_id or not symbol:
+            return False
+        try:
+            item = db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol == symbol,
+            ).first()
+            if item:
+                if market:
+                    item.market = market
+                if monitor_by:
+                    item.monitor_by = monitor_by
+            else:
+                db_session.add(UserStockPool(
+                    user_id=int(user_id), symbol=symbol,
+                    market=market or 'cn', monitor_by=monitor_by,
+                ))
+            db_session.commit()
+            StockService.sync_monitoring_flag(symbol)
+            return True
+        except IntegrityError:
+            # 并发下同一用户重复加入会被唯一键挡下，这不是错误
+            db_session.rollback()
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"add_to_user_pool failed (user_id={user_id}, {symbol}): {e}")
+            return False
+
+    @staticmethod
+    def remove_from_user_pool(user_id, symbol) -> bool:
+        """把某只票移出指定用户的池子。不在池中返回 False。"""
+        if not user_id or not symbol:
+            return False
+        try:
+            item = db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol == symbol,
+            ).first()
+            if not item:
+                return False
+            db_session.delete(item)
+            db_session.commit()
+            StockService.sync_monitoring_flag(symbol)
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"remove_from_user_pool failed (user_id={user_id}, {symbol}): {e}")
+            return False
 
 
     @staticmethod

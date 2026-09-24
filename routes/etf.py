@@ -6,7 +6,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
@@ -15,6 +15,7 @@ from typing import Optional
 from app.fastapi_app import api_prefix
 from config import cache_setting
 from databull import DataBullError
+from utils.auth import get_current_user_id
 from utils.data_loader import databull
 from service import FactorValueService
 from service.etf_service import EtfService
@@ -77,20 +78,24 @@ def _etf_name_from_databull(symbol: str, fallback: str = None) -> str:
 
 @etf_router.get('/etfs')
 @cache(expire=cache_setting['etfs'], namespace=ETF_LIST_NS)
-def get_etfs():
+def get_etfs(user_id: int = Depends(get_current_user_id)):
     """
-    获取ETF监控列表（持久化在 etf_watchlist 表）。
+    获取**当前用户**的 ETF 监控列表（持久化在 etf_watchlist 表）。
 
     缓存：每只 ETF 都要单独查 2 次因子（52 周高低）+ 1 次上游实时行情，是典型的
     N+1，而列表成员本身很少变动，故整体缓存（TTL 见 config.cache_setting['etfs']，
     取短是因为载荷里含实时报价）。
+
+    ⚠️ `user_id` 用 `Depends` 注入而不是从 query 读：它会被 FastAPI 作为 kwargs 传给
+    endpoint，从而天然进入 fastapi_cache 的缓存键 —— 用户维度自动隔离，
+    前端也无法通过传参看别人的自选。
 
     ⚠️ 增删 ETF 的接口必须在写库后立刻
     `await FastAPICache.clear(namespace=ETF_LIST_NS)`，否则用户加完看不到自己的改动
     —— 前端（ETFInsight.vue）在添加/删除后会马上重新拉一次这个接口。
     是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
     """
-    rows = EtfService.list_watchlist()
+    rows = EtfService.list_watchlist(user_id)
     result = []
     for row in rows:
         symbol = row.symbol
@@ -146,9 +151,9 @@ class EtfAddRequest(BaseModel):
 
 
 @etf_router.post('/etf')
-async def add_etf(req: EtfAddRequest):
+async def add_etf(req: EtfAddRequest, user_id: int = Depends(get_current_user_id)):
     """
-    添加一只 ETF 到监控列表（持久化）。symbol 必填，name 可选（不传则由接口取）。
+    添加一只 ETF 到**当前用户**的监控列表（持久化）。symbol 必填，name 可选（不传则由接口取）。
 
     ⚠️ 这里用 `async def` 是本模块唯一的例外：必须 `await FastAPICache.clear()`
     才能让 /etfs 的缓存立刻失效（同步 `def` 由 Starlette 丢线程池执行，里面没有
@@ -157,7 +162,7 @@ async def add_etf(req: EtfAddRequest):
     与 routes/portfolio.py 的处理方式一致。
     """
     try:
-        item = await run_in_threadpool(EtfService.add_watchlist, req.symbol, name=req.name)
+        item = await run_in_threadpool(EtfService.add_watchlist, user_id, req.symbol, name=req.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -169,15 +174,16 @@ async def add_etf(req: EtfAddRequest):
 
 
 @etf_router.delete('/etf/{symbol}')
-async def delete_etf(symbol: str):
+async def delete_etf(symbol: str, user_id: int = Depends(get_current_user_id)):
     """
-    从监控列表移除一只 ETF。
+    从**当前用户**的监控列表移除一只 ETF。
 
     同 add_etf：需要 await 清缓存，故 async + run_in_threadpool。
+    只删自己那一行，别的用户若有同一只 ETF 不受影响（删除条件里带了 user_id）。
     """
-    ok = await run_in_threadpool(EtfService.delete_watchlist, symbol)
+    ok = await run_in_threadpool(EtfService.delete_watchlist, user_id, symbol)
     if not ok:
-        raise HTTPException(status_code=404, detail=f'ETF {symbol} 不在监控列表中')
+        raise HTTPException(status_code=404, detail=f'ETF {symbol} 不在你的监控列表中')
 
     # 已删掉的这只必须立刻从列表里消失，否则缓存还没过期，用户一刷新它又回来了
     await FastAPICache.clear(namespace=ETF_LIST_NS)

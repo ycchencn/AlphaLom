@@ -8,11 +8,10 @@
 """
 
 import uvicorn
-from fastapi import HTTPException, Request
-from fastapi.responses import JSONResponse, FileResponse
-from app.fastapi_app import create_app, api_prefix
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+from app.fastapi_app import create_app
 from config import server_setting
-from service import UserService
 from models.init_db import init_database
 import os
 
@@ -21,6 +20,7 @@ app = create_app()
 env = os.getenv('ENV', 'dev').lower()
 
 # ==================== 路由注册 ====================
+from routes.auth import auth_router
 from routes.stock import stock_router
 from routes.market import market_router
 from routes.portfolio import portfolio_router
@@ -32,6 +32,7 @@ from routes.llm import llm_router
 from routes.system_setting import settings_router
 from routes.backtest import backtest_router
 
+app.include_router(auth_router)
 app.include_router(stock_router)
 app.include_router(market_router)
 app.include_router(portfolio_router)
@@ -44,29 +45,9 @@ app.include_router(settings_router)
 app.include_router(backtest_router)
 
 # ==================== 登录接口 ====================
-@app.post(f'{api_prefix}/auth/login')
-async def auth_login(request: Request):
-    """登录接口：从数据库校验用户名/密码"""
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-    username = (data.get('username') or '').strip()
-    password = data.get('password') or ''
-
-    if not username or not password:
-        return JSONResponse(content={'status': 0, 'message': '用户名和密码不能为空'}, status_code=400)
-
-    user = UserService.authenticate(username, password)
-    if user:
-        token = UserService.generate_token(username)
-        return JSONResponse(content={
-            'status': 1,
-            'message': 'Login successful!',
-            'token': token,
-            'user': user,
-        }, status_code=200)
-    return JSONResponse(content={'status': 0, 'message': '用户名或密码错误'}, status_code=401)
+# 登录 / 登出 / 当前用户 / 用户管理已统一收敛到 routes/auth.py（含签发与校验逻辑），
+# 这里不再单独注册 —— 两处同时注册同一路径时，先注册的会接走请求，
+# 排查起来像是「改了没生效」。
 
 # ==================== 静态文件服务 ====================
 static_dir = os.path.join(os.path.dirname(__file__), 'dist')

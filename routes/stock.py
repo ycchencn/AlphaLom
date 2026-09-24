@@ -4,7 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Query, Request, HTTPException, Depends
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from app.fastapi_app import api_prefix
@@ -13,6 +13,7 @@ from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
+from utils.auth import get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
 from utils.logger import logger
@@ -104,8 +105,17 @@ def get_research_report_detail(report_id: int):
 
 
 @stock_router.put('/stocks/{symbol}')
-async def update_stock(symbol: str, request: Request):
-    """更新股票信息"""
+async def update_stock(symbol: str, request: Request,
+                       user_id: int = Depends(get_current_user_id)):
+    """
+    把个股加入/移出**当前用户**的股票池（monitoring=1 加入，0 移出）。
+
+    多用户改造后这里有两层数据，职责必须分开：
+      - `user_stock_pool`（用户私有）：谁加了这只票 —— 真正的写入目标；
+      - `stocks.*`（全局共享）：名称/市场/公司概况等按标的算的公共字段。
+    `stocks.monitoring` 不再由本接口直写，改由 `StockService.sync_monitoring_flag`
+    按「还有没有别的用户引用」统一重算 —— 它是并集标记，日更任务靠它枚举要更新的标的。
+    """
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
 
@@ -114,18 +124,18 @@ async def update_stock(symbol: str, request: Request):
     except Exception:
         data = {}
 
-    market = data.get('market', 'cn')
     monitoring = data.get('monitoring', 1)
     # 一次查询同时拿到「是否存在」与更新前的监控状态，省掉原先的 exists() 往返
     before = StockService.get_stock_by_symbol(symbol, fields=['monitoring', 'securities_type'])
 
+    # ⚠️ market 只在调用方**显式传**时才覆盖已有标的：原来的 `data.get('market','cn')`
+    # 会把不传 market 的调用（如 StockMonitor.vue）一律写成 cn，港股/美股标的被记错市场，
+    # 之后按 market 分段查询就再也查不到它了。
+    market = data.get('market') or (before or {}).get('market') or 'cn'
+
     if before is not None:
-        # 已在库：只更新调用方显式传来的字段
-        StockService.upsert_stock({
-            'symbol': symbol,
-            'market': market,
-            'monitoring': monitoring
-        })
+        # 已在库：只更新调用方显式传来的字段（不含 monitoring，见 docstring）
+        StockService.upsert_stock({'symbol': symbol, 'market': market})
     else:
         # 不在库：从 API 补全基础信息（名称 + 公司概况）后入库
         StockService.ensure_stock_from_api(
@@ -134,17 +144,25 @@ async def update_stock(symbol: str, request: Request):
             securities_type=data.get('securities_type', 'stock'),
         )
 
-    # 监控标记变了，列表缓存必须立即失效，否则用户改完看不到自己的改动
-    # （后台任务直接改库的场景无法在这里挂钩，由 TTL 兜底）
+    # 用户私有层：加入 / 移出自己的池子（内部会同步 stocks.monitoring 并集标记）
+    if monitoring:
+        StockService.add_to_user_pool(user_id, symbol, market=market,
+                                      monitor_by=data.get('monitor_by') or 'user')
+    else:
+        StockService.remove_from_user_pool(user_id, symbol)
+
+    # 池子变了，列表缓存必须立即失效，否则用户改完看不到自己的改动。
+    # （缓存键里含 user_id，这里是按 namespace 整片清，多清几个用户的键无副作用）
     await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
 
-    # 「新增入库」或「从关闭监控翻回开启监控」= 刚入池，此时该票的分析结果必然不存在，
-    # 必须立刻投递一次个股分析（异步），否则用户加完看到的只有名称和代码。
-    # 已经是监控中的票再点一次不重复投递：一次分析含 DCF + 因子计算，很重；
+    # 「新增入库」或「这只票此前没人在监控」= 它的分析数据必然不存在，必须立刻投递一次
+    # 个股分析（异步），否则用户加完看到的只有名称和代码。
+    # ⚠️ 用「全站并集」（before.monitoring）而不是「我有没有加过」来判定：别的用户早就
+    # 加过、而分析数据是公共的且已存在，再投一次只是白烧一次 DCF + 因子计算。
     # 需要强制重算走「重新分析」接口（PUT /stock/re_analysis/{symbol}）。
     securities_type = data.get('securities_type') or (before or {}).get('securities_type') or 'stock'
-    just_added = securities_type == 'stock' and (
-        before is None or (not before.get('monitoring') and bool(monitoring))
+    just_added = securities_type == 'stock' and bool(monitoring) and (
+        before is None or not before.get('monitoring')
     )
     if just_added:
         _dispatch_stock_analysis(symbol)
@@ -157,28 +175,54 @@ async def update_stock(symbol: str, request: Request):
     }
 
 
+@stock_router.delete('/stocks/{symbol}')
+async def delete_stock(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """
+    把个股移出**当前用户**的股票池（等价于 PUT monitoring=0，语义更直白）。
+
+    只删用户私有层那一行，`stocks` 表里的公共字段（名称/概况/行情）保留 ——
+    别的用户可能还在关注它，而且这些字段是公摊数据，删了下次还得重新取。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    removed = StockService.remove_from_user_pool(user_id, symbol)
+    if not removed:
+        raise HTTPException(status_code=404, detail=f"{symbol} 不在你的股票池中")
+
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+    return {'code': 0, 'message': 'ok'}
+
+
 @stock_router.get('/stocks_monitored')
 @cache(expire=cache_setting['monitored_stocks'], namespace=MONITORED_STOCKS_NS)
 def get_stocks_monitored(
     page: int = Query(1, ge=1),
     market: str = Query('cn'),
     page_size: int = Query(300, ge=1, le=1000),
-    simple: int = Query(0, ge=0, le=1)
+    simple: int = Query(0, ge=0, le=1),
+    user_id: int = Depends(get_current_user_id)
 ):
-    """获取个股监控列表
+    """获取**当前用户**的个股池列表
+
+    ⚠️ `user_id` 用 `Depends(get_current_user_id)` 注入（而不是从 query 里读）：
+    FastAPI 会把依赖解析结果作为 kwargs 传给 endpoint，而 fastapi_cache 的默认
+    key builder 正是把 kwargs 拼进缓存键，所以用户维度**天然进 key**、不会串数据；
+    同时前端也无法通过传参看别人的池子。
 
     性能注意（曾是全站最慢的接口）：这里原本对每只票串行查 4 次库
     （恐惧贪婪、主力行为阶段、52 周高低），默认 page_size=300 时是一个近 1200 次的
     N+1，实测单次请求要 6 秒以上。现已改为两次批量查询（见下方两个 *_batch 方法），
     并保留服务端缓存（TTL 见 config.cache_setting['monitored_stocks']）降低重复计算。
 
-    缓存键由函数与其调用参数生成（FastAPI 把 query 参数作为 kwargs 传入），
-    因此 page / market / page_size / simple 全部参与区分，不会串数据。
+    缓存键由函数与其调用参数生成（FastAPI 把 query 参数与依赖注入值都作为 kwargs 传入），
+    因此 page / market / page_size / simple / user_id 全部参与区分。
 
     返回给浏览器的仍是 no-store（全局缓存策略）：客户端不缓存、服务端命中缓存。
     是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
     """
-    stocks = StockService.get_monitoring_stock_pool(per_page=page_size, market=market)
+    stocks = StockService.get_monitoring_stock_pool(per_page=page_size, market=market,
+                                                    user_id=user_id)
     if simple == 1:
         return stocks
 

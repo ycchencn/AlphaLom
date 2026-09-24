@@ -4,11 +4,11 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-import uuid
 import pandas as pd
-from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi import APIRouter, Query, Request, HTTPException, Depends
 from fastapi.concurrency import run_in_threadpool
 from app.fastapi_app import api_prefix
+from utils.auth import get_current_user_id
 from utils.logger import logger
 from service import InvestmentPortfolioService, PortfolioAssetsService
 from service import (
@@ -18,6 +18,7 @@ from service import (
 )
 from backtest.quant_stat_report import generate_html_report_string
 from fastapi.responses import HTMLResponse
+from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 
 portfolio_router = APIRouter(prefix=api_prefix, tags=['投资组合'])
@@ -28,6 +29,14 @@ portfolio_router = APIRouter(prefix=api_prefix, tags=['投资组合'])
 # 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程），才是正确形态。
 # 只有需要 `await` 的（`await request.json()`、`await FastAPICache.clear()`）才保留 async。
 
+# 组合列表 / 详情的缓存命名空间：装饰器与「写后失效」两处共用同一常量，
+# 避免字符串写得不一致导致失效静默落空（表现是新建完组合列表里看不到）。
+PORTFOLIO_LIST_NS = 'investment_portfolios'
+PORTFOLIO_DETAIL_NS = 'investment_portfolio_detail'
+
+# ⚠️ 白名单刻意**不含** user_id / portfolio_id：
+# 这两个字段是隔离与主键的依据，绝不能让调用方从 body 里指定 ——
+# 否则任何人都能把组合挂到别人名下（越权写），或指定主键覆盖别人的行。
 PORTFOLIO_WRITABLE_FIELDS = {
     'name', 'strategy_type', 'total_position_pct', 'base_currency',
     'position_plan', 'position_plan_reason', 'init_cash', 'current_cash',
@@ -45,11 +54,30 @@ def _pick_writable(data):
     return {k: v for k, v in data.items() if k in PORTFOLIO_WRITABLE_FIELDS}
 
 
+def get_owned_portfolio(portfolio_id, user_id):
+    """
+    取「当前用户名下」的组合，取不到就抛 404。
+
+    ⚠️ 越权一律回 **404 而不是 403**：403 等于告诉对方「这个 id 存在但不是你的」，
+    等于把别人组合的存在性泄露出去。404 对「不存在」和「不属于你」是同一个响应。
+    ⚠️ 所有按 portfolio_id 的读写接口都必须先过这里 —— 组合 id 是自增整数，可枚举。
+    """
+    prof = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
+    if not prof or prof.get('user_id') != int(user_id):
+        raise HTTPException(status_code=404, detail='Portfolio not found')
+    return prof
+
+
 @portfolio_router.get('/investment_portfolios')
-@cache(expire=360)
-def get_investment_portfolios():
-    """获取策略列表数据"""
-    portfolios = InvestmentPortfolioService.get_all()
+@cache(expire=360, namespace=PORTFOLIO_LIST_NS)
+def get_investment_portfolios(user_id: int = Depends(get_current_user_id)):
+    """获取**当前用户**的策略列表数据
+
+    `user_id` 用 `Depends` 注入而不是从 query 读：它会被 FastAPI 作为 kwargs 传给
+    endpoint，从而天然进入 fastapi_cache 的缓存键（用户维度自动隔离），
+    同时前端也无法通过传参查看别人的策略。
+    """
+    portfolios = InvestmentPortfolioService.get_all(user_id=user_id)
     for prof in portfolios:
         prof['summary'] = PortfolioDailySummaryService.get_last_by_portfolio_id(prof.get('portfolio_id'))
         if prof['summary'] is None:
@@ -61,10 +89,10 @@ def get_investment_portfolios():
 
 
 @portfolio_router.get('/investment_portfolios_info/{portfolio_id}')
-@cache(expire=3600)
-def get_investment_portfolios_info(portfolio_id: str):
-    """获取策略详情"""
-    prof = InvestmentPortfolioService.get_by_portfolio_id(portfolio_id)
+@cache(expire=3600, namespace=PORTFOLIO_DETAIL_NS)
+def get_investment_portfolios_info(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
+    """获取策略详情（仅限本人组合）"""
+    prof = get_owned_portfolio(portfolio_id, user_id)
     prof['portfolio_id'] = portfolio_id
     prof['summary'] = PortfolioDailySummaryService.get_last_by_portfolio_id(portfolio_id)
     if prof['summary'] is None:
@@ -76,22 +104,25 @@ def get_investment_portfolios_info(portfolio_id: str):
 
 @portfolio_router.get('/portfolio_daily_summary/{portfolio_id}')
 @cache(expire=3600)
-def get_portfolio_daily_summary(portfolio_id: str):
-    """获取策略每日统计数据"""
+def get_portfolio_daily_summary(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
+    """获取策略每日统计数据（仅限本人组合）"""
+    get_owned_portfolio(portfolio_id, user_id)
     summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)
     return summary_list
 
 
 @portfolio_router.get('/portfolio_transaction/{portfolio_id}')
-def get_portfolio_transaction(portfolio_id: str):
-    """获取策略交易记录"""
+def get_portfolio_transaction(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
+    """获取策略交易记录（仅限本人组合）"""
+    get_owned_portfolio(portfolio_id, user_id)
     _list = PortfolioTransactionService.get_by_portfolio_id(portfolio_id)
     return _list
 
 
 @portfolio_router.get('/portfolio_quantstat/{portfolio_id}')
-def gen_quantstat(portfolio_id: str):
-    """生成量化绩效报告"""
+def gen_quantstat(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
+    """生成量化绩效报告（仅限本人组合）"""
+    get_owned_portfolio(portfolio_id, user_id)
     summary_list = PortfolioDailySummaryService.get_all_by_portfolio_id(portfolio_id)
     df = pd.DataFrame(summary_list)
     df['date'] = pd.to_datetime(df['date'])
@@ -103,8 +134,8 @@ def gen_quantstat(portfolio_id: str):
 
 
 @portfolio_router.post('/investment_portfolios')
-async def create_portfolio(request: Request):
-    """新建投资组合"""
+async def create_portfolio(request: Request, user_id: int = Depends(get_current_user_id)):
+    """新建投资组合（自动归属于当前用户）"""
     try:
         data = await request.json()
     except Exception:
@@ -118,13 +149,18 @@ async def create_portfolio(request: Request):
         return make_response(msg=f'Missing required fields: {", ".join(missing)}', code=400)
 
     payload = _pick_writable(data)
-    payload['portfolio_id'] = str(uuid.uuid4())
+    # ⚠️ 归属由服务端写入，不取 body 里的值（白名单里也没有 user_id，这里是双保险）
+    payload['user_id'] = int(user_id)
     payload.setdefault('strategy_type', 1)
+    # ⚠️ 不再手工生成 portfolio_id：线上主键是 int AUTO_INCREMENT，写 uuid 会被
+    # 非严格模式静默截断为 0（第一次落库 id=0、第二次主键冲突）。交给数据库分配。
 
     try:
-        success = InvestmentPortfolioService.add(payload)
-        if success:
-            return make_response(data={'portfolio_id': payload['portfolio_id']}, msg='Created successfully')
+        new_id = InvestmentPortfolioService.add(payload)
+        if new_id is not None:
+            # 列表缓存必须立刻失效：前端建完会马上重拉列表，否则 6 分钟内看不到自己的新组合
+            await FastAPICache.clear(namespace=PORTFOLIO_LIST_NS)
+            return make_response(data={'portfolio_id': new_id}, msg='Created successfully')
         return make_response(msg='Failed to create (name may already exist)', code=400)
     except Exception as e:
         logger.error(f"Error creating portfolio: {e}")
@@ -132,8 +168,9 @@ async def create_portfolio(request: Request):
 
 
 @portfolio_router.put('/investment_portfolios/{portfolio_id}')
-async def update_portfolio(portfolio_id: str, request: Request):
-    """更新投资组合"""
+async def update_portfolio(portfolio_id: str, request: Request,
+                           user_id: int = Depends(get_current_user_id)):
+    """更新投资组合（仅限本人组合）"""
     try:
         data = await request.json()
     except Exception:
@@ -146,12 +183,13 @@ async def update_portfolio(portfolio_id: str, request: Request):
     if not payload:
         return make_response(msg='No valid updatable fields provided', code=400)
 
-    if not InvestmentPortfolioService.get_by_portfolio_id(portfolio_id):
-        return make_response(msg='Portfolio not found', code=404)
+    get_owned_portfolio(portfolio_id, user_id)
 
     try:
         success = InvestmentPortfolioService.update_by_portfolio_id(portfolio_id, payload)
         if success:
+            await FastAPICache.clear(namespace=PORTFOLIO_LIST_NS)
+            await FastAPICache.clear(namespace=PORTFOLIO_DETAIL_NS)
             return make_response(msg='Updated successfully')
         return make_response(msg='Update failed', code=400)
     except Exception as e:
@@ -160,14 +198,18 @@ async def update_portfolio(portfolio_id: str, request: Request):
 
 
 @portfolio_router.delete('/investment_portfolios/{portfolio_id}')
-def delete_portfolio(portfolio_id: str):
-    """删除投资组合"""
-    if not InvestmentPortfolioService.get_by_portfolio_id(portfolio_id):
-        return make_response(msg='Portfolio not found', code=404)
+async def delete_portfolio(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
+    """删除投资组合（仅限本人组合）
+
+    同 update：需要 await 清缓存，故本路由是 async（内部库操作全是同步的）。
+    """
+    get_owned_portfolio(portfolio_id, user_id)
 
     try:
         success = InvestmentPortfolioService.delete_by_portfolio_id(portfolio_id)
         if success:
+            await FastAPICache.clear(namespace=PORTFOLIO_LIST_NS)
+            await FastAPICache.clear(namespace=PORTFOLIO_DETAIL_NS)
             return make_response(msg='Deleted successfully')
         return make_response(msg='Delete failed', code=400)
     except Exception as e:
@@ -176,18 +218,19 @@ def delete_portfolio(portfolio_id: str):
 
 
 @portfolio_router.put('/portfolio/{portfolio_id}')
-async def update_portfolio_legacy(portfolio_id: str, request: Request):
-    """兼容旧路径的组合更新"""
-    return await update_portfolio(portfolio_id, request)
+async def update_portfolio_legacy(portfolio_id: str, request: Request,
+                                 user_id: int = Depends(get_current_user_id)):
+    """兼容旧路径的组合更新（依赖与鉴权同 update_portfolio，勿单独绕开）"""
+    return await update_portfolio(portfolio_id, request, user_id)
 
 
 @portfolio_router.post('/portfolio/{portfolio_id}/analyze')
-async def trigger_position_plan_analysis(portfolio_id: str, request: Request):
-    """手动触发 AI 调仓分析"""
+async def trigger_position_plan_analysis(portfolio_id: str, request: Request,
+                                        user_id: int = Depends(get_current_user_id)):
+    """手动触发 AI 调仓分析（仅限本人组合）"""
     from backtest.strategy.ai_position_plan_daily import job_position_plan_daily
 
-    if not InvestmentPortfolioService.get_by_portfolio_id(portfolio_id):
-        return make_response(msg='Portfolio not found', code=404)
+    get_owned_portfolio(portfolio_id, user_id)
 
     try:
         data = await request.json()

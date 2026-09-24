@@ -36,14 +36,16 @@ def job_update_etf_greedy_data_daily(override_all=True):
 
     :param override_all: 是否整段重算（**默认且必须 True**）
     """
-    etfs = EtfService.list_watchlist()
-    logger.info(f"ETF 恐惧贪婪日更开始，共 {len(etfs)} 只")
-    for etf in etfs:
+    # ⚠️ 用「全部用户自选的去重并集」：本任务没有用户上下文，恐贪是按标的算的
+    # 公共数据（两个用户都选了同一只 ETF 只算一次）。
+    symbols = EtfService.list_all_symbols()
+    logger.info(f"ETF 恐惧贪婪日更开始，共 {len(symbols)} 只")
+    for symbol in symbols:
         try:
-            job_update_stock_greedy_data(index_code=etf.symbol, override_all=override_all)
+            job_update_stock_greedy_data(index_code=symbol, override_all=override_all)
         except Exception as e:
             # 单只 ETF 失败不能拖垮整批（新上市 ETF 行情可能取不到）
-            logger.warning(f"ETF {etf.symbol} 恐惧贪婪更新失败: {e}")
+            logger.warning(f"ETF {symbol} 恐惧贪婪更新失败: {e}")
     logger.info("ETF 恐惧贪婪日更结束")
 
 def job_update_stock_greedy_data(index_code, override_all=False):
