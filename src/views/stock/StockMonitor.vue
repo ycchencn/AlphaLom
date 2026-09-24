@@ -3,7 +3,7 @@
 import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
 import { computed, onBeforeMount, ref } from 'vue';
-import { getMarketByCode, fearGreedToText } from '@/utils/function';
+import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
 import Dialog from 'primevue/dialog';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
@@ -97,13 +97,21 @@ async function doSearch(kw) {
     }
 }
 
-// 在 <script setup> 内部添加：
+// 恐惧贪婪单元格的着色 class。
+// ⚠️ 这里曾经自己写了一套阈值（60/55/35/20），既与 utils/function.js 的
+// FEAR_GREED_LEVELS（20/50/80）不同，也与大盘页的（25/45/55/75）不同 ——
+// 同一个 fear_greed 值在三个地方可能落到不同档位。
+// 现在改为从全站唯一的 fearGreedLevel 派生，用档位名换 class 名，不再自己判阈值。
+const FG_LEVEL_CLASS = {
+    '极度恐惧': 'fg-extreme-fear',
+    '恐惧': 'fg-fear',
+    '中性': 'fg-neutral',
+    '贪婪': 'fg-greed',
+    '极度贪婪': 'fg-extreme-greed'
+};
+
 function getFearGreedClass(greedValue) {
-    if (greedValue >= 60) return 'fg-extreme-greed';
-    if (greedValue >= 55) return 'fg-greed';
-    if (greedValue >= 35) return 'fg-neutral';
-    if (greedValue >= 20) return 'fg-fear';
-    return 'fg-extreme-fear';
+    return FG_LEVEL_CLASS[fearGreedLevel(greedValue).text] || 'fg-neutral';
 }
 
 /**
@@ -497,24 +505,30 @@ const getPhaseSeverity = (phaseInt) => {
     font-weight: bold;
 }
 
+/* 恐惧贪婪进度条配色。
+   色值与 utils/function.js 的 FEAR_GREED_LEVELS 一一对应（A 股口径：恐惧绿、贪婪红），
+   改这里时务必同步那个常量 —— 该文件是全站唯一的分档/配色来源。
+   原先这五个类只有两种颜色（恐惧与极度恐惧同为灰、贪婪与极度贪婪同为红），
+   且行尾注释写的颜色名与实际色值完全相反（「柔和红」实为灰、「浅绿」实为红），
+   已一并纠正。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 极度恐惧 - 柔和红 */
+    background: #12783c !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 恐惧 - 深橙 */
+    background: #4a9e6b !important; /* 恐惧 - 浅绿 */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {
-    background: #9ccc65 !important; /* 中性 - 金黄 */
+    background: #909399 !important; /* 中性 - 灰 */
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 贪婪 - 浅绿 */
+    background: #e8874a !important; /* 贪婪 - 橙 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 极度贪婪 - 绿 */
+    background: #ef4444 !important; /* 极度贪婪 - 红 */
 }
 
 :deep(.p-progressbar) {

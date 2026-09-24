@@ -15,57 +15,6 @@ const formatDate = (date) => {
     return `${year}${month}${day}`;
 };
 
-export function getLineChartOptions() {
-    return {
-        responsive: true,
-        maintainAspectRatio: false,
-        // ⬇️ 核心配置：控制显示/隐藏
-        plugins: {
-            legend: {
-                display: false // 隐藏图例 (右上角的颜色标签)
-            },
-            tooltip: {
-                enabled: true // 如果你也想隐藏鼠标悬停提示，设为 false
-            },
-            // 如果你之前显示了数据点上的数字，需要去掉这个
-            datalabels: {
-                display: true
-            }
-        },
-        // ⬇️ 隐藏 X轴 和 Y轴 的标题/标签线（如果不需要坐标轴文字也去掉）
-        scales: {
-            x: {
-                display: true, // 设为 false 可以连 X 轴线和刻度都隐藏
-                ticks: {
-                    display: false // 设为 false 隐藏 X 轴下的文字
-                },
-                grid: {
-                    display: false // 隐藏 X 轴网格线
-                }
-            },
-            y: {
-                display: true,
-                ticks: {
-                    display: true
-                },
-                grid: {
-                    display: false // 隐藏 Y 轴网格线
-                }
-            }
-        },
-        // ⬇️ 如果你使用了 elements.line 的配置，保持你的 tension 或 cubicInterpolationMode
-        elements: {
-            line: {
-                tension: 0.4,
-                borderWidth: 2
-            },
-            point: {
-                radius: 0 // 隐藏数据点的小圆点
-            }
-        }
-    };
-}
-
 export function setColorOptions() {
 
     const documentStyle = getComputedStyle(document.documentElement);
@@ -262,14 +211,65 @@ export function getTradeSeverity(tradeString) {
     return 'danger';
 }
 
-// 定义常量，方便维护
+// ===== 恐惧贪婪分档（全站单一来源）=====
+// ⚠️ 阈值与配色**必须全站一致**，否则同一个指标在不同页面会给出相反的颜色含义。
+// 历史遗留问题：本文件曾是欧美口径（恐惧=红 #b3132b、贪婪=绿 #15803d），
+// 而 MarketOverview.vue 用的是 A 股口径（恐惧=绿、贪婪=红），分档点也不同
+// （20/50/80 vs 25/45/55/75）。同一个 fear_greed 值在大盘页显示红色「贪婪」、
+// 在个股页显示绿色「贪婪」，用户只会以为其中一处是 bug。
+// 现在统一为 **A 股红涨绿跌口径**，档位取主流 Fear & Greed 的 25/45/55/75。
+// 色值取自 MarketOverview.vue 的原实现，保证两页观感完全一致。
 const FEAR_GREED_LEVELS = {
-    EXTREME_FEAR: {range: [0, 20], text: '极度恐惧', color: '#b3132b', advice: '市场过度恐慌'},
-    FEAR: {range: [20, 50], text: '恐惧', color: '#ef4444', advice: '市场情绪偏谨慎'},
-    NEUTRAL: {range: [50, 50], text: '中立', color: '#3b82f6', advice: '市场情绪中性'},
-    GREED: {range: [50, 80], text: '贪婪', color: '#22c55e', advice: '市场情绪偏向乐观'},
-    EXTREME_GREED: {range: [80, 100], text: '极度贪婪', color: '#15803d', advice: '市场过度狂热，警惕风险'}
+    EXTREME_FEAR: {range: [0, 25], text: '极度恐惧', color: '#12783c', advice: '市场过度恐慌'},
+    FEAR: {range: [25, 45], text: '恐惧', color: '#4a9e6b', advice: '市场情绪偏谨慎'},
+    NEUTRAL: {range: [45, 55], text: '中性', color: '#909399', advice: '市场情绪中性'},
+    GREED: {range: [55, 75], text: '贪婪', color: '#e8874a', advice: '市场情绪偏向乐观'},
+    EXTREME_GREED: {range: [75, 100], text: '极度贪婪', color: '#ef4444', advice: '市场过度狂热，警惕风险'}
 };
+
+/**
+ * 按恐惧贪婪值取档位（返回 FEAR_GREED_LEVELS 中的一项）。
+ *
+ * 全站唯一分档入口：文字、颜色、建议都由这里派生，
+ * 新增页面时不要再自己写 if-else 分档（项目里曾同时存在三套不同阈值）。
+ *
+ * @param {number|null} value - 恐惧贪婪指数值 (0-100)，null/越界会被夹到合法区间
+ * @returns {Object} 含 range:text:color:advice 的档位对象
+ */
+export function fearGreedLevel(value) {
+    // 边界处理：null 视为 0（极度恐惧端），越界夹紧
+    let v = Number(value);
+    if (value === null || value === undefined || Number.isNaN(v)) v = 0;
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+
+    // ⚠️ 用统一的半开区间 [lo, hi) 判断，最后一段 75~100 闭区间。
+    // 不能用 `v === 50` 这种写法判中性 —— 那会让 49.9 和 50.1 落到不同档，
+    // 而中间档的宽度实际是 45~55，只判等于 50 会让绝大多数中性值被判成贪婪/恐惧。
+    if (v < 25) return FEAR_GREED_LEVELS.EXTREME_FEAR;
+    if (v < 45) return FEAR_GREED_LEVELS.FEAR;
+    if (v < 55) return FEAR_GREED_LEVELS.NEUTRAL;
+    if (v < 75) return FEAR_GREED_LEVELS.GREED;
+    return FEAR_GREED_LEVELS.EXTREME_GREED;
+}
+
+/**
+ * 取恐惧贪婪对应的情绪色（供图表、进度条等用）。
+ * @param {number|null} value
+ * @returns {string} 十六进制色值
+ */
+export function fearGreedColor(value) {
+    return fearGreedLevel(value).color;
+}
+
+/**
+ * 取恐惧贪婪对应的档位文案（极度恐惧 / 恐惧 / 中性 / 贪婪 / 极度贪婪）。
+ * @param {number|null} value
+ * @returns {string}
+ */
+export function fearGreedLabel(value) {
+    return fearGreedLevel(value).text;
+}
 
 /**
  * 格式化个股成交金额（对齐券商APP通用显示标准）
@@ -307,29 +307,18 @@ export function formatMarketCapToBillions(value) {
 }
 
 /**
- * 将恐惧贪婪数值转换为文字描述
+ * 将恐惧贪婪数值转换为文字描述（保留旧接口，内部委托给 fearGreedLevel）。
+ *
+ * ⚠️ 这里曾经自己写了一份分档逻辑，与 fearGreedLevel 的阈值/配色不一致：
+ * 旧实现用 `value === 50` 判中性，而中间档实际是 45~55 的区间，
+ * 导致 45.1 和 54.9 都被判成「贪婪」或「恐惧」，只有恰好等于 50 才显示「中性」。
+ * 现在统一走 fearGreedLevel，新增调用点请直接用 fearGreedLevel / fearGreedColor / fearGreedLabel。
+ *
  * @param {number} value - 恐惧贪婪指数值 (0-100)
- * @returns {Object} 包含文字、颜色和建议的描述对象
+ * @returns {Object} 包含 text、color、advice 的描述对象
  */
 export function fearGreedToText(value) {
-    // 边界处理
-    if (value === null) value = 0;
-    if (value < 0) value = 0;
-    if (value > 100) value = 100;
-
-    // 判断区间
-    if (value >= 0 && value < 20) {
-        return FEAR_GREED_LEVELS.EXTREME_FEAR;
-    } else if (value >= 20 && value < 50) {
-        return FEAR_GREED_LEVELS.FEAR;
-    } else if (value === 50) {
-        return FEAR_GREED_LEVELS.NEUTRAL;
-    } else if (value > 50 && value <= 80) {
-        return FEAR_GREED_LEVELS.GREED;
-    } else {
-        // value > 80 && value <= 100
-        return FEAR_GREED_LEVELS.EXTREME_GREED;
-    }
+    return fearGreedLevel(value);
 }
 
 export function formatDaysAgo(dateString) {

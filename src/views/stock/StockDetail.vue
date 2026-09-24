@@ -1,6 +1,6 @@
 <script setup>
 
-import {computed, onMounted, onUnmounted, watch} from 'vue';
+import {computed, onMounted, onUnmounted, watch, nextTick} from 'vue';
 import {init, dispose} from 'klinecharts';
 import {ref} from 'vue';
 import {useRoute} from 'vue-router';
@@ -13,7 +13,9 @@ import {
     dictToMarkdownRecursive,
     formatDaysAgo,
     fearGreedToText,
-    getLineChartOptions,
+    fearGreedLevel,
+    fearGreedColor,
+    fearGreedLabel,
     formatCurrency,
     formatPercentage,
     calcDcfScore,
@@ -37,11 +39,18 @@ const toast = useToast();
 const route = useRoute();
 const news = ref(null);
 const greed_data = ref([]);
+
+// ===== 恐惧贪婪卡片（UI 与大盘页 MarketOverview 保持一致）=====
+// 近一年走势用原生 ECharts 绘制（与大盘页同款配置），
+// 而不是页面其它地方用的 primevue/chart —— 后者做不到 markLine 分档参考线与
+// 按分值着色的渐变面积，观感会与大盘页对不上。
+const fgChartRef = ref(null);
+let fgChart = null;
+// 后端按 trade_date 倒序返回，取下标 0 即最新一期
+const greedLatest = computed(() => greed_data.value[0] || null);
 const ohlc_data = ref([]);
 const ohlc_last = ref({})
-const lineData = ref(null);
 const loading = ref(false);
-const lineOptions = ref(null);
 const {showSuccess, showError} = useNotification();
 const stock_code = route.params.symbol;
 const stock_profile = ref(null);
@@ -209,9 +218,98 @@ function render() {
     echart1.value.setOption(option)
 }
 
+/**
+ * 懒初始化恐惧贪婪走势图的 ECharts 实例。
+ *
+ * ⚠️ 图表容器在 `v-if="greedLatest"` 内部 —— 首屏 onMounted 时数据还没到、
+ * greedLatest 为 null，那个 div 根本没进 DOM，fgChartRef.value 是 **null**。
+ * 此时调 echarts.init(null) 会在 echarts 内部抛
+ * `Cannot read properties of null (reading 'getAttribute')`，而这个异常发生在
+ * 渲染阶段，会把整个组件的挂载链打断 —— 表现是**页面所有数据都不渲染**，
+ * 但接口其实一个都没发出去（极易误判成后端问题）。
+ * 所以必须在数据到位、DOM 真正存在之后再 init。
+ */
+const ensureFgChart = () => {
+    if (fgChart) return fgChart;
+    if (!fgChartRef.value) return null;
+    fgChart = echarts.init(fgChartRef.value);
+    return fgChart;
+};
+
+/**
+ * 绘制「近一年走势」。
+ *
+ * 配置与大盘页（MarketOverview.vue）的恐惧贪婪图保持一致：
+ * 固定 0~100 的 y 轴、25/50/75 三条分档虚线、渐变面积。
+ * y 轴固定量程是必要的 —— 自适应量程会把「26 分」和「74 分」画成视觉上一样高的波动，
+ * 情绪指标失去可读性。
+ *
+ * @param {Array} rows 已按交易日**升序**排列的记录
+ */
+const renderFearGreedChart = async (rows) => {
+    // nextTick：数据赋值 → v-if 变真 → DOM 出现，等这一拍再 init
+    await nextTick();
+    const instance = ensureFgChart();
+    if (!instance) return;
+
+    if (!rows || !rows.length) {
+        instance.clear();
+        return;
+    }
+
+    instance.setOption({
+        grid: {left: 32, right: 12, top: 16, bottom: 22},
+        tooltip: {
+            trigger: 'axis',
+            formatter: (params) => {
+                const p = params[0];
+                const d = rows[p.dataIndex];
+                return `${d.trade_date}<br/>综合: <b>${d.fear_greed}</b>（${fearGreedLabel(d.fear_greed)}）`
+                    + `<br/>波动分: ${d.vol_score ?? '--'}<br/>动量分: ${d.mom_score ?? '--'}`;
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: rows.map((r) => r.trade_date),
+            show: false
+        },
+        yAxis: {
+            type: 'value',
+            min: 0,
+            max: 100,
+            splitNumber: 2,
+            axisLabel: {fontSize: 9, color: '#94a3b8'},
+            splitLine: {lineStyle: {color: '#eef1f6'}}
+        },
+        series: [{
+            type: 'line',
+            data: rows.map((r) => r.fear_greed),
+            smooth: true,
+            showSymbol: false,
+            lineStyle: {width: 1.5, color: '#ef4444'},
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [
+                        {offset: 0, color: 'rgba(239,68,68,0.28)'},
+                        {offset: 1, color: 'rgba(239,68,68,0.02)'}
+                    ]
+                }
+            },
+            // 25 / 50 / 75 为情绪分档参考线
+            markLine: {
+                silent: true,
+                symbol: 'none',
+                label: {show: false},
+                lineStyle: {type: 'dashed', color: '#cbd5e1'},
+                data: [{yAxis: 50}, {yAxis: 25}, {yAxis: 75}]
+            }
+        }]
+    });
+};
+
 onMounted(async () => {
 
-    lineOptions.value = getLineChartOptions();
     stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
     // 获取日K
@@ -282,34 +380,23 @@ onMounted(async () => {
     });
 
     // 贪婪与恐惧数据
-    axios.get('/api/v1/stock/greed_data/' + stock_code).then(response => {
+    // ⚠️ 显式传 limit=250（约一年交易日）：接口层的默认值是 250，但**这是后端改过之后**的值 ——
+    // 改动前默认 60 条，只够画两三个月的曲线，与卡片标题「近一年走势」对不上。
+    // 这里显式传参而不是依赖默认值，避免以后默认值再被调整时静默改变图表周期。
+    axios.get('/api/v1/stock/greed_data/' + stock_code, {params: {limit: 250}}).then(response => {
 
-        greed_data.value = response.data
+        // 后端按 trade_date 倒序返回。整站图表约定 x 轴从左到右是时间递增，
+        // 而「最新值」又要取第一条，所以这里保留一份倒序数组给卡片左栏用，
+        // 图表另用升序副本。不要再靠 index 0 / last 猜顺序。
+        greed_data.value = Array.isArray(response.data) ? response.data : [];
 
         // 按 date 排序（确保时间顺序）
         const sortedData = [...greed_data.value].sort(
             (a, b) => new Date(a.trade_date).getTime() - new Date(b.trade_date).getTime()
         );
 
-        const labels = sortedData.map(item => item.trade_date);
-        const assets = sortedData.map(item => item.fear_greed);
-        // const history_close = sortedData.map(item => item.close);
-
-        // 更新 lineData.value
-        lineData.value = {
-            labels: labels,
-            datasets: [
-                {
-                    label: '恐惧&贪婪指标',
-                    data: assets,
-                    backgroundColor: 'rgba(255, 71, 87, 0.8)',
-                    borderColor: 'rgba(255, 71, 87, 0.8)',
-                    pointRadius: 1,
-                    borderWidth: 2,
-                    tension: 0.3,
-                }
-            ]
-        };
+        // 卡片右栏的 ECharts 走势图（数据已按升序排好，直接复用）
+        renderFearGreedChart(sortedData);
 
     });
 
@@ -435,8 +522,29 @@ const getRatingSeverity = function (rating) {
 }
 
 
+/**
+ * 窗口尺寸变化时重绘恐惧贪婪图。
+ *
+ * ⚠️ ECharts 画布尺寸是 **init 时按容器实测值固定下来的**，不是响应式的：
+ * 侧边栏折叠、窗口拖拽后画布不会自己跟着变，表现为图表被拉伸变形或右侧留白。
+ * 项目未引入 ResizeObserver 封装，沿用大盘页的做法监听 window resize。
+ * 必须与 removeEventListener 成对，否则页面来回切换会累积监听器。
+ */
+const resizeFgChart = () => fgChart?.resize();
+
+onMounted(() => {
+    window.addEventListener('resize', resizeFgChart);
+});
+
 onUnmounted(() => {
     dispose('chart');
+    window.removeEventListener('resize', resizeFgChart);
+    // 组件卸载时销毁 ECharts 实例：只把 ref 置空不够，
+    // 实例内部仍持有 canvas 与事件监听，反复进出详情页会持续泄漏内存。
+    if (fgChart) {
+        fgChart.dispose();
+        fgChart = null;
+    }
 });
 
 </script>
@@ -599,34 +707,79 @@ onUnmounted(() => {
                     <div id="chart"></div>
                 </div>
 
-                <div class="mt-5 flex flex-col md:flex-row gap-6">
+                <!-- 恐惧贪婪：布局与大盘页（MarketOverview.vue）保持一致 ——
+                     左栏「当前值 + 情绪档位 + 分量条」、右栏「近一年走势图」。
+                     占满整行而不是挤在半栏里，否则横向分栏后图表宽度不足。
+                     外面这层 .fg-card 对齐大盘页 Card 容器的视觉（白底 + 圆角 + 内边距），
+                     否则同样内容放在页面流里会显得比大盘页「散」。 -->
+                <div class="mt-5">
+                    <div class="font-semibold text-lg">
+                        <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
+                    </div>
+                    <Divider/>
 
-                    <div class="w-full md:w-1/2 flex flex-col min-h-0">
-                        <div class="font-semibold text-lg">
-                            <i class="pi pi-sun text-orange-500"></i> 恐惧&贪婪指标
-                            <span v-if="greed_data.length > 0">
-                                【{{ fearGreedToText(greed_data?.[0]['fear_greed'])['advice'] }}】
-                            </span>
+                    <div v-if="greedLatest" class="fear-greed-body fg-card">
+                        <!-- 左：当前值 -->
+                        <div class="fg-current">
+                            <div class="fg-value" :style="{ color: fearGreedColor(greedLatest.fear_greed) }">
+                                {{ Number(greedLatest.fear_greed ?? 0).toFixed(2) }}
+                            </div>
+                            <div class="fg-label" :style="{ color: fearGreedColor(greedLatest.fear_greed) }">
+                                {{ fearGreedLevel(greedLatest.fear_greed).text }}
+                            </div>
+                            <div class="fg-date">{{ greedLatest.trade_date }}</div>
+
+                            <!-- 解读：一句话说明当前情绪意味着什么 -->
+                            <div class="fg-advice">
+                                {{ fearGreedToText(greedLatest.fear_greed).advice }}
+                            </div>
+
+                            <!-- 分量拆解：用迷你条直观表达两个 0~100 分项的相对高低 -->
+                            <div class="fg-scores">
+                                <div class="fg-score">
+                                    <span class="score-name">波动分</span>
+                                    <span class="score-track">
+                                        <span class="score-fill"
+                                              :style="{ width: Math.min(100, Number(greedLatest.vol_score ?? 0)) + '%',
+                                                        background: fearGreedColor(greedLatest.vol_score) }"></span>
+                                    </span>
+                                    <span class="score-val">{{ Number(greedLatest.vol_score ?? 0).toFixed(1) }}</span>
+                                </div>
+                                <div class="fg-score">
+                                    <span class="score-name">动量分</span>
+                                    <span class="score-track">
+                                        <span class="score-fill"
+                                              :style="{ width: Math.min(100, Number(greedLatest.mom_score ?? 0)) + '%',
+                                                        background: fearGreedColor(greedLatest.mom_score) }"></span>
+                                    </span>
+                                    <span class="score-val">{{ Number(greedLatest.mom_score ?? 0).toFixed(1) }}</span>
+                                </div>
+                                <div class="fg-score">
+                                    <span class="score-name">收盘价</span>
+                                    <span class="score-val score-val-wide">
+                                        {{ Number(greedLatest.close ?? 0).toFixed(2) }}
+                                    </span>
+                                </div>
+                            </div>
                         </div>
-                        <Divider/>
-                        <div class="overflow-y-auto flex-1" v-if="greed_data">
-                            <Chart type="line" :data="lineData" :options="lineOptions" style="height: 200px"></Chart>
+                        <!-- 右：近一年走势 -->
+                        <div class="fg-chart-wrap">
+                            <div class="fg-chart-title">近一年走势</div>
+                            <div ref="fgChartRef" class="fg-chart"></div>
                         </div>
                     </div>
+                    <div v-else class="empty-tip">该股票暂无恐惧贪婪数据</div>
+                </div>
 
-                    <div class="w-full md:w-1/2 flex flex-col min-h-0" v-if="tech_report">
-                        <div class="font-semibold text-lg">
-                            <i class="pi pi-chart-line text-green-500"></i> 技术面深度诊断
-                        </div>
-                        <Divider/>
-                        <div class="overflow-y-auto flex-1" v-if="greed_data">
-                            <MarkdownRenderer
-                                fontSize="11px"
-                                :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
-                            </MarkdownRenderer>
-                        </div>
+                <div class="mt-5" v-if="tech_report">
+                    <div class="font-semibold text-lg">
+                        <i class="pi pi-chart-line text-green-500"></i> 技术面深度诊断
                     </div>
-
+                    <Divider/>
+                    <MarkdownRenderer
+                        fontSize="11px"
+                        :markdown="dictToMarkdownRecursive(tech_report.content_json['技术面深度诊断'])">
+                    </MarkdownRenderer>
                 </div>
 
             </TabPanel>
@@ -857,6 +1010,154 @@ onUnmounted(() => {
     margin: 0 auto;
     width: 300px;
     height: 300px
+}
+
+/* ========================
+   恐惧贪婪卡片
+   与大盘页 MarketOverview.vue 的同名样式保持一致（左值 + 右图表）。
+   改这里时请同步那边，两页观感必须一致。
+   ======================== */
+/* 卡片外壳：与大盘页的 Card 容器观感对齐（白底、圆角、内边距）。
+   个股页这块是裸 div，没有 Card 包裹，不补这层会显得比大盘页松散。 */
+.fg-card {
+    background: #fff;
+    border: 1px solid #eef1f6;
+    border-radius: 0.5rem;
+    padding: 1rem 1.25rem;
+}
+
+.fear-greed-body {
+    display: flex;
+    gap: 1.5rem;
+    align-items: stretch;
+
+    .fg-current {
+        flex: 0 0 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 0;
+
+        .fg-value {
+            font-size: 3rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .fg-label {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0.4rem;
+        }
+
+        .fg-date {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        /* 情绪解读：原实现把它塞在标题行里（【市场情绪偏谨慎】），
+           现在下移到数值区，与「数值 → 档位 → 日期 → 解读」的阅读顺序一致 */
+        .fg-advice {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 0.5rem;
+        }
+
+        .fg-scores {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+            margin-top: 1rem;
+            width: 100%;
+
+            .fg-score {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.9rem;
+                color: #64748b;
+
+                .score-name {
+                    flex: 0 0 3.6rem;
+                    white-space: nowrap;
+                }
+
+                // 迷你进度条：0~100 分项得分
+                .score-track {
+                    flex: 1;
+                    height: 5px;
+                    background: #eef1f6;
+                    border-radius: 3px;
+                    overflow: hidden;
+
+                    .score-fill {
+                        display: block;
+                        height: 100%;
+                        border-radius: 3px;
+                        transition: width 0.3s ease;
+                    }
+                }
+
+                .score-val {
+                    flex: 0 0 3.2rem;
+                    text-align: right;
+                    font-weight: 600;
+                    color: #0f172a;
+                    font-variant-numeric: tabular-nums;
+                }
+
+                // 收盘价没有可归一化的量纲，不配进度条，占满右侧
+                .score-val-wide {
+                    flex: 1;
+                }
+            }
+        }
+    }
+
+    .fg-chart-wrap {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+
+        .fg-chart-title {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 0.3rem;
+        }
+
+        .fg-chart {
+            flex: 1;
+            min-height: 200px;
+            width: 100%;
+        }
+    }
+}
+
+.empty-tip {
+    padding: 2rem 0;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+/* 窄屏：横向布局改为纵向堆叠。
+   与大盘页的差异：个股页这个区块在 Tab 内、且下面还跟着「技术面深度诊断」，
+   所以左侧数值区不再固定 300px（会顶满小屏整宽导致图表被挤到下一屏看不见），
+   改为自适应宽度。 */
+@media (max-width: 768px) {
+    .fear-greed-body {
+        flex-direction: column;
+        gap: 1rem;
+
+        .fg-current {
+            flex: none;
+            width: 100%;
+        }
+    }
 }
 
 </style>

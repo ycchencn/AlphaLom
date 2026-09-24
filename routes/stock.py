@@ -204,9 +204,18 @@ def get_stocks_monitored(
 
 @stock_router.get('/stock/greed_data/{stock_code}')
 @cache(expire=3600)
-def get_stocks_greed_data(stock_code: str):
-    """获取个股恐惧贪婪数据"""
-    greed_data = StockFearGreedService.get_by_index_all(index_code=stock_code)
+def get_stocks_greed_data(
+    stock_code: str,
+    limit: int = Query(250, ge=1, le=1000, description='返回最近 N 个交易日的记录'),
+):
+    """
+    获取个股恐惧贪婪数据（按交易日倒序）。
+
+    ⚠️ `limit` 默认从 250 起（约一年交易日）：Service 层的默认值是 60，
+    那个数量只够画两三个月的曲线，而个股详情页与大盘页一样要展示「近一年走势」。
+    存量调用方若不传参，拿到的仍是 250 条（比原来的 60 条多，是超集，不会少数据）。
+    """
+    greed_data = StockFearGreedService.get_by_index_all(index_code=stock_code, limit=limit)
     return greed_data
 
 
