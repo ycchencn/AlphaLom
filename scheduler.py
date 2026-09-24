@@ -10,6 +10,7 @@ from utils.logger import logger
 from models.init_db import init_database
 from apscheduler.schedulers.blocking import BlockingScheduler
 from job import job_update_stock_factor_daily
+from job.job_update_sector_daily import job_update_sector_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
 from backtest.strategy.run_portfolio_daily import run_daily_strategy_all
 from job.job_update_factors import job_update_financial_score_all
@@ -52,6 +53,9 @@ if __name__ == '__main__':
 
     # 更新个股恐贪数据
     scheduler.add_job(job_update_stock_greedy_data_daily, 'cron', hour=20, minute=55, timezone=beijing_tz)
+
+    # 申万行业每日快照落库（板块轮动图数据源；上游只给最新一天，必须逐日累积）
+    scheduler.add_job(job_update_sector_daily, 'cron', day_of_week='mon-fri', hour=20, minute=35, timezone=beijing_tz)
 
     # 每周五晚上更新DCF数据
     scheduler.add_job(job_stock_dcf_model_analysis_daily, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)

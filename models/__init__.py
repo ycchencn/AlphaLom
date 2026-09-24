@@ -692,3 +692,65 @@ class User(Base):
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class SectorDailyStat(Base):
+    """申万行业每日涨跌快照（支撑板块轮动图）。
+
+    数据源：上游 `/cn/market/sector_data/{sw1|sw2|sw3}`。
+
+    ⚠️ 上游**只返回最新一个交易日**（实测三个级别返回的 stat_date 全部相同），没有
+    「按日期取历史」的接口，因此本表的历史只能靠日更任务逐日累积 —— 越早开始跑，
+    轮动图的回溯窗口越长。不要试图用某次请求「补齐」历史，上游给不出。
+
+    ⚠️ 主键必须是 (stat_date, sector_type, sector_name) 复合主键：
+      - 只声明 stat_date 做 primary_key 会让 ORM 身份映射把「同一天不同板块」当成
+        同一行，一次查出多行时静默去重只剩第一行（`stocks_fear_greed` 上踩过一模一样的坑）。
+      - `sector_type` 必须进主键，因为 sw1/sw2/sw3 的板块名理论上可能重名（如「银行」
+        既可能是一级也可能出现在二级）。
+    """
+
+    __tablename__ = 'sector_daily_stats'
+
+    stat_date = Column(Date, primary_key=True, nullable=False, comment='统计日期（上游 stat_date）')
+    sector_type = Column(String(10), primary_key=True, nullable=False, comment='板块级别：SW1/SW2/SW3')
+    sector_name = Column(String(50), primary_key=True, nullable=False, comment='申万板块名称')
+
+    change_pct = Column(Numeric(precision=10, scale=2), comment='涨跌幅（%）')
+    stock_count = Column(Integer, comment='成分股数量')
+    up_count = Column(Integer, comment='上涨家数')
+    down_count = Column(Integer, comment='下跌家数')
+    flat_count = Column(Integer, comment='平盘家数')
+    # ⚠️ 上游的 up_down_ratio 语义不稳定：当 down_count=0 时它直接给 100.0（sw2 实测），
+    # 而当涨跌家数都极小时又会给出正常比值。落库时**原样存**，做轮动图要自己重算，
+    # 不要把这个字段当成可靠的「涨跌比」。
+    up_down_ratio = Column(Numeric(precision=10, scale=2), comment='涨跌比（上游原值，down=0 时为 100）')
+    top_stock = Column(String(50), comment='领涨股名称')
+    top_stock_pct = Column(Numeric(precision=10, scale=2), comment='领涨股涨跌幅（%）')
+    bottom_stock = Column(String(50), comment='领跌股名称')
+    bottom_stock_pct = Column(Numeric(precision=10, scale=2), comment='领跌股涨跌幅（%）')
+    total_trade_amount = Column(Numeric(precision=20, scale=2), comment='总成交额（亿）')
+    # ⚠️ 上游 total_market_cap / avg_turnover 实测**恒为 0.0**，落库无意义，故不建列。
+    update_time = Column(DateTime, default=datetime.now, comment='入库时间')
+
+    def to_dict(self):
+        def _f(v):
+            return float(v) if v is not None else None
+
+        return {
+            'stat_date': self.stat_date.isoformat() if self.stat_date else None,
+            'sector_type': self.sector_type,
+            'sector_name': self.sector_name,
+            'change_pct': _f(self.change_pct),
+            'stock_count': self.stock_count,
+            'up_count': self.up_count,
+            'down_count': self.down_count,
+            'flat_count': self.flat_count,
+            'up_down_ratio': _f(self.up_down_ratio),
+            'top_stock': self.top_stock,
+            'top_stock_pct': _f(self.top_stock_pct),
+            'bottom_stock': self.bottom_stock,
+            'bottom_stock_pct': _f(self.bottom_stock_pct),
+            'total_trade_amount': _f(self.total_trade_amount),
+            'update_time': self.update_time.isoformat() if self.update_time else None,
+        }

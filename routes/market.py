@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Query, HTTPException
 from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService
+from service.sector_daily_service import SectorDailyService, normalize_sector_type
 from utils.logger import logger
 from utils.data_loader import databull
 from fastapi_cache.decorator import cache
@@ -22,11 +23,55 @@ market_router = APIRouter(prefix=api_prefix, tags=['市场数据'])
 @market_router.get('/market/sectors')
 @cache(expire=3600)
 def get_market_sectors(
-    sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级")
+    sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级, sw3-申万三级")
 ):
-    """获取沪深板块涨跌幅数据"""
+    """获取沪深板块涨跌幅数据（申万行业涨跌排行）
+
+    **读库优先、回退上游**：`sector_daily_stats` 由日更任务
+    `job_update_sector_daily` 每天落库；优先返回库里最新交易日的数据。
+    库里查不到（新库、任务还没跑、或传了非法级别）时**回退直连上游**，
+    保证页面不会因为任务缺失而空白。
+
+    ⚠️ 上游 `/cn/market/sector_data/{sw}` 只返回**最新一个交易日**，没有历史接口 ——
+    想要历史（如板块轮动图）必须读库，走 `/market/sectors_history`。
+    """
+    st = normalize_sector_type(sector_type)
+    if st:
+        rows = SectorDailyService.get_latest(st)
+        if rows:
+            return json_resp(rows)
+        logger.debug(f'{st} 库里无数据，回退上游')
+
+    # 回退：非法 sector_type 也会走到这里，交给上游返回 4xx 或空数据
     market_sector = databull.get_sector_data(sector_type=sector_type)
     return json_resp(market_sector)
+
+
+@market_router.get('/market/sectors_history')
+@cache(expire=3600)
+def get_market_sectors_history(
+    sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级, sw3-申万三级"),
+    limit_days: int = Query(250, ge=1, le=2000, description='取最近 N 个交易日'),
+    sector_names: str = Query(None, description='可选，逗号分隔的板块名，只取这些板块'),
+    mode: str = Query('raw', description="raw-明细行; rotation-按日排名矩阵（轮动图用）"),
+):
+    """申万行业**历史**日线（板块轮动图数据源）
+
+    只能读本地库 —— 上游没有历史接口。数据靠日更任务逐日累积，因此
+    实际能回溯多久取决于任务已跑了多少天；空表时返回 `[]`（不是 500）。
+
+    :param mode: `raw` 返回逐行明细（含涨跌家数、领涨股等），
+                 `rotation` 返回按交易日的排名矩阵，直接喂轮动图。
+    """
+    st = normalize_sector_type(sector_type)
+    if not st:
+        raise HTTPException(status_code=400, detail=f'非法 sector_type: {sector_type}')
+
+    names = [n.strip() for n in sector_names.split(',') if n.strip()] if sector_names else None
+
+    if mode == 'rotation':
+        return json_resp(SectorDailyService.get_rotation_ranks(st, limit_days=limit_days))
+    return json_resp(SectorDailyService.get_history(st, limit_days=limit_days, sector_names=names))
 
 
 @market_router.get('/market/fear_greed')
