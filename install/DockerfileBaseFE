@@ -4,3 +4,4 @@ WORKDIR /build
 # ✅ 第一步：只复制依赖清单，安装依赖（缓存命中关键）
 COPY package*.json ./
 RUN npm install --registry=https://registry.npmmirror.com
+RUN npx update-browserslist-db@latest
