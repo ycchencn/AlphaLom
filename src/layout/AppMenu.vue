@@ -82,6 +82,14 @@ const model = ref([
                 enable: true,
             },
             {
+                label: '图表显示',
+                icon: 'pi pi-fw pi-chart-bar',
+                to: '/system/chart_display',
+                enable: true,
+                // 控制的是全站详情页的图表显隐 → 只有管理员可见/可改
+                adminOnly: true,
+            },
+            {
                 label: '系统日志',
                 icon: 'pi pi-fw pi-stopwatch',
                 to: '/system/system_log',

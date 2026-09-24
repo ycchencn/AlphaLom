@@ -142,6 +142,14 @@ const router = createRouter({
                     meta: { title: '大模型配置', requiresAuth: true }
                 },
                 {
+                    path: '/system/chart_display',
+                    name: 'chart_display_setting_view',
+                    component: () => import('@/views/system/ChartDisplaySetting.vue'),
+                    // 改的是全站详情页的显隐 → 管理员专属；
+                    // 后端 PUT/DELETE 有 require_admin 兜底（GET 故意放开给详情页读）
+                    meta: { title: '图表显示', requiresAuth: true, requiresAdmin: true }
+                },
+                {
                     path: '/system/system_log/',
                     name: 'system_log_view',
                     component: () => import('@/views/system/SystemLog.vue'),
