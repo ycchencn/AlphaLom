@@ -7,9 +7,6 @@
 /*!40101 SET @OLD_SQL_MODE=@@SQL_MODE, SQL_MODE='NO_AUTO_VALUE_ON_ZERO' */;
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
-CREATE DATABASE IF NOT EXISTS `stock_quantization` /*!40100 DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_bin */ /*!80016 DEFAULT ENCRYPTION='N' */;
-USE `stock_quantization`;
-
 CREATE TABLE IF NOT EXISTS `app_logs` (
   `id` bigint NOT NULL AUTO_INCREMENT,
   `timestamp` datetime NOT NULL,
@@ -23,49 +20,7 @@ CREATE TABLE IF NOT EXISTS `app_logs` (
   PRIMARY KEY (`id`),
   KEY `idx_timestamp` (`timestamp`),
   KEY `idx_level` (`level`)
-) ENGINE=InnoDB AUTO_INCREMENT=10446 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
-CREATE TABLE IF NOT EXISTS `backtest_tasks` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `portfolio_id` int DEFAULT NULL,
-  `backtest_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `stock_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `stock_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `securities_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'stock',
-  `buy_volume` int NOT NULL,
-  `sell_volume` int NOT NULL,
-  `start_date` date NOT NULL,
-  `end_date` date DEFAULT NULL,
-  `start_value` decimal(15,2) NOT NULL,
-  `end_value` decimal(15,2) NOT NULL,
-  `annualized_return` decimal(6,4) DEFAULT NULL,
-  `sharp_ratio` decimal(15,2) DEFAULT NULL,
-  `calmar_ratio` decimal(6,4) DEFAULT NULL,
-  `profit` decimal(15,2) NOT NULL,
-  `last_signal_date` date DEFAULT NULL,
-  `trade_signal_match` int DEFAULT '0',
-  `last_signal_trade_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `max_drawdown` float DEFAULT NULL,
-  `stock_trading_config` json NOT NULL,
-  `ai_audit_comment` json DEFAULT NULL,
-  `strategy_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'bbs',
-  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
-  `finished` int DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `索引 2` (`finished`,`securities_type`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
-
-CREATE TABLE IF NOT EXISTS `backtest_trades` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `portfolio_id` int DEFAULT NULL,
-  `backtest_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '',
-  `trade_type` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `symbol` varchar(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
-  `size` float NOT NULL,
-  `price` float NOT NULL,
-  `created_at` datetime DEFAULT NULL,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=25704 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `daily_pnl_records` (
   `id` bigint NOT NULL AUTO_INCREMENT,
@@ -85,14 +40,16 @@ CREATE TABLE IF NOT EXISTS `daily_pnl_records` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_date_portfolio_stock` (`date`,`portfolio_id`,`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=15299 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=15563 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
-CREATE TABLE IF NOT EXISTS `etf_analysis` (
-  `etf_code` varchar(50) COLLATE utf8mb4_bin NOT NULL DEFAULT '',
-  `ohlc_last` json DEFAULT NULL,
-  `last_update` datetime DEFAULT NULL,
-  PRIMARY KEY (`etf_code`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+CREATE TABLE IF NOT EXISTS `etf_watchlist` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  `symbol` varchar(25) NOT NULL COMMENT 'ETF代码，如 159901',
+  `name` varchar(100) DEFAULT NULL COMMENT 'ETF名称（加入时从 databull 取，可空）',
+  `created_at` datetime DEFAULT NULL COMMENT '加入时间',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `ix_etf_watchlist_symbol` (`symbol`)
+) ENGINE=InnoDB AUTO_INCREMENT=21 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE IF NOT EXISTS `factor_values` (
   `trade_date` date NOT NULL COMMENT '交易日期，如 2024-12-01',
@@ -129,6 +86,24 @@ CREATE TABLE IF NOT EXISTS `index_constituents` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS `index_daily_data` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `symbol` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '指数代码',
+  `open` float DEFAULT NULL COMMENT '开盘价',
+  `close` float DEFAULT NULL COMMENT '收盘价',
+  `high` float DEFAULT NULL COMMENT '最高价',
+  `low` float DEFAULT NULL COMMENT '最低价',
+  `amplitude` float DEFAULT NULL COMMENT '振幅(%)',
+  `chg_pct` float DEFAULT NULL COMMENT '涨跌幅(%)',
+  `rfa_amount` float DEFAULT NULL COMMENT '复权成交额',
+  `turnover_rate` float DEFAULT NULL COMMENT '换手率(%)',
+  `turnover` float DEFAULT NULL COMMENT '成交额',
+  `volume` float DEFAULT NULL COMMENT '成交量',
+  `date` date DEFAULT NULL COMMENT '交易日期',
+  `market` varchar(32) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '市场来源',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS `investment_portfolio` (
   `portfolio_id` int NOT NULL AUTO_INCREMENT COMMENT 'UUID组合唯一ID',
   `uid` int DEFAULT NULL,
@@ -152,7 +127,32 @@ CREATE TABLE IF NOT EXISTS `investment_portfolio` (
   `quantstat_json` json DEFAULT NULL,
   PRIMARY KEY (`portfolio_id`),
   UNIQUE KEY `name` (`name`)
-) ENGINE=InnoDB AUTO_INCREMENT=17 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='投资组合管理表';
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='投资组合管理表';
+
+CREATE TABLE IF NOT EXISTS `investment_portfolio_copy` (
+  `portfolio_id` int NOT NULL AUTO_INCREMENT COMMENT 'UUID组合唯一ID',
+  `uid` int DEFAULT NULL,
+  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '组合名称',
+  `strategy_type` int DEFAULT '1',
+  `total_position_pct` decimal(5,2) NOT NULL,
+  `base_currency` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'USD' COMMENT '基准货币',
+  `create_time` datetime DEFAULT (now()),
+  `update_time` datetime DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  `position_plan` json DEFAULT NULL,
+  `position_plan_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `init_cash` float DEFAULT '1000000',
+  `current_cash` float DEFAULT '1000000',
+  `llm_base` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'doubao',
+  `llm_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `llm_prompt` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `llm_setting` json DEFAULT NULL,
+  `desc` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
+  `enable` int DEFAULT '1',
+  `market` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'cn',
+  `quantstat_json` json DEFAULT NULL,
+  PRIMARY KEY (`portfolio_id`) USING BTREE,
+  UNIQUE KEY `name` (`name`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=20 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='投资组合管理表';
 
 CREATE TABLE IF NOT EXISTS `llm_conversation_context` (
   `id` int NOT NULL AUTO_INCREMENT,
@@ -161,42 +161,7 @@ CREATE TABLE IF NOT EXISTS `llm_conversation_context` (
   `created_at` datetime DEFAULT NULL,
   `updated_at` datetime DEFAULT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-
-CREATE TABLE IF NOT EXISTS `llm_prompts` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
-  `prompt_key` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Prompt 唯一标识符，如: news_analysis_v1',
-  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Prompt 可读名称',
-  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'Prompt 模板内容，支持 {variable} 占位符',
-  `variables` json DEFAULT NULL COMMENT '预期变量列表，如: ["content", "stock_code"]',
-  `output_format` enum('text','json_object','json_array') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'text' COMMENT '期望输出格式',
-  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'Prompt 功能描述或使用说明',
-  `version` int unsigned NOT NULL DEFAULT '1' COMMENT '版本号，用于灰度或回滚',
-  `is_active` tinyint(1) NOT NULL DEFAULT '1' COMMENT '是否启用（0=禁用, 1=启用）',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `uk_prompt_key_version` (`prompt_key`,`version`),
-  KEY `idx_is_active` (`is_active`),
-  KEY `idx_prompt_key` (`prompt_key`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ROW_FORMAT=DYNAMIC COMMENT='LLM Prompt 模板表';
-
-CREATE TABLE IF NOT EXISTS `llm_token_record` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  PRIMARY KEY (`id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-
-CREATE TABLE IF NOT EXISTS `market_daily_limit` (
-  `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
-  `date` date NOT NULL COMMENT '交易日期',
-  `rising` int NOT NULL COMMENT '上涨家数',
-  `limit_up` int NOT NULL COMMENT '涨停家数',
-  `falling` int NOT NULL COMMENT '下跌家数',
-  `limit_down` int NOT NULL COMMENT '跌停家数',
-  `flat` bigint NOT NULL COMMENT '平盘家数',
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `date` (`date`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+) ENGINE=InnoDB AUTO_INCREMENT=10 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `market_fear_greed` (
   `trade_date` date NOT NULL,
@@ -225,7 +190,7 @@ CREATE TABLE IF NOT EXISTS `market_news` (
   `url` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL,
   PRIMARY KEY (`id`),
   FULLTEXT KEY `digest` (`digest`)
-) ENGINE=InnoDB AUTO_INCREMENT=88585 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=90445 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 CREATE TABLE IF NOT EXISTS `portfolio_assets` (
   `asset_id` int NOT NULL AUTO_INCREMENT,
@@ -247,7 +212,29 @@ CREATE TABLE IF NOT EXISTS `portfolio_assets` (
   UNIQUE KEY `uni` (`stock_code`,`portfolio_id`) USING BTREE,
   KEY `portfolio_id` (`portfolio_id`),
   KEY `stock_code` (`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=1228 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='组合标的持仓记录表';
+) ENGINE=InnoDB AUTO_INCREMENT=1263 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='组合标的持仓记录表';
+
+CREATE TABLE IF NOT EXISTS `portfolio_assets_copy` (
+  `asset_id` int NOT NULL AUTO_INCREMENT,
+  `portfolio_id` varchar(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `stock_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT '股票/ETF标的代码',
+  `asset_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+  `position_pct` decimal(5,2) NOT NULL DEFAULT '0.10',
+  `position_price` float DEFAULT NULL,
+  `cost_price` float DEFAULT NULL,
+  `position_beta` float DEFAULT NULL,
+  `position_size` int DEFAULT NULL,
+  `base_rsi_threshold` int DEFAULT '85',
+  `stop_loss_percent` float DEFAULT '-15',
+  `take_profit_percent` float DEFAULT '35',
+  `last_update` datetime DEFAULT NULL,
+  `create_time` datetime DEFAULT (now()),
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL COMMENT '备注',
+  PRIMARY KEY (`asset_id`) USING BTREE,
+  UNIQUE KEY `uni` (`stock_code`,`portfolio_id`) USING BTREE,
+  KEY `portfolio_id` (`portfolio_id`) USING BTREE,
+  KEY `stock_code` (`stock_code`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=1263 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC COMMENT='组合标的持仓记录表';
 
 CREATE TABLE IF NOT EXISTS `portfolio_daily_summary` (
   `id` bigint NOT NULL AUTO_INCREMENT,
@@ -264,7 +251,24 @@ CREATE TABLE IF NOT EXISTS `portfolio_daily_summary` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_date_portfolio` (`date`,`portfolio_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=1299 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=1324 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
+
+CREATE TABLE IF NOT EXISTS `portfolio_daily_summary_copy` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `date` date NOT NULL,
+  `portfolio_id` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL,
+  `total_assets` decimal(18,2) DEFAULT NULL,
+  `total_unrealized_pnl` decimal(18,2) DEFAULT NULL,
+  `total_pnl_pct` decimal(10,4) DEFAULT NULL,
+  `position_ratio` decimal(5,4) DEFAULT NULL,
+  `cash_balance` decimal(18,2) DEFAULT NULL,
+  `daily_pnl_change` decimal(20,6) DEFAULT NULL,
+  `cumulative_realized_pnl` decimal(20,6) DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT (now()),
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `uk_date_portfolio` (`date`,`portfolio_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=1324 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC;
 
 CREATE TABLE IF NOT EXISTS `portfolio_transaction` (
   `id` bigint NOT NULL AUTO_INCREMENT,
@@ -284,7 +288,27 @@ CREATE TABLE IF NOT EXISTS `portfolio_transaction` (
   KEY `idx_code` (`code`),
   KEY `idx_date` (`date`),
   KEY `idx_portfolio_id` (`portfolio_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4223 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='投资组合交易记录表';
+) ENGINE=InnoDB AUTO_INCREMENT=4367 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='投资组合交易记录表';
+
+CREATE TABLE IF NOT EXISTS `portfolio_transaction_copy` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `date` date NOT NULL COMMENT '交易日期',
+  `action` enum('BUY','SELL') CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '操作类型：买入/卖出',
+  `code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '股票代码',
+  `name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '股票名称',
+  `qty` int NOT NULL COMMENT '数量',
+  `price` decimal(15,4) NOT NULL COMMENT '成交价格',
+  `amount` decimal(18,2) NOT NULL COMMENT '成交金额（qty * price）',
+  `realized_pnl` decimal(18,2) DEFAULT '0.00' COMMENT '已实现盈亏',
+  `portfolio_id` int NOT NULL COMMENT '组合ID',
+  `created_at` timestamp NULL DEFAULT (now()),
+  `updated_at` timestamp NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`) USING BTREE,
+  UNIQUE KEY `idx_uni` (`date`,`code`,`portfolio_id`) USING BTREE,
+  KEY `idx_code` (`code`) USING BTREE,
+  KEY `idx_date` (`date`) USING BTREE,
+  KEY `idx_portfolio_id` (`portfolio_id`) USING BTREE
+) ENGINE=InnoDB AUTO_INCREMENT=4367 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='投资组合交易记录表';
 
 CREATE TABLE IF NOT EXISTS `research_reports` (
   `id` bigint NOT NULL AUTO_INCREMENT,
@@ -313,27 +337,39 @@ CREATE TABLE IF NOT EXISTS `research_reports` (
   KEY `idx_industry` (`industry_code`),
   KEY `idx_type_time` (`report_type`,`publish_time`),
   KEY `idx_stock_code` (`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=21236 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=21981 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
 
-CREATE TABLE IF NOT EXISTS `scheduled_task` (
-  `id` int NOT NULL AUTO_INCREMENT,
-  `task_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `func_module` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `func_name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `args` json DEFAULT (json_array()),
-  `kwargs` json DEFAULT (json_object()),
-  `trigger_type` enum('cron','date') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'cron',
-  `cron_expression` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `run_at` datetime DEFAULT NULL,
-  `is_active` tinyint(1) NOT NULL DEFAULT '1',
-  `last_run_at` datetime DEFAULT NULL,
-  `next_run_at` datetime DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `task_name` (`task_name`),
-  CONSTRAINT `chk_trigger_cron` CHECK ((((`trigger_type` = _utf8mb4'cron') and (`cron_expression` is not null)) or ((`trigger_type` = _utf8mb4'date') and (`run_at` is not null))))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+CREATE TABLE IF NOT EXISTS `sector_daily_stats` (
+  `stat_date` date NOT NULL COMMENT '统计日期（上游 stat_date）',
+  `sector_type` varchar(10) COLLATE utf8mb4_bin NOT NULL COMMENT '板块级别：SW1/SW2/SW3',
+  `sector_name` varchar(50) COLLATE utf8mb4_bin NOT NULL COMMENT '申万板块名称',
+  `change_pct` decimal(10,2) DEFAULT NULL COMMENT '涨跌幅（%）',
+  `stock_count` int DEFAULT NULL COMMENT '成分股数量',
+  `up_count` int DEFAULT NULL COMMENT '上涨家数',
+  `down_count` int DEFAULT NULL COMMENT '下跌家数',
+  `flat_count` int DEFAULT NULL COMMENT '平盘家数',
+  `up_down_ratio` decimal(10,2) DEFAULT NULL COMMENT '涨跌比（上游原值，down=0 时为 100）',
+  `top_stock` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '领涨股名称',
+  `top_stock_pct` decimal(10,2) DEFAULT NULL COMMENT '领涨股涨跌幅（%）',
+  `bottom_stock` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '领跌股名称',
+  `bottom_stock_pct` decimal(10,2) DEFAULT NULL COMMENT '领跌股涨跌幅（%）',
+  `total_trade_amount` decimal(20,2) DEFAULT NULL COMMENT '总成交额（亿）',
+  `update_time` datetime DEFAULT NULL COMMENT '入库时间',
+  PRIMARY KEY (`stat_date`,`sector_type`,`sector_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS `stock_community_sentiment` (
+  `sentiment_id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `stock_code` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '标的代码',
+  `platform` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '来源平台',
+  `post_content` text COLLATE utf8mb4_bin COMMENT '帖文内容',
+  `sentiment_score` float DEFAULT NULL COMMENT '情感得分，范围 -1（极度看空）到 1（极度看多）',
+  `user_count` int DEFAULT NULL COMMENT '参与人数',
+  `post_time` datetime DEFAULT NULL COMMENT '帖文发布时间',
+  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
+  `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
+  PRIMARY KEY (`sentiment_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `stock_financial_scores` (
   `id` bigint unsigned NOT NULL AUTO_INCREMENT COMMENT '主键ID',
@@ -355,7 +391,7 @@ CREATE TABLE IF NOT EXISTS `stock_financial_scores` (
   UNIQUE KEY `uk_code` (`code`),
   KEY `idx_composite_score` (`composite_score` DESC),
   KEY `idx_created_at` (`created_at`)
-) ENGINE=InnoDB AUTO_INCREMENT=168 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='股票财务评分表';
+) ENGINE=InnoDB AUTO_INCREMENT=172 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='股票财务评分表';
 
 CREATE TABLE IF NOT EXISTS `stock_fundamentals` (
   `fundamental_id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
@@ -375,36 +411,22 @@ CREATE TABLE IF NOT EXISTS `stock_fundamentals` (
   PRIMARY KEY (`fundamental_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
-CREATE TABLE IF NOT EXISTS `stock_news` (
-  `news_id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
-  `stock_code` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '关联股票代码',
-  `title` text COLLATE utf8mb4_bin COMMENT '新闻标题',
-  `content` text COLLATE utf8mb4_bin COMMENT '新闻正文',
-  `source` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '新闻来源',
-  `publish_time` datetime DEFAULT NULL COMMENT '新闻发布时间',
-  `created_at` datetime DEFAULT NULL COMMENT '入库时间',
-  `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
-  PRIMARY KEY (`news_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
-
 CREATE TABLE IF NOT EXISTS `stocks` (
   `id` int NOT NULL AUTO_INCREMENT,
   `symbol` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `name_en` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `area` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `exchange` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `province` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL,
+  `city` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL,
+  `district` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `industry` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `cnspell` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `market` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `act_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `act_ent_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
   `securities_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'stock',
   `last_update` datetime DEFAULT NULL,
-  `company_desc` text CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,
   `pe_ratio` float DEFAULT NULL,
   `pb_ratio` float DEFAULT NULL,
   `concepts` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
+  `company_profile` json DEFAULT NULL,
   `monitoring` int DEFAULT '0',
   `monitor_by` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT 'user',
   `ohlc_last` json DEFAULT NULL,
@@ -413,7 +435,29 @@ CREATE TABLE IF NOT EXISTS `stocks` (
   UNIQUE KEY `uni_symbol` (`symbol`),
   KEY `idx_securities_type` (`securities_type`),
   KEY `idx_market` (`market`)
-) ENGINE=InnoDB AUTO_INCREMENT=37348 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+) ENGINE=InnoDB AUTO_INCREMENT=42770 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+
+CREATE TABLE IF NOT EXISTS `stocks_daily_data` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '主键ID',
+  `symbol` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '标的代码',
+  `open` float DEFAULT NULL COMMENT '开盘价',
+  `close` float DEFAULT NULL COMMENT '收盘价',
+  `high` float DEFAULT NULL COMMENT '最高价',
+  `low` float DEFAULT NULL COMMENT '最低价',
+  `amplitude` float DEFAULT NULL COMMENT '振幅(%)',
+  `chg_pct` float DEFAULT NULL COMMENT '涨跌幅(%)',
+  `rfa_amount` float DEFAULT NULL COMMENT '复权成交额',
+  `change_amount` float DEFAULT NULL COMMENT '涨跌额',
+  `turnover_rate` float DEFAULT NULL COMMENT '换手率(%)',
+  `pe_ratio` float DEFAULT NULL COMMENT '市盈率',
+  `pb_ratio` float DEFAULT NULL COMMENT '市净率',
+  `turnover` float DEFAULT NULL COMMENT '成交额',
+  `volume` float DEFAULT NULL COMMENT '成交量',
+  `date` date DEFAULT NULL COMMENT '交易日期',
+  `market` varchar(32) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '市场来源',
+  `securities_type` varchar(20) COLLATE utf8mb4_bin NOT NULL COMMENT '资产类型',
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `stocks_fear_greed` (
   `trade_date` date NOT NULL,
@@ -441,48 +485,20 @@ CREATE TABLE IF NOT EXISTS `strategy_group` (
   PRIMARY KEY (`group_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
-CREATE TABLE IF NOT EXISTS `system_logs` (
-  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
-  `log_type` tinyint NOT NULL COMMENT '日志类型: 1-系统日志, 2-用户操作日志',
-  `log_level` tinyint NOT NULL DEFAULT '1' COMMENT '日志级别: 1-DEBUG, 2-INFO, 3-WARN, 4-ERROR, 5-FATAL',
-  `module` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT '模块名称',
-  `action` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '操作动作',
-  `user_id` bigint unsigned DEFAULT NULL COMMENT '用户ID（用户操作日志必填）',
-  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '用户名（冗余存储，便于查询）',
-  `ip_address` varchar(45) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'IP地址',
-  `user_agent` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '用户代理',
-  `request_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '请求追踪ID',
-  `operation_time` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT '操作时间',
-  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT '日志内容',
-  `extra_data` json DEFAULT NULL COMMENT '扩展数据（JSON格式）',
-  `status` tinyint DEFAULT '1' COMMENT '状态: 0-失败, 1-成功',
-  `error_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT '错误码',
-  `error_message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT '错误信息',
-  `created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+CREATE TABLE IF NOT EXISTS `system_setting` (
+  `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
+  `setting_key` varchar(120) COLLATE utf8mb4_bin NOT NULL COMMENT '配置键（全局唯一），如 llm_model_setting.stock_dcf_analysis',
+  `setting_group` varchar(60) COLLATE utf8mb4_bin NOT NULL COMMENT '配置分组，如 llm_model_setting',
+  `setting_value` json DEFAULT NULL COMMENT '配置值（JSON，可存字符串/数字/布尔/对象/数组）',
+  `value_type` varchar(20) COLLATE utf8mb4_bin NOT NULL COMMENT '值类型提示：json/string/int/float/bool（供前端渲染表单）',
+  `description` varchar(255) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '说明',
+  `updated_by` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL COMMENT '最后修改人',
+  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
+  `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
   PRIMARY KEY (`id`),
-  KEY `idx_user_id` (`user_id`),
-  KEY `idx_status` (`status`),
-  KEY `idx_operation_time` (`operation_time`),
-  KEY `idx_log_type` (`log_type`),
-  KEY `idx_module` (`module`),
-  KEY `idx_request_id` (`request_id`),
-  KEY `idx_log_level` (`log_level`)
-) ENGINE=InnoDB AUTO_INCREMENT=1611 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci ROW_FORMAT=DYNAMIC COMMENT='系统日志表';
-
-CREATE TABLE IF NOT EXISTS `user_watchlist` (
-  `id` int unsigned NOT NULL AUTO_INCREMENT,
-  `stock_name` varchar(25) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `stock_code` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `topic` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `desc` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
-  `from_ai` tinyint(1) DEFAULT '0',
-  `created_at` datetime DEFAULT NULL,
-  `price` float DEFAULT NULL,
-  `diff` float DEFAULT NULL,
-  `securities_type` varchar(50) COLLATE utf8mb4_bin DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  UNIQUE KEY `索引 2` (`stock_code`)
-) ENGINE=InnoDB AUTO_INCREMENT=332 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin ROW_FORMAT=DYNAMIC;
+  UNIQUE KEY `ix_system_setting_setting_key` (`setting_key`),
+  KEY `ix_system_setting_setting_group` (`setting_group`)
+) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS `users` (
   `id` int NOT NULL AUTO_INCREMENT COMMENT '自增主键',
