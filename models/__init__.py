@@ -828,3 +828,43 @@ class SectorDailyStat(Base):
             'total_trade_amount': _f(self.total_trade_amount),
             'update_time': self.update_time.isoformat() if self.update_time else None,
         }
+
+
+class LlmAgent(Base):
+    """用户自定义智能体（对话配置）。
+
+    每个用户可自由增删智能体，同用户下 name 唯一。
+    platform/model 用于运行时对接下游 LLM，system_prompt 作为对话的 system message。
+    """
+    __tablename__ = 'llm_agent'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    user_id = Column(Integer, nullable=False, index=True, comment='所属用户（users.id）')
+    name = Column(String(64), nullable=False, default='', comment='智能体名称')
+    emoji = Column(String(8), nullable=False, default='🤖', comment='头像 emoji')
+    platform = Column(String(32), nullable=False, default='', comment='大模型平台标识')
+    model = Column(String(128), nullable=False, default='', comment='模型名称')
+    system_prompt = Column(Text, nullable=False, default='', comment='系统提示词')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'name', name='uniq_user_name'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def __repr__(self):
+        return f"<LlmAgent(id={self.id}, user_id={self.user_id}, name='{self.name}')>"
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'name': self.name,
+            'emoji': self.emoji,
+            'platform': self.platform,
+            'model': self.model,
+            'system_prompt': self.system_prompt,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
+        }

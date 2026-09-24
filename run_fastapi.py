@@ -31,6 +31,8 @@ from routes.syslog import syslog_router
 from routes.llm import llm_router
 from routes.system_setting import settings_router
 from routes.backtest import backtest_router
+from routes.agent import agent_router
+from routes.chat_stream import chat_router
 
 app.include_router(auth_router)
 app.include_router(stock_router)
@@ -43,6 +45,8 @@ app.include_router(syslog_router)
 app.include_router(llm_router)
 app.include_router(settings_router)
 app.include_router(backtest_router)
+app.include_router(agent_router)
+app.include_router(chat_router)
 
 # ==================== 登录接口 ====================
 # 登录 / 登出 / 当前用户 / 用户管理已统一收敛到 routes/auth.py（含签发与校验逻辑），
