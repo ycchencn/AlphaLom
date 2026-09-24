@@ -296,8 +296,25 @@ def job_position_plan_daily(portfolio_id=None, send_feishu=False, use_agent=True
     # 可用资金
     available_money = int(investment_info.get('current_cash'))
 
-    # 股票池
-    stock_pool = StockService.get_monitoring_stock_pool(per_page=strategy_setting.get('stock_pool'))
+    # 股票池：多用户下取「本组合所属用户」自己的池子 —— 组合的 owner 就是
+    # investment_info['user_id']。原来这里取的是全局股票池，改造后那会把所有人
+    # 的票都当成本策略的候选（A 的策略看得见 B 的自选）。
+    # ⚠️ owner 池子为空时**回退到全局并集**：新建用户还没加自选就跑调仓，
+    # 硬用空池会让模型在「零候选」下产出空仓计划，而成功返回的空仓比报错更难发现。
+    # 定时任务（job_position_plan_daily_all）没有用户上下文，但组合自带 owner，
+    # 所以这里不需要用户参数也能正确定位。
+    stock_pool = StockService.get_monitoring_stock_pool(
+        per_page=strategy_setting.get('stock_pool'),
+        user_id=investment_info.get('user_id'),
+    )
+    if not stock_pool:
+        logger.warning(
+            f"#{portfolio_id}, 所属用户（user_id={investment_info.get('user_id')}）"
+            f"股票池为空，回退到全局股票池"
+        )
+        stock_pool = StockService.get_monitoring_stock_pool(
+            per_page=strategy_setting.get('stock_pool')
+        )
 
     # 近期新闻
     recent_news = MarketNewsService.get_by_time_range(limit=strategy_setting.get('news_limit'))
