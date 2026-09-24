@@ -9,6 +9,7 @@ import Card from 'primevue/card';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Button from 'primevue/button';
+import Tag from 'primevue/tag';
 import ProgressSpinner from 'primevue/progressspinner';
 import SelectButton from 'primevue/selectbutton';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
@@ -26,7 +27,7 @@ import * as echarts from 'echarts';
 
 const route = useRoute();
 const router = useRouter();
-const {showError} = useNotification();
+const {showError, showSuccess} = useNotification();
 
 const symbol = route.params.symbol;
 
@@ -86,6 +87,115 @@ const compositionColumns = computed(() => {
 // 没有权重时退回按代码升序。DataTable 对 sortField/sortOrder 有 watcher，会跟着重排。
 const compositionSortField = computed(() => (weightMeta.value.supported ? 'weight' : 'code'));
 const compositionSortOrder = computed(() => (weightMeta.value.supported ? -1 : 1));
+
+// ── 成分股快捷入池 ────────────────────────────────────────────────────────
+// 成分股穿透看到的「这只 ETF 重仓了什么」往往正是要找的票，让人回到股票池页
+// 再手输一遍代码很别扭，所以在列表里直接给一个入池入口。
+//
+// 与「股票池」页（StockMonitor.vue）共用同一个接口 PUT /stocks/{symbol}，交互也
+// 刻意保持一致（已入池显示 Tag「已添加」，否则显示带加号的「添加」按钮），
+// 免得同一个动作在两个页面长得不一样。
+const pooledSymbols = ref(new Set()); // 已入池代码集合，用于把按钮换成「已添加」
+const addingSymbol = ref('');         // 正在提交的代码，只让该行按钮进 loading
+
+/** 上游 PCF 的 code 带交易所后缀（'000552.SZ'），入池接口要的是纯代码 */
+function componentSymbol(row) {
+    return String(row.code || '').split('.')[0];
+}
+
+/**
+ * 由 PCF 的 exchange 推导市场。
+ *
+ * 这个值不是给前端看的：它既是 PUT /stocks/{symbol} 的 market（决定入池后落到
+ * 股票池页的哪个页签），也会被后端的 ensure_stock_from_api 拿去选上游接口。
+ * 所以宁可不给按钮，也不要猜错 —— 认不出来（债券/其他品种成分）就返回 null。
+ *
+ * ⚠️ 不要用 getMarketByCode() 代替：那个按「长度 5 位 = 港股」之类的启发式判断，
+ * 本页拿到的是上游原始代码，exchange 字段才是权威来源。
+ */
+function componentMarket(row) {
+    const exch = String(row.exchange || '').toUpperCase();
+    if (exch === 'SH' || exch === 'SZ' || exch === 'BJ') return 'cn';
+    if (exch === 'HK') return 'hk';
+    if (exch === 'US') return 'us';
+    const code = componentSymbol(row);
+    if (/^\d{6}$/.test(code)) return 'cn';   // 无后缀的 6 位数字 = A 股
+    if (/^\d{5}$/.test(code)) return 'hk';   // 无后缀的 5 位数字 = 港股
+    return null;
+}
+
+/**
+ * 拉取「本页成分涉及的市场」里已入池的代码。
+ *
+ * 只在成分里实际出现的市场上各查一次（多数 ETF 全是 A 股 → 1 个请求）：
+ * /stocks_monitored 的 market 按市场分段返回，全量拉要 3 个请求，没必要。
+ *
+ * 拉失败只降级为「全部显示成未添加」，不影响加入功能本身 ——
+ * 代价是重复点已入池的票，后端会当普通字段更新处理（提示成功但没新建分析任务）。
+ */
+async function loadPooledSymbols() {
+    const markets = [...new Set(compositionRaw.value.map(componentMarket).filter(Boolean))];
+    if (!markets.length) {
+        pooledSymbols.value = new Set();
+        return;
+    }
+    try {
+        const results = await Promise.all(markets.map(m => axios.get('/api/v1/stocks_monitored', {
+            params: {simple: 1, page_size: 1000, market: m}
+        })));
+        const set = new Set();
+        for (const r of results) {
+            for (const s of (Array.isArray(r.data) ? r.data : [])) set.add(String(s.symbol));
+        }
+        pooledSymbols.value = set;
+    } catch (e) {
+        console.warn('加载已入池状态失败，成分股按钮将全部显示为「未添加」', e);
+        pooledSymbols.value = new Set();
+    }
+}
+
+/**
+ * 把一只成分股加入股票池。
+ *
+ * ⚠️ 后端对「新建入库 / monitoring 0→1」的票会顺带投递一次个股分析
+ * （恐惧贪婪 / 因子 / DCF / 报价），而任务队列是串行消费的，
+ * 所以提示只能说到「正在后台分析、稍后查看」，不能说数据已经齐了。
+ */
+async function addComponentToPool(row) {
+    const code = componentSymbol(row);
+    const market = componentMarket(row);
+    if (!code || !market) return;
+
+    addingSymbol.value = code;
+    try {
+        const res = await axios.put(`/api/v1/stocks/${encodeURIComponent(code)}`, {
+            market,
+            monitoring: 1,
+            securities_type: 'stock'
+        });
+        // Set 是原地修改的，换成新实例才会触发用到它的渲染
+        pooledSymbols.value = new Set([...pooledSymbols.value, code]);
+        const label = row.name ? `${code} ${row.name}` : code;
+        if (res.data && res.data.analysis_triggered) {
+            showSuccess(`已加入股票池：${label}，正在后台分析，稍后到「股票池」页查看`);
+        } else {
+            showSuccess(`已加入股票池：${label}`);
+        }
+    } catch (error) {
+        let message = '加入股票池失败，请重试';
+        if (axios.isAxiosError(error)) {
+            if (error.response) {
+                const {data} = error.response;
+                message = (data && (data.message || data.detail)) || message;
+            } else if (error.request) {
+                message = '网络连接失败，请检查网络后重试';
+            }
+        }
+        showError(message);
+    } finally {
+        addingSymbol.value = '';
+    }
+}
 
 function formatVolume(v) {
     return v == null || v === '' ? '—' : Number(v).toLocaleString();
@@ -392,6 +502,8 @@ async function loadComposition() {
     } finally {
         compositionLoading.value = false;
     }
+    // 成分到手后才谈得上「哪些已经在股票池里」，拿不到成分时这里会自己清空
+    loadPooledSymbols();
 }
 
 // 权重单独拉：跨境 ETF 会在后端直接判定不支持，不发取价请求，这里拿到的是空表。
@@ -764,6 +876,22 @@ onUnmounted(() => {
                                     {{ data.weight != null ? data.weight.toFixed(2) + '%' : '—' }}
                                 </span>
                                 <span v-else>{{ data[field] }}</span>
+                            </template>
+                        </Column>
+                        <!-- 入池列固定排最后、不参与排序：入池是动作，不是可比较的值。
+                             表头直接写动作本身（不写「操作」这种通用壳子，用户看不出是干什么的）。
+                             认不出市场的成分（债券等）只给一个占位「—」，不给按钮。 -->
+                        <Column header="加入股票池" style="width: 118px" headerStyle="text-align: center">
+                            <template #body="{ data }">
+                                <div class="flex justify-center">
+                                    <span v-if="!componentMarket(data)" class="text-gray-300">—</span>
+                                    <Tag v-else-if="pooledSymbols.has(componentSymbol(data))"
+                                         value="已添加" severity="secondary"/>
+                                    <Button v-else icon="pi pi-plus" label="添加" size="small"
+                                            class="whitespace-nowrap"
+                                            :loading="addingSymbol === componentSymbol(data)"
+                                            @click="addComponentToPool(data)"/>
+                                </div>
                             </template>
                         </Column>
                     </DataTable>
