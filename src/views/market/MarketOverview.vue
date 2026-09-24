@@ -35,13 +35,25 @@ const INDICES_NAME = {
     '000300': '沪深300'
 }
 
-// 恐惧贪婪可选的指数（上游 /cn/market/fear_greed 只覆盖这 4 个，
-// 深证成指 / 科创50 / 科创200 上游暂无该数据）
+// 恐惧贪婪可选的指数。
+//
+// ⚠️ 数据走上游 `/cn/market/fear_greed`（**直连不落库**，见 routes/market.py 的说明），
+// 所以「下拉里有没有」完全取决于**上游覆盖范围**，而不是本地 stocks_fear_greed 表。
+// 实测（2026-09-24，近一年回溯）：000001=263、000300=262、399006=265、000905=262、
+// 000015=262、000688=268 条；000922 返 0 条。
+// ⚠️ 红利用的是**上证红利 000015**，不是中证红利 000922 —— 后者本接口返 None（无数据）。
+// 注意别被「本地能取到 000922 的行情」误导：那是 get_stock_history 走的路，
+// 大盘页用的是 get_market_fear_greed，两条链路覆盖范围不同。
+// ⚠️ ⚠️ 本路由 @cache(expire=3600)，**上游补齐数据后最多要 1 小时才可见**。
+// 曾因此误判「科创50 只有 1 天数据」：实为上游刚接入时缓存住了那条响应，
+// 稍后上游补齐历史、缓存到期后即为完整序列。排查此类问题请换 days 参数绕过缓存再测。
 const FEAR_GREED_INDICES = [
     {label: '上证指数', value: '000001'},
     {label: '沪深300', value: '000300'},
     {label: '创业板指', value: '399006'},
-    {label: '中证500', value: '000905'}
+    {label: '中证500', value: '000905'},
+    {label: '上证红利', value: '000015'},
+    {label: '科创50', value: '000688'}
 ]
 
 const SECTOR_TYPES = [
@@ -165,15 +177,24 @@ const fearGreedLatest = computed(() => fear_greed_list.value[fear_greed_list.val
 
 const fetchFearGreed = async () => {
     fear_greed_loading.value = true
+    // ⚠️ 先清空再请求：否则切换指数期间旧指数的曲线会残留在图上，
+    // 左栏（v-if 依赖 fearGreedLatest）也仍然显示上一个指数的读数 ——
+    // 用户会以为「点了没反应」或「两个指数数据一样」。
+    fear_greed_list.value = []
     try {
         const res = await axios.get('/api/v1/market/fear_greed', {
             params: {index_code: fear_greed_index.value, days: 365}
         })
         fear_greed_list.value = Array.isArray(res.data) ? res.data : []
-        renderFearGreedChart()
+    } catch (e) {
+        // 上游不可用时保持空列表，界面落到「该指数暂无恐惧贪婪数据」而不是崩掉
+        fear_greed_list.value = []
     } finally {
         fear_greed_loading.value = false
     }
+    // 放在 finally 之后、且不 await：等这一拍渲染完（v-if 该真则真、该假则假），
+    // 再决定是绘图还是清图 —— 容器是否存在的判断交给 ensureChart。
+    renderFearGreedChart()
 }
 
 watch(fear_greed_index, fetchFearGreed)
@@ -194,10 +215,35 @@ let fgChart = null
  * 渲染阶段，会把整个组件的挂载链打断 —— 表现是**页面所有数据都不渲染**，
  * 但接口其实一个都没发出去（极易误判成后端问题）。
  * 所以必须在数据到位、DOM 真正存在之后再 init。
+ *
+ * ⚠️ 还有第二个坑（切换指数时必踩）：`v-if` 为 false 会把容器从文档里摘掉，
+ * 但 `fgChart` 仍持有**已被移除的那个** DOM 引用。此后 `if (fgChart) return fgChart`
+ * 会直接返回这个"孤儿实例"，`setOption` 画在脱离文档的 canvas 上 ——
+ * 表现是**左栏数值正常、右边图表却空白**（坐标轴还在，因为那是新容器画的）。
+ * 所以这里必须校验实例的宿主容器是否仍是当前的那个，不是就销毁重建。
+ *
+ * @see https://echarts.apache.org/zh/api.html#echarts.getInstanceByDom
  */
 const ensureChart = () => {
-    if (fgChart || !fgChartRef.value) return fgChart
-    fgChart = echarts.init(fgChartRef.value)
+    if (!fgChartRef.value) return null
+    // 已有实例，但宿主容器已被 v-if 换掉（或已脱离文档）→ 必须先 dispose
+    const host = fgChart && fgChart.getDom && fgChart.getDom()
+    if (fgChart && host !== fgChartRef.value) {
+        if (host && !document.contains(host)) {
+            // 旧容器已不在文档中：dispose 它并重建
+            fgChart.dispose()
+            fgChart = null
+        } else if (!host) {
+            fgChart = null
+        }
+    }
+    if (!fgChart) {
+        // 容器宽高为 0 时 init 会得到一张尺寸为 0 的画布，echarts 会告警且画不出来
+        const w = fgChartRef.value.clientWidth
+        const h = fgChartRef.value.clientHeight
+        if (!w || !h) return null
+        fgChart = echarts.init(fgChartRef.value)
+    }
     return fgChart
 }
 
@@ -263,24 +309,228 @@ const renderFearGreedChart = async () => {
     })
 }
 
-const resizeCharts = () => fgChart?.resize()
+const resizeCharts = () => {
+    fgChart?.resize()
+    gvChart?.resize()
+}
+// ========================
+// 成长 vs 价值（比值走势）
+// ========================
+/**
+ * 成长 vs 价值 = 创业板指(399006) ÷ 上证红利(000015)
+ *
+ * 比值**上行 = 成长跑赢价值**，下行 = 价值跑赢成长。比值本身没有绝对高低含义，
+ * 所以后端返回的是「以区间首日归一为 1.0」的净值，同时给出两条成分腿的
+ * 归一化净值 —— 只看比值看不到「是成长涨出来的还是红利跌出来的」，
+ * 副轴叠两条线就能一眼分辨。
+ *
+ * ⚠️ 价值腿是上证红利、不是中证红利（上游对 000922 无 K 线），
+ * 详见 service/growth_value_service.py 顶部说明。
+ */
+const GROWTH_VALUE_DAYS = 250   // ≈ 一年交易日
+
+const growth_value = ref(null)
+const growth_value_loading = ref(false)
+
+const gvLatest = computed(() => growth_value.value?.points?.slice(-1)[0] || null)
+const gvMeta = computed(() => growth_value.value?.meta || null)
+const gvPeriods = computed(() => growth_value.value?.periods || [])
+
+// 比值涨 → 成长占优（红）；跌 → 价值占优（绿）。与全站红涨绿跌一致。
+const ratioColor = computed(() => {
+    const v = gvLatest.value?.ratio
+    if (v == null) return '#909399'
+    if (v > 1) return 'var(--color-up)'
+    if (v < 1) return 'var(--color-down)'
+    return 'var(--color-flat)'
+})
+
+const gvChartRef = ref(null)
+let gvChart = null
+
+/**
+ * 相对强度（归一化净值或比值）→ 迷你条宽度（%）。
+ *
+ * ⚠️ 不能用 `(值 - 1) * 100` 直接当宽度：成分腿一年期的偏离常见 10%~20%，
+ * 看着还行；但**比值线**的偏离只有 1%~3%，直接当宽度就是不到 1px 的短线，
+ * 等于没画。
+ *
+ * ⚠️ 也不能拿「每个数值各自归一」——那会让比值线和成分腿都占满条，三行一样长、
+ * 完全看不出谁强。这里统一按「三者里最大偏离度」做相对归一：最大偏离的占满条，
+ * 其余按比例缩短，相对强弱一眼可见。再用 12% 下限保证「有偏离就一定看得见」。
+ * 宽度只表达相对强弱，精确数值由右侧文字给出。
+ */
+const gvBarWidth = (norm) => {
+    if (norm == null) return 0
+    const devs = [gvLatest.value?.ratio, gvLatest.value?.growth_norm, gvLatest.value?.value_norm]
+        .filter((v) => v != null)
+        .map((v) => Math.abs(Number(v) - 1))
+    const maxDev = Math.max(...devs, 1e-9)
+    return Math.max(12, Math.round((Math.abs(Number(norm) - 1) / maxDev) * 100))
+}
+
+// 成分腿的颜色：>1 表示该腿跑赢（红），<1 表示跑输（绿）
+const gvLegColor = (norm) => {
+    if (norm == null) return '#909399'
+    if (norm > 1) return 'var(--color-up)'
+    if (norm < 1) return 'var(--color-down)'
+    return 'var(--color-flat)'
+}
+
+// 与恐惧贪婪图同样的坑：容器在 v-if 内，数据到位后 DOM 才存在，必须懒初始化
+const ensureGvChart = () => {
+    if (gvChart || !gvChartRef.value) return gvChart
+    gvChart = echarts.init(gvChartRef.value)
+    return gvChart
+}
+
+const fetchGrowthValue = async () => {
+    growth_value_loading.value = true
+    try {
+        const res = await axios.get('/api/v1/market/growth_value', {
+            params: {days: GROWTH_VALUE_DAYS}
+        })
+        growth_value.value = res.data || null
+        renderGrowthValueChart()
+    } catch (e) {
+        growth_value.value = null
+    } finally {
+        growth_value_loading.value = false
+    }
+}
+
+const renderGrowthValueChart = async () => {
+    await nextTick()
+    const chart = ensureGvChart()
+    if (!chart) return
+
+    const rows = growth_value.value?.points || []
+    if (!rows.length) {
+        chart.clear()
+        return
+    }
+    const dates = rows.map((r) => r.trade_date)
+    const ratio = rows.map((r) => r.ratio)
+    const gNorm = rows.map((r) => r.growth_norm)
+    const vNorm = rows.map((r) => r.value_norm)
+
+    // 比值线的颜色跟随「相对起点」的方向：>1 成长占优，<1 价值占优
+    const lastRatio = ratio[ratio.length - 1]
+    const mainColor = lastRatio > 1 ? '#ef4444' : (lastRatio < 1 ? '#12783c' : '#909399')
+
+    chart.setOption({
+        // 右侧留白给副轴刻度
+        grid: {left: 34, right: 42, top: 16, bottom: 22},
+        tooltip: {
+            trigger: 'axis',
+            formatter: (params) => {
+                const i = params[0].dataIndex
+                const d = rows[i]
+                return `${d.trade_date}<br/>`
+                    + `比值: <b>${d.ratio.toFixed(4)}</b><br/>`
+                    + `创业板指: ${d.growth_close}（${((d.growth_norm - 1) * 100).toFixed(2)}%）<br/>`
+                    + `上证红利: ${d.value_close}（${((d.value_norm - 1) * 100).toFixed(2)}%）`
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: dates,
+            show: false
+        },
+        yAxis: [
+            {
+                // 左轴：比值（归一化后围绕 1.0 波动）。
+                // ⚠️ 必须 `scale: true`（不强制含 0）—— 比值恒在 1.0 附近，
+                // 从 0 起画会把整条曲线压成一条直线，涨跌完全看不出来。
+                type: 'value',
+                scale: true,
+                splitNumber: 2,
+                axisLabel: {fontSize: 9, color: '#94a3b8', formatter: (v) => v.toFixed(2)},
+                splitLine: {lineStyle: {color: '#eef1f6'}}
+            },
+            {
+                // 副轴：两条成分腿的归一化净值。
+                // ⚠️ 这两条线的取值范围（0.9~1.5）比比值宽得多，若与左轴共用网格，
+                // ECharts 会把两轴统一到并集范围 → 比值线被压扁、看不出形态。
+                // 给副轴**显式**指定 min/max，把它和左轴彻底解耦（两条轴各自缩放）。
+                type: 'value',
+                min: (v) => Math.min(v.min, 1) - (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
+                max: (v) => Math.max(v.max, 1) + (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
+                splitNumber: 2,
+                axisLabel: {fontSize: 9, color: '#cbd5e1', formatter: (v) => v.toFixed(2)},
+                splitLine: {show: false}
+            }
+        ],
+        series: [
+            {
+                name: '成长/价值',
+                type: 'line',
+                yAxisIndex: 0,
+                data: ratio,
+                smooth: true,
+                showSymbol: false,
+                lineStyle: {width: 1.5, color: mainColor},
+                areaStyle: {
+                    color: {
+                        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [
+                            {offset: 0, color: 'rgba(239,68,68,0.22)'},
+                            {offset: 1, color: 'rgba(239,68,68,0.02)'}
+                        ]
+                    }
+                },
+                // 1.0 = 区间起点，比值在此之上为成长占优
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    label: {show: false},
+                    lineStyle: {type: 'dashed', color: '#cbd5e1'},
+                    data: [{yAxis: 1}]
+                }
+            },
+            {
+                name: '创业板指',
+                type: 'line',
+                yAxisIndex: 1,
+                data: gNorm,
+                smooth: true,
+                showSymbol: false,
+                lineStyle: {width: 1, color: '#ef4444', opacity: 0.45, type: 'dotted'}
+            },
+            {
+                name: '上证红利',
+                type: 'line',
+                yAxisIndex: 1,
+                data: vNorm,
+                smooth: true,
+                showSymbol: false,
+                lineStyle: {width: 1, color: '#12783c', opacity: 0.45, type: 'dotted'}
+            }
+        ]
+    })
+}
+
 // ========================
 // 生命周期（F2：自动刷新）
 // ========================
 let tickTimer = null
 let fgTimer = null
+let gvTimer = null
 
 const startTimers = () => {
     stopTimers()
     tickTimer = setInterval(fetchIndexTick, TICK_REFRESH_MS)
     fgTimer = setInterval(fetchFearGreed, FEAR_GREED_REFRESH_MS)
+    gvTimer = setInterval(fetchGrowthValue, FEAR_GREED_REFRESH_MS)
 }
 
 const stopTimers = () => {
     if (tickTimer) clearInterval(tickTimer)
     if (fgTimer) clearInterval(fgTimer)
+    if (gvTimer) clearInterval(gvTimer)
     tickTimer = null
     fgTimer = null
+    gvTimer = null
 }
 
 watch(auto_refresh, (on) => (on ? startTimers() : stopTimers()))
@@ -303,9 +553,9 @@ onMounted(async () => {
     window.addEventListener('resize', resizeCharts)
     document.addEventListener('visibilitychange', onVisibilityChange)
 
-    // 首屏并发拉取：三个接口互不依赖，串行等待会让首屏白屏时间翻倍。
-    // 用 allSettled：任一接口挂掉不应该让另外两个也不显示。
-    await Promise.allSettled([fetchIndexTick(), fetchSectors(), fetchFearGreed()])
+    // 首屏并发拉取：四个接口互不依赖，串行等待会让首屏白屏时间翻倍。
+    // 用 allSettled：任一接口挂掉不应该让另外三个也不显示。
+    await Promise.allSettled([fetchIndexTick(), fetchSectors(), fetchFearGreed(), fetchGrowthValue()])
     startTimers()
 })
 
@@ -315,6 +565,8 @@ onUnmounted(() => {
     document.removeEventListener('visibilitychange', onVisibilityChange)
     fgChart?.dispose()
     fgChart = null
+    gvChart?.dispose()
+    gvChart = null
 })
 </script>
 
@@ -417,6 +669,93 @@ onUnmounted(() => {
                 </div>
                 <div v-else class="empty-tip">
                     {{ fear_greed_loading ? '加载中…' : '该指数暂无恐惧贪婪数据' }}
+                </div>
+            </template>
+        </Card>
+
+        <!-- 成长 vs 价值（创业板指 ÷ 上证红利） -->
+        <Card class="fear-greed-card growth-value-card">
+            <template #title>
+                <div class="card-title-row">
+                    <span>成长 vs 价值（创业板指 ÷ 上证红利，起点归一）</span>
+                    <span v-if="gvMeta" class="gv-window">
+                        {{ gvMeta.start_date }} ~ {{ gvMeta.end_date }}（{{ gvMeta.trade_days }} 个交易日）
+                    </span>
+                </div>
+            </template>
+            <template #content>
+                <div v-if="gvLatest" class="fear-greed-body">
+                    <!-- 左：当前比值 + 区间涨跌幅 -->
+                    <div class="fg-current">
+                        <div class="fg-value" :style="{ color: ratioColor }">
+                            {{ gvLatest.ratio.toFixed(4) }}
+                        </div>
+                        <div class="fg-label" :style="{ color: ratioColor }">
+                            {{ gvLatest.ratio > 1 ? '成长占优' : (gvLatest.ratio < 1 ? '价值占优' : '风格均衡') }}
+                        </div>
+                        <div class="fg-date">{{ gvLatest.trade_date }}</div>
+
+                        <div class="fg-scores">
+                            <!-- 分量拆解：三条「相对强度」条，都按窗口首日归一化为 1.0，
+                                 >1 红（跑赢）、<1 绿（跑输），与全站红涨绿跌一致。
+                                 ⚠️ 条宽不能用 (norm-1) 直接当宽度：一年期成分腿的偏离多在
+                                 10%~20%（ratio 只有 1%~3%），直接当百分比宽度会短到看不见。
+                                 这里按「三条里最大偏离度」做相对归一，再留 12% 下限。 -->
+                            <div class="fg-score">
+                                <span class="score-name">成长/价值</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: gvBarWidth(gvLatest.ratio), background: ratioColor }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: ratioColor }">
+                                    {{ gvLatest.ratio.toFixed(4) }}
+                                </span>
+                            </div>
+                            <div class="fg-score">
+                                <span class="score-name">创业板指</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: gvBarWidth(gvLatest.growth_norm), background: gvLegColor(gvLatest.growth_norm) }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: gvLegColor(gvLatest.growth_norm) }">
+                                    {{ ((gvLatest.growth_norm - 1) * 100).toFixed(1) }}%
+                                </span>
+                            </div>
+                            <div class="fg-score">
+                                <span class="score-name">上证红利</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: gvBarWidth(gvLatest.value_norm), background: gvLegColor(gvLatest.value_norm) }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: gvLegColor(gvLatest.value_norm) }">
+                                    {{ ((gvLatest.value_norm - 1) * 100).toFixed(1) }}%
+                                </span>
+                            </div>
+                            <!-- 区间比值涨跌幅：>0 说明该窗口内成长跑赢价值 -->
+                            <div v-for="p in gvPeriods" :key="p.days" class="fg-score">
+                                <span class="score-name">近 {{ p.days }} 日</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: gvBarWidth(p.change_pct) + '%', background: p.change_pct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }"></span>
+                                </span>
+                                <span class="score-val"
+                                      :class="getPctColorClass(p.change_pct)">
+                                    {{ p.change_pct == null ? '--' : (p.change_pct > 0 ? '+' : '') + p.change_pct.toFixed(1) + '%' }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 右：近一年比值走势（副轴叠两条成分腿归一化净值） -->
+                    <div class="fg-chart-wrap">
+                        <div class="fg-chart-title">
+                            近一年走势（比值上行 = 成长跑赢；点线为两条成分腿归一化涨幅）
+                        </div>
+                        <div ref="gvChartRef" class="fg-chart"
+                             :class="{'is-loading': growth_value_loading}"></div>
+                    </div>
+                </div>
+                <div v-else class="empty-tip">
+                    {{ growth_value_loading ? '加载中…' : '暂无成长/价值比值数据' }}
                 </div>
             </template>
         </Card>
@@ -740,6 +1079,18 @@ onUnmounted(() => {
                 opacity: 0.45;
             }
         }
+    }
+}
+
+// ========================
+// 成长 vs 价值（复用恐惧贪婪卡片的结构与样式）
+// ========================
+.growth-value-card {
+    // 标题右侧的区间说明，弱化显示
+    .gv-window {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        font-weight: 400;
     }
 }
 

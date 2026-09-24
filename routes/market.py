@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Query, HTTPException
 from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService
+from service.growth_value_service import GrowthValueError, GrowthValueService
 from service.sector_daily_service import SectorDailyService, normalize_sector_type
 from utils.logger import logger
 from utils.data_loader import databull
@@ -79,7 +80,12 @@ def get_market_sectors_history(
 def get_market_fear_greed(
     index_code: str = Query(
         '000001',
-        description="指数代码：000001-上证指数, 000300-沪深300, 399006-创业板指, 000905-中证500"
+        description=(
+            "指数代码。上游覆盖范围（实测 2026-09-24 近一年回溯）：000001-上证指数(263)、"
+            "000300-沪深300(262)、399006-创业板指(265)、000905-中证500(262)、"
+            "000015-上证红利(262)、000688-科创50(268)。"
+            "⚠️ 中证红利 000922 上游**无此数据**（返回空列表）—— 红利口径请用 000015 上证红利。"
+        )
     ),
     days: int = Query(365, ge=1, le=1000, description="向前取多少个自然日"),
 ):
@@ -93,6 +99,18 @@ def get_market_fear_greed(
     股票代码 —— 例如 `000001` 是平安银行（close≈11.73 元）而不是上证指数
     （close≈3949 点）。若把上游指数数据写进同一张表，主键 (trade_date, index_code)
     会与个股数据直接冲突并**覆盖掉平安银行的历史**。故指数维度单独走上游。
+
+    ⚠️ 别把「本地能取到某指数的行情」当成「这里也支持该指数」：两者是不同链路。
+    例如 `databull.get_stock_history('000922')` 能拿到 410 行行情、且本地
+    `build_fear_greed_index` 也能算出情绪分，但本接口依赖的是上游的
+    `get_market_fear_greed`，其对 000922 返回空。若日后要让 000922 生效，
+    要么等上游补齐，要么在这里加一条「本地计算」的兜底分支（需另建表避免与个股冲突）。
+
+    ⚠️⚠️ 本路由 `@cache(expire=3600)`：上游**补齐数据后最多 1 小时才可见**。
+    曾据此误判「000688 科创50 只有 1 天数据」—— 实为上游刚接入时缓存住了那条响应，
+    稍后上游回填了历史，缓存到期即返回完整序列（近一年 268 条）。
+    排查「某指数没数据」时请**换一个 days 参数**（cache key 含 query 参数）绕过缓存再测，
+    否则会把缓存状态当成上游能力。
 
     字段说明：
     - fear_greed  综合指数 0~100（越高越贪婪）
@@ -127,6 +145,33 @@ def get_market_fear_greed(
             'mom_score': row.get('mom_score'),
         })
     return records
+
+
+@market_router.get('/market/growth_value')
+@cache(expire=1800)
+def get_market_growth_value(
+    days: int = Query(250, ge=20, le=2000, description='返回最近 N 个交易日（1 个点/日）'),
+):
+    """成长 vs 价值风格强弱：创业板指(399006) ÷ 上证红利(000015)
+
+    比值上行 = 成长跑赢价值，下行 = 价值跑赢成长。返回的 `points` 里同时带
+    两条成分指数的**归一化净值**（起点 1.0），前端叠在副轴上就能区分
+    「比值上行是成长涨出来的、还是红利跌出来的」—— 只看比值曲线看不出这一点。
+
+    ⚠️ 价值腿是**上证红利 000015**，不是中证红利 000922：上游指数目录里
+    000922.CSI 名称确实是「中证红利」，但 `/cn/index/history` 对它（以及
+    399922.SZ）返回空，只有目录条目没有 K 线，直连上游同样为空。
+    详见 service/growth_value_service.py 顶部说明。
+
+    缓存 30 分钟：这是日线数据，只有最新一根会随盘中变动，刷太勤没意义。
+    """
+    try:
+        return GrowthValueService.get_series(days=days)
+    except GrowthValueError as e:
+        # 入参问题 → 422；取数失败 → 503。都不打栈给前端。
+        msg = str(e)
+        status = 422 if 'days' in msg else 503
+        raise HTTPException(status_code=status, detail=msg)
 
 
 @market_router.get('/market/news')

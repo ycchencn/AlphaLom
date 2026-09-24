@@ -14,7 +14,8 @@ from datetime import datetime
 from utils.data_loader import databull
 from utils.logger import logger
 
-def job_update_stock_greedy_data_daily(override_all=False):
+
+def job_update_stock_greedy_data_daily(override_all=True):
     stocks = StockService.get_monitoring_stock_pool(per_page=500)
     for stock in stocks:
         job_update_stock_greedy_data(index_code=stock['symbol'], override_all=override_all)
@@ -48,8 +49,8 @@ def job_update_etf_greedy_data_daily(override_all=True):
             logger.warning(f"ETF {symbol} 恐惧贪婪更新失败: {e}")
     logger.info("ETF 恐惧贪婪日更结束")
 
-def job_update_stock_greedy_data(index_code, override_all=False):
 
+def job_update_stock_greedy_data(index_code, override_all=False):
     try:
         if is_etf(index_code):
             market_data = databull.get_etf_history(symbol=index_code, start_date="20250101", end_date=get_today())
@@ -76,10 +77,10 @@ def job_update_stock_greedy_data(index_code, override_all=False):
         for trade_date, row in result.iterrows():
             # 跳过任何关键字段为 NaN 的行
             if (
-                pd.isna(row["fear_greed"]) or
-                pd.isna(row["vol_score"]) or
-                pd.isna(row["mom_score"]) or
-                pd.isna(row["close"])
+                    pd.isna(row["fear_greed"]) or
+                    pd.isna(row["vol_score"]) or
+                    pd.isna(row["mom_score"]) or
+                    pd.isna(row["close"])
             ):
                 continue  # 跳过无效行
             # 确保 trade_date 是 date 类型（不是 Timestamp）
@@ -114,6 +115,7 @@ def job_update_stock_greedy_data(index_code, override_all=False):
         logger.debug("❌ 贪婪与恐惧数据写入失败，请检查日志。")
 
     return None
+
 
 if __name__ == '__main__':
 
