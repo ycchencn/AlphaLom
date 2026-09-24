@@ -22,6 +22,7 @@ import {
     parseNumber
 } from '@/utils/function.js';
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue';
+import {useChartDisplay} from '@/composables/useChartDisplay.js';
 import axios from 'axios';
 import {useToast} from 'primevue/usetoast';
 import {useNotification} from '@/composables/useNotification';
@@ -39,6 +40,11 @@ const toast = useToast();
 const route = useRoute();
 const news = ref(null);
 const greed_data = ref([]);
+
+// ===== 图表显示开关（后端 system_setting 的 chart_display 组）=====
+// klineEnabled=false → 「走势图表」区块整块隐藏（默认关闭，见 routes/system_setting.py）。
+// 数据照常取（恐贪卡片、DCF 估值都要用 ohlc 数据），只是不渲染 K 线。
+const {klineEnabled, loadChartDisplay} = useChartDisplay();
 
 // ===== 恐惧贪婪：ECharts 走势卡片（与大盘页「成长 vs 价值」同款样式）=====
 // 形态：左侧当前读数 + 右侧走势图。走势图用**双轴**叠两条线 ——
@@ -610,28 +616,36 @@ onMounted(async () => {
     // 最新的一个K线
     ohlc_last.value = ohlc_data.value[ohlc_data.value.length - 1]
 
-    // 初始化图表
-    chart = init('chart');
-    // 3. 使用从本地存储读取的值来初始化图表样式
-    chart.setStyles({
-        ...chartConfigs, // 如果有其他全局配置，展开它
-    });
+    // 图表显示开关（后端 system_setting 的 chart_display 组，默认关闭 K 线）。
+    // ⚠️ 必须在 init('chart') 之前 await 到结果：容器 `#chart` 归 v-if="klineEnabled" 管，
+    // 开关还没落地就 init 会拿到 null 直接抛错（页面整片白）。
+    // 数据（ohlc_data）照常取 —— 恐贪卡片与 DCF 估值都要用，只是不画 K 线。
+    await loadChartDisplay();
 
-    // 触发一次k线设置
-    changeChartType()
-    chart.setSymbol({ticker: stock_code});
-    chart.setPeriod({span: 1, type: 'day'});
-    chart.setDataLoader({
-        getBars: async ({callback, range}) => {
-            callback(ohlc_data.value);
-        }
-    });
+    if (klineEnabled.value) {
+        // 初始化图表
+        chart = init('chart');
+        // 3. 使用从本地存储读取的值来初始化图表样式
+        chart.setStyles({
+            ...chartConfigs, // 如果有其他全局配置，展开它
+        });
 
-    // 设置技术指标
-    chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
+        // 触发一次k线设置
+        changeChartType()
+        chart.setSymbol({ticker: stock_code});
+        chart.setPeriod({span: 1, type: 'day'});
+        chart.setDataLoader({
+            getBars: async ({callback, range}) => {
+                callback(ohlc_data.value);
+            }
+        });
 
-    // 将指标叠加到蜡烛图窗口
-    chart.createIndicator({name: 'EMA', paneId: 'candle_pane'}, true)
+        // 设置技术指标
+        chart.createIndicator(chart_indicator.value, true, {id: 'candle_pane_vol'});
+
+        // 将指标叠加到蜡烛图窗口
+        chart.createIndicator({name: 'EMA', paneId: 'candle_pane'}, true)
+    }
 
     // 加载新闻关联数据
     // ⚠️ 必须显式传 relation_level_only=false：该接口的默认行为是只返回 relation_level > 0 的新闻，
@@ -968,7 +982,10 @@ onUnmounted(() => {
         <TabPanels>
             <TabPanel value="tab1">
 
-                <div class="mt-5">
+                <!-- 「走势图表」区块由后端配置 chart_display.kline_enabled 控制（默认关闭，整块隐藏）。
+                     注意：区块隐藏但**数据照常加载**（ohlc_data 供恐贪卡片与 DCF 估值使用），
+                     所以这里只包渲染、不影响 onMounted 里的取数。 -->
+                <div class="mt-5" v-if="klineEnabled">
                     <div class="font-semibold text-lg">
                         <i class="pi pi-wave-pulse text-red-400"></i> 走势图表
                     </div>

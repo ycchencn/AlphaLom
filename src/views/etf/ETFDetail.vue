@@ -24,10 +24,15 @@ import {
     fearGreedLabel,
 } from '@/utils/function.js';
 import {useNotification} from '@/composables/useNotification';
+import {useChartDisplay} from '@/composables/useChartDisplay.js';
 
 const route = useRoute();
 const router = useRouter();
 const {showError, showSuccess} = useNotification();
+
+// 图表显示开关（后端 system_setting 的 chart_display 组，默认关闭 K 线）。
+// klineEnabled=false → 「历史走势」卡片整块隐藏（数据照常取，其它卡片要用）。
+const {klineEnabled, loadChartDisplay} = useChartDisplay();
 
 const symbol = route.params.symbol;
 
@@ -591,6 +596,10 @@ function goBack() {
 
 onMounted(async () => {
     window.addEventListener('resize', resizeFgChart);
+    // ⚠️ 先读开关再 loadHistory：loadHistory 内部会 initChart()，
+    // 而 K 线容器归 v-if="klineEnabled" 管 —— 开关没落地就 init 会拿到 null。
+    // 放最前面 await，保证后面的 nextTick + initChart 判断的是真实值。
+    await loadChartDisplay();
     await loadDetail();
     // 确保详情容器（含 #chart）已渲染，再初始化 klinecharts
     await nextTick();
@@ -805,8 +814,9 @@ onUnmounted(() => {
                 </template>
             </Card>
 
-            <!-- 历史走势（klinecharts） -->
-            <Card class="mb-6">
+            <!-- 历史走势（klinecharts）。由后端配置 chart_display.kline_enabled 控制，
+                 默认关闭 → 整块隐藏（数据仍会加载，其它卡片要用）。 -->
+            <Card class="mb-6" v-if="klineEnabled">
                 <template #title>
                     <i class="pi pi-wave-pulse text-red-400 mr-1"></i> 历史走势
                 </template>
