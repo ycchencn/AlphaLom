@@ -1,6 +1,7 @@
 <script setup>
-import {ref, onMounted, computed, watch} from 'vue';
+import {ref, onMounted, onUnmounted, computed, watch, nextTick} from 'vue';
 import {useRoute} from 'vue-router';
+import * as echarts from 'echarts';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Card from 'primevue/card';
@@ -8,7 +9,6 @@ import Badge from 'primevue/badge';
 import {useNotification} from '@/composables/useNotification';
 import {
     fetchPortfolioInfo,
-    setColorOptions,
     formatCurrency,
     formatHoldingDuration,
     formatDaysAgo,
@@ -28,13 +28,264 @@ const profInfo = ref(null);
 const profSummary = ref(null);
 const profTransaction = ref(null);
 const loading = ref(true);
-const lineData = ref(null);
-const lineDataAssets = ref(null);
-const lineOptions = ref(null);
+// ⚠️ 加载失败要单独留一个状态：以前所有异常都被 try/catch 吞掉，`loading` 又在 finally 置 false，
+// 于是「接口 401」的表现是有概览区、但标题永远停在「加载中...」，用户完全看不出发生了什么
+// （而这正是「列表能看、点进去就 401」那个 bug 的观感）。现在区分「加载中 / 加载失败 / 成功」。
+const loadError = ref('');
+// ⚠️ 原来这里有 lineData / lineDataAssets / lineOptions 三个 ref，是喂给 PrimeVue <Chart>（Chart.js）的。
+// 两张走势图换成 ECharts 之后它们**只写不读**（模板里的 <Chart> 已删除）→ 已清理。
 const modal_visible = ref(false);
 const editDialogVisible = ref(false);
 const editSubmitting = ref(false);
 const code = ref(``);
+
+// 盈亏日历数据 / 量化报告抽屉 / 操作建议索引（按 stock_code）
+const profitData = ref({});
+const portfolio_quantstat = ref(null);
+const dcf_research_report_drawer = ref(false);
+const actionMap = ref({});
+
+// ==================== 净资产 / 累计收益率走势图（ECharts） ====================
+// 形态与全站其它走势卡片一致：平滑曲线 + 渐变面积 + 定制 tooltip + 货币/百分比轴标签。
+// ⚠️ 两张图（净资产、累计收益率）**各自独立一个实例**：容器分别在不同 Card 里，
+//    共用一个实例会让后 init 的那个把先 init 的画面顶掉（表现为只有一张图有内容）。
+const equityChartRef = ref(null);
+const returnChartRef = ref(null);
+let equityChart = null;
+let returnChart = null;
+
+// 档位配色（红涨绿跌，A 股口径）
+const UP_COLOR = '#ef4444';
+const DOWN_COLOR = '#12783c';
+
+// 孤儿实例三件套（与 MarketOverview / StockDetail 同构）：
+// 容器在 v-if 内 → init 必须等数据到位；宿主 DOM 被替换/摘除时要 dispose 重建。
+const ensureChart = (chart, refEl) => {
+    const host = chart && chart.getDom && chart.getDom();
+    if (chart && host !== refEl.value) {
+        if (host && !document.contains(host)) { chart.dispose(); chart = null; }
+        else if (!host) { chart = null; }
+    }
+    if (!chart) {
+        if (!refEl.value) return null;
+        if (!refEl.value.clientWidth || !refEl.value.clientHeight) return null;
+        chart = echarts.init(refEl.value);
+    }
+    return chart;
+};
+
+// 把「货币」轴刻度压成 1.2万 / 356万 这种短标签，否则 1234567.89 会把轴挤爆
+const compactMoney = (v) => {
+    const n = Number(v);
+    if (!isFinite(n)) return '—';
+    const abs = Math.abs(n);
+    if (abs >= 1e8) return (n / 1e8).toFixed(2) + '亿';
+    if (abs >= 1e4) return (n / 1e4).toFixed(1) + '万';
+    return n.toFixed(0);
+};
+
+// 收益率序列：以**第一个点**为基准算累计收益率（%）。
+// ⚠️ 不能用 init_cash 当基准：summary 的第一天已经是「建仓后」的资产，用 init_cash 会让首日
+//    就显示一个非零起点。以序列首值为基准，曲线必然从 0% 起，符合「区间收益」的直觉。
+const returnPct = (values) => {
+    if (!values.length) return [];
+    const base = Number(values[0]);
+    if (!isFinite(base) || base === 0) return values.map(() => null);
+    return values.map((v) => {
+        const n = Number(v);
+        return isFinite(n) ? ((n / base) - 1) * 100 : null;
+    });
+};
+
+const renderEquityChart = async () => {
+    await nextTick();
+    equityChart = ensureChart(equityChart, equityChartRef);
+    if (!equityChart) return;
+
+    const rows = profSummary.value || [];
+    if (!rows.length) { equityChart.clear(); return; }
+
+    const sorted = [...rows].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const dates = sorted.map((r) => r.date);
+    const assets = sorted.map((r) => Number(r.total_assets));
+
+    const first = assets[0];
+    const last = assets[assets.length - 1];
+    const up = last >= first;
+    const mainColor = up ? UP_COLOR : DOWN_COLOR;
+    const areaFrom = up ? 'rgba(239,68,68,0.20)' : 'rgba(18,120,60,0.20)';
+    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+
+    // 极值标注：最大 / 最小净资产（只看纵轴看不出「我在哪」，标出来才有体感）
+    let maxIdx = 0, minIdx = 0;
+    assets.forEach((v, i) => {
+        if (v > assets[maxIdx]) maxIdx = i;
+        if (v < assets[minIdx]) minIdx = i;
+    });
+
+    equityChart.setOption({
+        grid: {left: 52, right: 20, top: 16, bottom: 26},
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: {type: 'line', lineStyle: {color: '#cbd5e1', type: 'dashed'}},
+            formatter: (params) => {
+                const p = params[0];
+                const idx = p.dataIndex;
+                const prev = idx > 0 ? assets[idx - 1] : null;
+                const chg = prev ? ((assets[idx] / prev) - 1) * 100 : null;
+                const chgHtml = chg == null ? ''
+                    : `<br/>较前一日：<b style="color:${chg >= 0 ? UP_COLOR : DOWN_COLOR}">`
+                      + `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</b>`;
+                return `<div style="font-size:12px">`
+                    + `<b>${p.axisValue}</b><br/>`
+                    + `净资产：<b>${formatCurrency(assets[idx])}</b>`
+                    + chgHtml
+                    + `</div>`;
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: dates,
+            boundaryGap: false,
+            axisLine: {lineStyle: {color: '#eef1f6'}},
+            axisLabel: {fontSize: 9, color: '#94a3b8', hideOverlap: true},
+            axisTick: {show: false}
+        },
+        yAxis: {
+            type: 'value',
+            scale: true,
+            splitNumber: 4,
+            axisLabel: {fontSize: 9, color: '#94a3b8', formatter: compactMoney},
+            splitLine: {lineStyle: {color: '#eef1f6'}}
+        },
+        series: [{
+            name: '净资产',
+            type: 'line',
+            data: assets,
+            smooth: true,
+            showSymbol: false,
+            connectNulls: true,
+            lineStyle: {width: 2, color: mainColor},
+            data: assets.map((v, i) => {
+                if (i === 0 || i === assets.length - 1 || i === maxIdx || i === minIdx) {
+                    return {value: v, symbol: 'circle', symbolSize: 5};
+                }
+                return v;
+            }),
+            itemStyle: {color: mainColor},
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{offset: 0, color: areaFrom}, {offset: 1, color: areaTo}]
+                }
+            },
+            markPoint: {
+                symbol: 'pin',
+                symbolSize: 30,
+                label: {fontSize: 9, color: '#fff', formatter: (p) => compactMoney(p.value)},
+                data: [
+                    {type: 'max', name: '最高', itemStyle: {color: '#94a3b8'}},
+                    {type: 'min', name: '最低', itemStyle: {color: '#cbd5e1'}}
+                ]
+            }
+        }]
+    });
+};
+
+const renderReturnChart = async () => {
+    await nextTick();
+    returnChart = ensureChart(returnChart, returnChartRef);
+    if (!returnChart) return;
+
+    const rows = profSummary.value || [];
+    if (rows.length < 2) { returnChart.clear(); return; }
+
+    const sorted = [...rows].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const dates = sorted.map((r) => r.date);
+    const pct = returnPct(sorted.map((r) => Number(r.total_assets)));
+
+    const last = pct[pct.length - 1];
+    const up = (last ?? 0) >= 0;
+    const mainColor = up ? UP_COLOR : DOWN_COLOR;
+    const areaFrom = up ? 'rgba(239,68,68,0.22)' : 'rgba(18,120,60,0.22)';
+    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+
+    returnChart.setOption({
+        grid: {left: 46, right: 20, top: 16, bottom: 26},
+        tooltip: {
+            trigger: 'axis',
+            axisPointer: {type: 'line', lineStyle: {color: '#cbd5e1', type: 'dashed'}},
+            formatter: (params) => {
+                const p = params[0];
+                const v = pct[p.dataIndex];
+                if (v == null) return `<b>${p.axisValue}</b><br/>收益率：—`;
+                return `<div style="font-size:12px"><b>${p.axisValue}</b><br/>`
+                    + `累计收益率：<b style="color:${v >= 0 ? UP_COLOR : DOWN_COLOR}">`
+                    + `${v >= 0 ? '+' : ''}${v.toFixed(2)}%</b><br/>`
+                    + `净资产：${formatCurrency(sorted[p.dataIndex].total_assets)}</div>`;
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: dates,
+            boundaryGap: false,
+            axisLine: {lineStyle: {color: '#eef1f6'}},
+            axisLabel: {fontSize: 9, color: '#94a3b8', hideOverlap: true},
+            axisTick: {show: false}
+        },
+        yAxis: {
+            type: 'value',
+            scale: true,
+            splitNumber: 4,
+            axisLabel: {fontSize: 9, color: '#94a3b8', formatter: (v) => Number(v).toFixed(1) + '%'},
+            splitLine: {lineStyle: {color: '#eef1f6'}}
+        },
+        series: [{
+            name: '累计收益率',
+            type: 'line',
+            data: pct,
+            smooth: true,
+            showSymbol: false,
+            connectNulls: true,
+            lineStyle: {width: 2, color: mainColor},
+            itemStyle: {color: mainColor},
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{offset: 0, color: areaFrom}, {offset: 1, color: areaTo}]
+                }
+            },
+            // 0% 基准线：收益/亏损的分界，没有它看不出「什么时候开始亏的」
+            markLine: {
+                silent: true,
+                symbol: 'none',
+                label: {show: false},
+                lineStyle: {type: 'dashed', color: '#e2e8f0'},
+                data: [{yAxis: 0}]
+            }
+        }]
+    });
+};
+
+const resizeCharts = () => {
+    equityChart?.resize();
+    returnChart?.resize();
+};
+
+// 空态用的「区间统计」，让图表区在数据不足时也有信息而不是空白
+const returnStats = computed(() => {
+    const rows = profSummary.value || [];
+    if (rows.length < 2) return null;
+    const sorted = [...rows].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const pct = returnPct(sorted.map((r) => Number(r.total_assets))).filter((v) => v != null);
+    if (!pct.length) return null;
+    return {
+        total: pct[pct.length - 1],
+        max: Math.max(...pct),
+        min: Math.min(...pct),
+        days: sorted.length
+    };
+});
 
 // 编辑表单数据
 const editForm = ref({
@@ -104,10 +355,6 @@ watch(() => editForm.value.llm_setting.platform, (platform) => {
 watch(editDialogVisible, (visible) => {
     if (visible) loadLlmModels(editForm.value.llm_setting.platform);
 });
-// 盈亏日历数据
-const profitData = ref({});
-const portfolio_quantstat = ref(null);
-const dcf_research_report_drawer = ref(false)
 
 // 编辑器选项对象
 const editorOptions = {
@@ -254,16 +501,18 @@ const getPnLPct = (asset) => {
 
 onMounted(async () => {
 
+    // 窗口尺寸变化时让两张 ECharts 自适应（Chart.js 有自己的 responsive，ECharts 需要手动 resize）
+    window.addEventListener('resize', resizeCharts);
+
     try {
+        loadError.value = '';
 
         // 获取统计数据
-        profSummary.value = await fetchPortfolioSummaryDaily(portfolioId);
+        const summary = await fetchPortfolioSummaryDaily(portfolioId) || [];
+        profSummary.value = summary;
 
-        // 获取统计数据
-        profTransaction.value = await fetchPortfolioTransaction(portfolioId);
-
-        // 获取分析html
-        // portfolio_quantstat.value = await fetchPortfolioQuantStat(portfolioId);
+        // 获取交易记录
+        profTransaction.value = await fetchPortfolioTransaction(portfolioId) || [];
 
         // 获取策略信息
         const data = await fetchPortfolioInfo(portfolioId);
@@ -290,7 +539,7 @@ onMounted(async () => {
          * **/
 
         // 👇 2. 遍历并安全赋值
-        profSummary.value.forEach(item => {
+        summary.forEach(item => {
             // 确保 item 存在，且包含必要的字段
             if (item && item.date) {
                 // 使用 || 0 确保如果 daily_pnl_change 为 null/undefined 时，默认为 0
@@ -298,63 +547,45 @@ onMounted(async () => {
             }
         });
 
-        lineOptions.value = setColorOptions();
-
-        // 按 date 排序（确保时间顺序）
-        const sortedData = [...profSummary.value].sort(
-            (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-        );
-        const labels = sortedData.map(item => item.date);
-        const assets = sortedData.map(item => item.total_unrealized_pnl);
-        const total_assets = sortedData.map(item => item.total_assets);
-        const daily_pnl_change = sortedData.map(item => item.daily_pnl_change);
-
-        // 更新 lineData.value
-        lineData.value = {
-            labels: labels,
-            datasets: [
-                {
-                    label: '当日盈亏',
-                    data: daily_pnl_change,
-                    pointRadius: 1,
-                    borderWidth: 1,
-                    tension: 0.3,
-                },
-            ]
-        };
-
-        lineDataAssets.value = {
-            labels: labels,
-            datasets: [
-                {
-                    label: '净资产',
-                    data: total_assets,
-                    backgroundColor: 'rgba(255, 71, 87, 0.8)',
-                    borderColor: 'rgba(255, 71, 87, 0.8)',
-                    pointRadius: 1,
-                    borderWidth: 2,
-                    tension: 0.3,
-                }
-            ]
-        };
+        // 数据齐了才画（容器在 v-if 内，必须等 DOM 到位）
+        await renderEquityChart();
+        await renderReturnChart();
 
     } catch (err) {
+        // 401 已由 main.js 的响应拦截器处理（清令牌 + 跳登录），这里只负责把页面状态摆正，
+        // 避免用户停在一个「标题加载中、下面啥都没有」的页面上猜发生了什么。
+        const status = err?.response?.status;
+        if (status === 401) {
+            loadError.value = '登录状态已失效，正在跳转登录页…';
+        } else if (status === 404) {
+            loadError.value = '该组合不存在，或不属于当前账号。';
+        } else {
+            loadError.value = '组合数据加载失败，请稍后重试。';
+        }
         console.error('Failed to load portfolio:', err);
     } finally {
         loading.value = false;
     }
 });
 
-// 获取操作建议（按 stock_code 索引）
-const actionMap = ref({});
-onMounted(() => {
-    if (profInfo.value?.position_plan?.actions) {
+// 数据加载完（profInfo 就位）后再绑定操作建议索引 —— 原来单独挂在一个 onMounted 里，
+// 而那时异步数据还没回来，`position_plan` 必然为 undefined → actionMap 永远是空的。
+watch(profInfo, (info) => {
+    if (info?.position_plan?.actions) {
         const map = {};
-        profInfo.value.position_plan.actions.forEach((act) => {
+        info.position_plan.actions.forEach((act) => {
             map[act.stock_code] = act;
         });
         actionMap.value = map;
     }
+});
+
+onUnmounted(() => {
+    window.removeEventListener('resize', resizeCharts);
+    equityChart?.dispose();
+    equityChart = null;
+    returnChart?.dispose();
+    returnChart = null;
 });
 
 const items = [
@@ -515,8 +746,16 @@ const showDcfDrawer = function () {
         loading.value = false;
         portfolio_quantstat.value = response.data;
         dcf_research_report_drawer.value = true;
+    }).catch(() => {
+        // 401 由全局拦截器处理；其它错误至少别让按钮永远停在 loading 态
+        loading.value = false;
+        showError('绩效报告加载失败');
     });
 }
+
+// 加载失败后的「重新加载」：整页 reload 会把登录态一起清掉重走，代价大；
+// 这里只重跑本页的取数动作即可。
+const reload = () => window.location.reload();
 
 </script>
 
@@ -754,9 +993,60 @@ const showDcfDrawer = function () {
             <!--            </Card>-->
 
             <Card>
-                <template #title><b class="text-lg">净资产走势</b></template>
+                <template #title>
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <b class="text-lg">净资产走势</b>
+                        <span v-if="returnStats" class="text-xs font-normal text-gray-500">
+                            区间 {{ returnStats.days }} 个交易日
+                        </span>
+                    </div>
+                </template>
                 <template #content>
-                    <Chart type="line" :data="lineDataAssets" :options="lineOptions" style="height: 300px"></Chart>
+                    <div class="pv-chart-wrap">
+                        <div v-if="returnStats" class="pv-chart-side">
+                            <div class="pv-side-label">区间累计收益</div>
+                            <div
+                                class="pv-side-value"
+                                :class="returnStats.total >= 0 ? 'text-red-500' : 'text-green-600'"
+                            >
+                                {{ returnStats.total >= 0 ? '+' : '' }}{{ returnStats.total.toFixed(2) }}%
+                            </div>
+                            <div class="pv-side-row">
+                                <span class="pv-side-k">区间最高</span>
+                                <span class="pv-side-v text-red-500">
+                                    +{{ returnStats.max.toFixed(2) }}%
+                                </span>
+                            </div>
+                            <div class="pv-side-row">
+                                <span class="pv-side-k">区间最低</span>
+                                <span class="pv-side-v text-green-600">
+                                    {{ returnStats.min.toFixed(2) }}%
+                                </span>
+                            </div>
+                        </div>
+                        <div class="pv-chart-main">
+                            <div ref="equityChartRef" class="pv-chart"></div>
+                        </div>
+                    </div>
+                </template>
+            </Card>
+
+            <Card>
+                <template #title>
+                    <div class="flex items-center justify-between gap-2 flex-wrap">
+                        <b class="text-lg">累计收益率走势</b>
+                        <span class="text-xs font-normal text-gray-500">
+                            以区间首个交易日净资产为基准（0%）
+                        </span>
+                    </div>
+                </template>
+                <template #content>
+                    <div v-if="returnStats" class="pv-chart-wrap">
+                        <div class="pv-chart-main">
+                            <div ref="returnChartRef" class="pv-chart"></div>
+                        </div>
+                    </div>
+                    <div v-else class="pv-empty">交易日不足 2 天，暂无法绘制收益率走势</div>
                 </template>
             </Card>
 
@@ -1031,10 +1321,19 @@ const showDcfDrawer = function () {
         </div>
 
         <!-- 加载状态 -->
-        <div v-else-if="loading" class="text-center py-10 text-gray-500">加载中...</div>
+        <div v-else-if="loading" class="text-center py-10 text-gray-500">
+            <i class="pi pi-spin pi-spinner mr-2"></i>加载中...
+        </div>
 
-        <!-- 错误状态 -->
-        <div v-else class="text-center py-10 text-red-500">组合数据加载失败</div>
+        <!-- 错误状态：明确区分「无权限 / 不存在 / 网络失败」，不再和「加载中」混为一谈 -->
+        <div v-else-if="loadError" class="text-center py-10">
+            <i class="pi pi-exclamation-circle text-3xl text-red-400 mb-3 block"></i>
+            <div class="text-red-500 mb-3">{{ loadError }}</div>
+            <Button label="重新加载" size="small" severity="secondary" @click="reload" />
+        </div>
+
+        <!-- 兜底 -->
+        <div v-else class="text-center py-10 text-gray-500">暂无组合数据</div>
 
 
     </div>
@@ -1048,5 +1347,105 @@ const showDcfDrawer = function () {
 }
 :global(html.app-dark) .p-card {
     border-color: #334155;
+}
+
+/* ===== 走势卡片布局（与全站 fear-greed / growth-value 卡片同构：左读数 + 右图）===== */
+.pv-chart-wrap {
+    display: flex;
+    align-items: stretch;
+    gap: 16px;
+}
+
+.pv-chart-side {
+    flex: 0 0 180px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding-right: 20px;
+    border-right: 1px solid #eef1f6;
+}
+
+.pv-side-label {
+    font-size: 11px;
+    color: #94a3b8;
+    /* ⚠️ 读数区与图表贴太近时，"区间累计收益" 会被折线压过去（视觉重叠）——
+       这里靠 line-height 与 margin 把它和数值成组，和右侧图表拉开呼吸感 */
+    line-height: 1.4;
+}
+
+.pv-side-value {
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1.25;
+    font-variant-numeric: tabular-nums;
+    margin-bottom: 2px;
+}
+
+.pv-side-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 11px;
+    gap: 8px;
+}
+
+.pv-side-k {
+    color: #94a3b8;
+}
+
+.pv-side-v {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+
+.pv-chart-main {
+    flex: 1 1 auto;
+    min-width: 0;   /* ⚠️ 不加会被 flex 子项的最小内容宽度撑破，图表不随容器收缩 */
+}
+
+.pv-chart {
+    width: 100%;
+    height: 300px;
+}
+
+.pv-empty {
+    height: 300px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #94a3b8;
+    font-size: 12px;
+}
+
+/* 深色模式：分隔线换成深色，避免一条亮线特别扎眼 */
+:global(html.app-dark) .pv-chart-side {
+    border-right-color: #334155;
+}
+
+@media (max-width: 768px) {
+    .pv-chart-wrap {
+        flex-direction: column;
+    }
+
+    .pv-chart-side {
+        flex: 0 0 auto;
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 4px 16px;
+        padding-right: 0;
+        padding-bottom: 10px;
+        border-right: 0;
+        border-bottom: 1px solid #eef1f6;
+    }
+
+    .pv-side-value {
+        font-size: 22px;
+    }
+
+    .pv-chart {
+        height: 220px;
+    }
 }
 </style>

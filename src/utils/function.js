@@ -4,6 +4,10 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
  **/
 
+// ⚠️ 这里 import 的是 main.js 里挂过拦截器的**同一个** axios 实例（模块单例），
+// 所以令牌注入与 401 跳登录对它同样生效。见下方 fetchPortfolio* 的注释。
+import axios from 'axios';
+
 const defaultStartYear = 3
 
 // 格式化为 %Y%m%d
@@ -412,55 +416,56 @@ export function getMarketByCode(stockCode) {
     return '美';
 }
 
+/**
+ * ⚠️ 组合相关的取数**必须走 axios 实例，不能用原生 fetch**。
+ *
+ * 后端这几个接口都带 `Depends(get_current_user_id)`（多用户隔离，越权/未登录一律 401），
+ * 而 `Authorization: Bearer <token>` 是在 `src/main.js` 里挂在 **axios 全局拦截器**上的 ——
+ * 只有经 axios 发出的请求才会被注入令牌。原生 fetch 不经过拦截器 → 不带令牌 → 一律 401。
+ *
+ * 这个坑的典型症状是「列表能看、点进去就空白/加载中」：列表页
+ * （`PortfolioList.vue`）用 axios 所以正常，详情页原来走的是这里的 fetch，于是永远 401。
+ * 新增接口时请照抄下面 4 个函数的写法，别再退回 fetch。
+ */
 export const fetchPortfolioInfo = async (portfolio_id) => {
     try {
-        let response = await fetch(`/api/v1/investment_portfolios_info/` + portfolio_id);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        const response = await axios.get(`/api/v1/investment_portfolios_info/` + portfolio_id);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
-        return [];
+        console.error('fetchPortfolioInfo failed:', error?.response?.status || error.message);
+        throw error;
     }
 };
 
 export const fetchPortfolioTransaction = async (portfolio_id) => {
     try {
-        let response = await fetch(`/api/v1/portfolio_transaction/` + portfolio_id);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        const response = await axios.get(`/api/v1/portfolio_transaction/` + portfolio_id);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
-        return [];
+        console.error('fetchPortfolioTransaction failed:', error?.response?.status || error.message);
+        throw error;
     }
 };
 
 export const fetchPortfolioQuantStat = async (portfolio_id) => {
     try {
-        let response = await fetch(`/api/v1/portfolio_quantstat/${portfolio_id}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.text();
+        const response = await axios.get(`/api/v1/portfolio_quantstat/${portfolio_id}`, {
+            responseType: 'text'
+        });
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
-        return [];
+        console.error('fetchPortfolioQuantStat failed:', error?.response?.status || error.message);
+        throw error;
     }
 };
 
 export const fetchPortfolioSummaryDaily = async (portfolio_id) => {
     try {
-        let response = await fetch(`/api/v1/portfolio_daily_summary/` + portfolio_id);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        const response = await axios.get(`/api/v1/portfolio_daily_summary/` + portfolio_id);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
-        return [];
+        console.error('fetchPortfolioSummaryDaily failed:', error?.response?.status || error.message);
+        throw error;
     }
 };
 
