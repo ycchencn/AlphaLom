@@ -14,7 +14,7 @@ from job.job_update_sector_daily import job_update_sector_daily
 from backtest.strategy.ai_position_plan_daily import job_position_plan_daily_all
 from backtest.strategy.run_portfolio_daily import run_daily_strategy_all
 from job.job_update_factors import job_update_financial_score_all
-from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily
+from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily, job_update_etf_greedy_data_daily
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
 from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_beta_all
 from job.job_check_signal import job_check_signal_daily
@@ -53,6 +53,11 @@ if __name__ == '__main__':
 
     # 更新个股恐贪数据
     scheduler.add_job(job_update_stock_greedy_data_daily, 'cron', hour=20, minute=55, timezone=beijing_tz)
+
+    # 更新 ETF 恐贪数据（独立于个股池：ETF 在 etf_watchlist，get_monitoring_stock_pool 取不到）
+    # ⚠️ 必须整段重算（override_all=True）：False 会只补最新一天且不删旧 → 次日必 Duplicate
+    scheduler.add_job(job_update_etf_greedy_data_daily, 'cron', hour=21, minute=0, timezone=beijing_tz,
+                      kwargs={'override_all': True})
 
     # 申万行业每日快照落库（板块轮动图数据源；上游只给最新一天，必须逐日累积）
     scheduler.add_job(job_update_sector_daily, 'cron', day_of_week='mon-fri', hour=20, minute=35, timezone=beijing_tz)

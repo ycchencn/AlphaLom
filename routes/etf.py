@@ -15,6 +15,7 @@ from databull import DataBullError
 from utils.data_loader import databull
 from service import FactorValueService
 from service.etf_service import EtfService
+from service.stock_fear_greed_service import StockFearGreedService
 from utils.common import get_today, get_date_by_n
 from utils.logger import logger
 import pandas as pd
@@ -480,3 +481,24 @@ def get_etf_pcf_weight(symbol: str):
         'coverage': round(priced / len(rows), 4),
         'items': items,
     }
+
+
+@etf_router.get('/etf_greed_data/{symbol}')
+@cache(expire=3600)
+def get_etf_greed_data(
+    symbol: str,
+    limit: int = Query(250, ge=1, le=1000, description='返回最近 N 个交易日的记录'),
+):
+    """
+    获取 ETF 恐惧贪婪数据（按交易日倒序）。
+
+    ⚠️ 与个股走**同一张表** `stocks_fear_greed`：该表按 `index_code` 存，
+    对 ETF 来说是随代码号段（51/15/56/58…）自然落入同一张表，不需要单独建表。
+    数据不是从上游直读的，而是 `job_update_stock_greedy_data` 用 ETF 自己的
+    日线（`get_etf_history`，由 `is_etf()` 分流）**计算**出来的
+    —— 上游 `/cn/market/fear_greed` 实测只覆盖指数，ETF 与个股都不在其中。
+
+    `limit` 默认 250（约一年交易日）：与个股页 / 大盘页的「近一年走势」对齐。
+    """
+    greed_data = StockFearGreedService.get_by_index_all(index_code=symbol, limit=limit)
+    return greed_data

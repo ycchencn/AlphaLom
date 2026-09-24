@@ -6,6 +6,7 @@
 
 import pandas as pd
 from service import StockService
+from service.etf_service import EtfService
 from service.stock_fear_greed_service import StockFearGreedService
 from job.market_fear_greed import build_fear_greed_index
 from utils.common import get_today, is_etf
@@ -17,6 +18,33 @@ def job_update_stock_greedy_data_daily(override_all=False):
     stocks = StockService.get_monitoring_stock_pool(per_page=500)
     for stock in stocks:
         job_update_stock_greedy_data(index_code=stock['symbol'], override_all=override_all)
+
+
+def job_update_etf_greedy_data_daily(override_all=True):
+    """
+    ETF 监控清单的恐惧贪婪日更。
+
+    ⚠️ 必须与个股日更分开：`get_monitoring_stock_pool()` 只含**个股**，
+    ETF 清单在 `etf_watchlist` 表里 —— 早前只跑个股日更，导致 ETF 详情页的
+    恐惧贪婪长期无数据（表里一行都没有）。
+
+    ⚠️ 这里**必须** `override_all=True`（整段重算），不能用 `False`：
+    `False` 分支只把 `result.index[-1]`（最新交易日）追加进表，**不删旧数据** →
+    第二天起该交易日已存在 → `Duplicate entry '2026-09-23-<symbol>' for key
+    'stocks_fear_greed.PRIMARY'`，整个批量插入回滚、当日数据全部丢失。
+    单只 ETF 只是本地行情 + 纯 pandas 运算，量级很小（15 只 ≈ 5s），整段重算更省心。
+
+    :param override_all: 是否整段重算（**默认且必须 True**）
+    """
+    etfs = EtfService.list_watchlist()
+    logger.info(f"ETF 恐惧贪婪日更开始，共 {len(etfs)} 只")
+    for etf in etfs:
+        try:
+            job_update_stock_greedy_data(index_code=etf.symbol, override_all=override_all)
+        except Exception as e:
+            # 单只 ETF 失败不能拖垮整批（新上市 ETF 行情可能取不到）
+            logger.warning(f"ETF {etf.symbol} 恐惧贪婪更新失败: {e}")
+    logger.info("ETF 恐惧贪婪日更结束")
 
 def job_update_stock_greedy_data(index_code, override_all=False):
 

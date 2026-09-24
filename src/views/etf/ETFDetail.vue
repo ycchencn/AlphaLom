@@ -12,8 +12,17 @@ import Button from 'primevue/button';
 import ProgressSpinner from 'primevue/progressspinner';
 import SelectButton from 'primevue/selectbutton';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
-import {formatCurrency, formatPercentage, formatStockTradeAmount} from '@/utils/function.js';
+import {
+    formatCurrency,
+    formatPercentage,
+    formatStockTradeAmount,
+    fearGreedToText,
+    fearGreedLevel,
+    fearGreedColor,
+    fearGreedLabel,
+} from '@/utils/function.js';
 import {useNotification} from '@/composables/useNotification';
+import * as echarts from 'echarts';
 
 const route = useRoute();
 const router = useRouter();
@@ -124,6 +133,128 @@ const hasRange = computed(() =>
     low52.value != null && high52.value != null &&
     ohlc.value.lastPrice != null && high52.value > low52.value
 );
+
+// ---------- 恐惧贪婪卡片（UI 与个股页 StockDetail / 大盘页 MarketOverview 同构）----------
+// 与个股页一样用**原生 ECharts**（而不是页面别处的 klinecharts / primevue chart）：
+// 需要 markLine 分档参考线 + 按分值着色的渐变面积，另两款做不到，观感会与另两页对不上。
+//
+// ⚠️ 数据来源与个股共用一张表 `stocks_fear_greed`，但**不是上游直读**，而是
+// `job_update_stock_greedy_data` 用 ETF 自己的日线计算出来再落库的
+// （走 is_etf() → get_etf_history）。上游 /cn/market/fear_greed 实测只覆盖指数，
+// ETF 与个股都不在其中。因此新入池的 ETF 必须跑过该 job 才会有数据。
+const greedData = ref([]);
+const fgChartRef = ref(null);
+let fgChart = null;
+// 后端按 trade_date 倒序返回，取下标 0 即最新一期
+const greedLatest = computed(() => greedData.value[0] || null);
+
+/**
+ * 懒初始化恐惧贪婪走势图的 ECharts 实例。
+ *
+ * ⚠️ 图表容器在 `v-if="greedLatest"` 内部 —— 首屏 onMounted 时数据还没到、
+ * greedLatest 为 null，那个 div 根本没进 DOM，fgChartRef.value 是 **null**。
+ * 此时调 echarts.init(null) 会在 echarts 内部抛
+ * `Cannot read properties of null (reading 'getAttribute')`，而这个异常发生在
+ * 渲染阶段，会把整个组件的挂载链打断 —— 表现是**页面所有数据都不渲染**，
+ * 但接口其实一个都没发出去（极易误判成后端问题）。
+ * 所以必须在数据到位、DOM 真正存在之后再 init。
+ */
+const ensureFgChart = () => {
+    if (fgChart) return fgChart;
+    if (!fgChartRef.value) return null;
+    fgChart = echarts.init(fgChartRef.value);
+    return fgChart;
+};
+
+/**
+ * 绘制「近一年走势」。
+ *
+ * 配置与个股页 / 大盘页的恐惧贪婪图保持一致：固定 0~100 的 y 轴、
+ * 25/50/75 三条分档虚线、渐变面积。
+ * y 轴固定量程是必要的 —— 自适应量程会把「26 分」和「74 分」画成视觉上一样高的波动，
+ * 情绪指标失去可读性。ETF 历史长度不一（新 ETF 可能不足一年），
+ * 这里按实际行数绘制，不做补齐。
+ *
+ * @param {Array} rows 已按交易日**升序**排列的记录
+ */
+const renderFearGreedChart = async (rows) => {
+    // nextTick：数据赋值 → v-if 变真 → DOM 出现，等这一拍再 init
+    await nextTick();
+    const instance = ensureFgChart();
+    if (!instance) return;
+
+    if (!rows || !rows.length) {
+        instance.clear();
+        return;
+    }
+
+    instance.setOption({
+        grid: {left: 32, right: 12, top: 16, bottom: 22},
+        tooltip: {
+            trigger: 'axis',
+            formatter: (params) => {
+                const p = params[0];
+                const d = rows[p.dataIndex];
+                return `${d.trade_date}<br/>综合: <b>${d.fear_greed}</b>（${fearGreedLabel(d.fear_greed)}）`
+                    + `<br/>波动分: ${d.vol_score ?? '--'}<br/>动量分: ${d.mom_score ?? '--'}`;
+            }
+        },
+        xAxis: {
+            type: 'category',
+            data: rows.map((r) => r.trade_date),
+            show: false
+        },
+        yAxis: {
+            type: 'value',
+            min: 0,
+            max: 100,
+            splitNumber: 2,
+            axisLabel: {fontSize: 9, color: '#94a3b8'},
+            splitLine: {lineStyle: {color: '#eef1f6'}}
+        },
+        series: [{
+            type: 'line',
+            data: rows.map((r) => r.fear_greed),
+            smooth: true,
+            showSymbol: false,
+            lineStyle: {width: 1.5, color: '#ef4444'},
+            areaStyle: {
+                color: {
+                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [
+                        {offset: 0, color: 'rgba(239,68,68,0.28)'},
+                        {offset: 1, color: 'rgba(239,68,68,0.02)'}
+                    ]
+                }
+            },
+            // 25 / 50 / 75 为情绪分档参考线
+            markLine: {
+                silent: true,
+                symbol: 'none',
+                label: {show: false},
+                lineStyle: {type: 'dashed', color: '#cbd5e1'},
+                data: [{yAxis: 50}, {yAxis: 25}, {yAxis: 75}]
+            }
+        }]
+    });
+};
+
+async function loadFearGreed() {
+    try {
+        // ⚠️ 显式传 limit=250（约一年交易日）而不是依赖后端默认值，
+        // 避免以后默认值被调整时静默改变图表周期。
+        const r = await axios.get(`/api/v1/etf_greed_data/${symbol}`, {params: {limit: 250}});
+        // 后端按 trade_date 倒序返回：倒序数组给卡片左栏取「最新一条」，
+        // 图表另用升序副本。不要再靠 index 0 / last 猜顺序。
+        greedData.value = Array.isArray(r.data) ? r.data : [];
+        const sorted = [...greedData.value].sort(
+            (a, b) => new Date(a.trade_date).getTime() - new Date(b.trade_date).getTime()
+        );
+        renderFearGreedChart(sorted);
+    } catch (e) {
+        greedData.value = [];
+    }
+}
 
 // ---------- klinecharts 走势图 ----------
 const chartEl = ref(null);
@@ -300,6 +431,14 @@ function goBack() {
     router.push({path: '/market/etf_insight'});
 }
 
+/**
+ * ⚠️ ECharts 画布尺寸是 **init 时按容器实测值固定下来的**，不是响应式的：
+ * 侧边栏折叠、窗口拖拽后画布不会自己跟着变，表现为图表被拉伸变形或右侧留白。
+ * 项目未引入 ResizeObserver 封装，沿用个股页 / 大盘页的做法监听 window resize。
+ * 必须与 removeEventListener 成对，否则页面来回切换会累积监听器。
+ */
+const resizeFgChart = () => fgChart?.resize();
+
 onMounted(async () => {
     await loadDetail();
     // 确保详情容器（含 #chart）已渲染，再初始化 klinecharts
@@ -307,12 +446,21 @@ onMounted(async () => {
     loadHistory();
     loadComposition();
     loadEtfInfo();
+    loadFearGreed();
     // 不 await：清单先渲染，权重（要逐只取价）回来后再补上两列
     loadWeights();
+    window.addEventListener('resize', resizeFgChart);
 });
 
 onUnmounted(() => {
     if (chart) dispose(chart);
+    window.removeEventListener('resize', resizeFgChart);
+    // 组件卸载时销毁 ECharts 实例：只把 ref 置空不够，
+    // 实例内部仍持有 canvas 与事件监听，反复进出详情页会持续泄漏内存。
+    if (fgChart) {
+        fgChart.dispose();
+        fgChart = null;
+    }
 });
 
 </script>
@@ -442,6 +590,69 @@ onUnmounted(() => {
                         </div>
                     </div>
                     <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
+                </template>
+            </Card>
+
+            <!-- 恐惧贪婪：布局与个股页 / 大盘页保持一致 ——
+                 左栏「当前值 + 情绪档位 + 分量条」、右栏「近一年走势图」。
+                 用 Card 包裹与页面其它区块统一（本页普遍是 Card 风格），
+                 不再像个股页那样补一层自绘 .fg-card。 -->
+            <Card class="mb-6">
+                <template #title>
+                    <i class="pi pi-sun text-orange-500 mr-1"></i> 恐惧&贪婪指标
+                </template>
+                <template #content>
+                    <div v-if="greedLatest" class="fear-greed-body">
+                        <!-- 左：当前值 -->
+                        <div class="fg-current">
+                            <div class="fg-value" :style="{ color: fearGreedColor(greedLatest.fear_greed) }">
+                                {{ Number(greedLatest.fear_greed ?? 0).toFixed(2) }}
+                            </div>
+                            <div class="fg-label" :style="{ color: fearGreedColor(greedLatest.fear_greed) }">
+                                {{ fearGreedLevel(greedLatest.fear_greed).text }}
+                            </div>
+                            <div class="fg-date">{{ greedLatest.trade_date }}</div>
+
+                            <!-- 解读：一句话说明当前情绪意味着什么 -->
+                            <div class="fg-advice">
+                                {{ fearGreedToText(greedLatest.fear_greed).advice }}
+                            </div>
+
+                            <!-- 分量拆解：用迷你条直观表达两个 0~100 分项的相对高低 -->
+                            <div class="fg-scores">
+                                <div class="fg-score">
+                                    <span class="score-name">波动分</span>
+                                    <span class="score-track">
+                                        <span class="score-fill"
+                                              :style="{ width: Math.min(100, Number(greedLatest.vol_score ?? 0)) + '%',
+                                                        background: fearGreedColor(greedLatest.vol_score) }"></span>
+                                    </span>
+                                    <span class="score-val">{{ Number(greedLatest.vol_score ?? 0).toFixed(1) }}</span>
+                                </div>
+                                <div class="fg-score">
+                                    <span class="score-name">动量分</span>
+                                    <span class="score-track">
+                                        <span class="score-fill"
+                                              :style="{ width: Math.min(100, Number(greedLatest.mom_score ?? 0)) + '%',
+                                                        background: fearGreedColor(greedLatest.mom_score) }"></span>
+                                    </span>
+                                    <span class="score-val">{{ Number(greedLatest.mom_score ?? 0).toFixed(1) }}</span>
+                                </div>
+                                <div class="fg-score">
+                                    <span class="score-name">收盘价</span>
+                                    <span class="score-val score-val-wide">
+                                        {{ Number(greedLatest.close ?? 0).toFixed(2) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 右：近一年走势 -->
+                        <div class="fg-chart-wrap">
+                            <div class="fg-chart-title">近一年走势</div>
+                            <div ref="fgChartRef" class="fg-chart"></div>
+                        </div>
+                    </div>
+                    <div v-else class="empty-tip">该 ETF 暂无恐惧贪婪数据</div>
                 </template>
             </Card>
 
@@ -581,5 +792,142 @@ onUnmounted(() => {
 }
 :global(html.app-dark) .p-card {
     border-color: #334155;
+}
+
+/* ========================
+   恐惧贪婪卡片
+   与个股页 StockDetail.vue / 大盘页 MarketOverview.vue 的同名样式保持一致
+   （左值 + 右图表）。改这里时请同步那两页，三页观感必须一致。
+   差异：本页区块在 Card 内，故不再自绘 .fg-card 外壳。
+   ======================== */
+.fear-greed-body {
+    display: flex;
+    gap: 1.5rem;
+    align-items: stretch;
+
+    .fg-current {
+        flex: 0 0 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 0;
+
+        .fg-value {
+            font-size: 3rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .fg-label {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0.4rem;
+        }
+
+        .fg-date {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        /* 情绪解读：与「数值 → 档位 → 日期 → 解读」的阅读顺序一致 */
+        .fg-advice {
+            font-size: 0.8rem;
+            color: #64748b;
+            margin-top: 0.5rem;
+        }
+
+        .fg-scores {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+            margin-top: 1rem;
+            width: 100%;
+
+            .fg-score {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.9rem;
+                color: #64748b;
+
+                .score-name {
+                    flex: 0 0 3.6rem;
+                    white-space: nowrap;
+                }
+
+                // 迷你进度条：0~100 分项得分
+                .score-track {
+                    flex: 1;
+                    height: 5px;
+                    background: #eef1f6;
+                    border-radius: 3px;
+                    overflow: hidden;
+
+                    .score-fill {
+                        display: block;
+                        height: 100%;
+                        border-radius: 3px;
+                        transition: width 0.3s ease;
+                    }
+                }
+
+                .score-val {
+                    flex: 0 0 3.2rem;
+                    text-align: right;
+                    font-weight: 600;
+                    color: #0f172a;
+                    font-variant-numeric: tabular-nums;
+                }
+
+                // 收盘价没有可归一化的量纲，不配进度条，占满右侧
+                .score-val-wide {
+                    flex: 1;
+                }
+            }
+        }
+    }
+
+    .fg-chart-wrap {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+
+        .fg-chart-title {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 0.3rem;
+        }
+
+        .fg-chart {
+            flex: 1;
+            min-height: 200px;
+            width: 100%;
+        }
+    }
+}
+
+.empty-tip {
+    padding: 2rem 0;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.9rem;
+}
+
+/* 窄屏：横向布局改为纵向堆叠。个股页左侧固定 300px 会顶满小屏整宽导致图表被挤走，
+   这里同样改为自适应宽度。 */
+@media (max-width: 768px) {
+    .fear-greed-body {
+        flex-direction: column;
+        gap: 1rem;
+
+        .fg-current {
+            flex: none;
+            width: 100%;
+        }
+    }
 }
 </style>
