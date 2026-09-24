@@ -166,6 +166,19 @@ const items = [
     }
 ];
 
+/**
+ * 快速回测：把当前标的带到组合回测页并自动执行一次。
+ * 组合回测页识别到 ?symbols= 会自己跑一遍（restoreFromQuery），所以这里只负责跳转。
+ * 单只标的在「等权买入持有」下就等于这只票的买入持有净值与回撤曲线，
+ * 用来快速看历史最大回撤，不必先去那页搜一次代码再点「开始回测」。
+ * ⚠️ 只传 symbols：区间 / 基准 / 初始资金沿用组合回测页自己的默认值
+ * （近 1 年、沪深300、100 万）——传了 start_date/end_date 反而把它的默认区间钉死。
+ */
+const goQuickBacktest = () => {
+    if (!stock_code) return;
+    router.push({path: '/quant/portfolio_backtest', query: {symbols: stock_code}});
+};
+
 const echart1 = ref(null)
 
 function render() {
@@ -659,9 +672,12 @@ onUnmounted(() => {
                 }}%</span>
         </h1>
 
-        <div class="absolute top-8 right-8">
-            <Button label="AI 估值分析" size="small" class="mr-2" @click="showDcfDrawer()" :loading="loading"></Button>
-            <!-- <Button :label="watched ? '已关注' : '关注'" size="small" class="mr-2" @click="toggleLike()" :severity="watched ? '' : 'secondary'"></Button>-->
+        <div class="absolute top-8 right-8 action-bar">
+            <Button v-tooltip.top="'用这只股票跑一次等权买入持有，直接看净值与最大回撤'"
+                    label="快速回测" icon="pi pi-chart-line" size="small" severity="secondary"
+                    class="whitespace-nowrap" @click="goQuickBacktest()"></Button>
+            <Button label="AI 估值分析" size="small" class="whitespace-nowrap" @click="showDcfDrawer()" :loading="loading"></Button>
+            <!-- <Button :label="watched ? '已关注' : '关注'" size="small" @click="toggleLike()" :severity="watched ? '' : 'secondary'"></Button>-->
             <SplitButton label="操作" :model="items" size="small" severity="secondary"/>
         </div>
     </div>
@@ -1144,11 +1160,28 @@ onUnmounted(() => {
     font-size: 0.9rem;
 }
 
+/* 右上角动作区（快速回测 / AI 估值分析 / 操作）：
+   absolute 定位是为了与股票名称同行，但按钮一多、窄屏就会压到标题上。
+   这里只统一间距与换行；≤768px 改为普通流靠右（scoped 类的属性选择器
+   特异性高于 Tailwind 的 .absolute，所以 position: static 能生效）。 */
+.action-bar {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
 /* 窄屏：横向布局改为纵向堆叠。
    与大盘页的差异：个股页这个区块在 Tab 内、且下面还跟着「技术面深度诊断」，
    所以左侧数值区不再固定 300px（会顶满小屏整宽导致图表被挤到下一屏看不见），
    改为自适应宽度。 */
 @media (max-width: 768px) {
+    .action-bar {
+        position: static;
+        margin-bottom: 0.5rem;
+    }
+
     .fear-greed-body {
         flex-direction: column;
         gap: 1rem;
