@@ -151,10 +151,6 @@ llm_model_setting = {
         'platform': 'volcengine',
         'model': ['doubao-seed-1-6-flash-250828', 'glm-4-7-251222']
     },
-    'chat_app': {                      # 对话应用
-        'platform': 'deepseek',
-        'model': 'deepseek-v4-pro'
-    }
 }
 
 # ===== 外部数据接口 =====

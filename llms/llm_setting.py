@@ -50,12 +50,6 @@ LLM_SETTING_SCENES: List[Dict[str, Any]] = [
         'description': '新闻情绪与关联标的抽取（job_news_feed_analysis）',
         'in_use': True,
     },
-    {
-        'name': 'chat_app',
-        'label': '对话应用',
-        'description': 'config 中已声明，但当前没有任何调用方引用（对话走组合自己的 llm_setting）',
-        'in_use': False,
-    },
 ]
 
 _SCENE_NAMES = [s['name'] for s in LLM_SETTING_SCENES]

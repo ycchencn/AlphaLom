@@ -49,8 +49,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 
 | 服务 | 端口 | 入口 | 职责 |
 |:--|:--|:--|:--|
-| `web` | 8080 | `run_fastapi.py` | FastAPI REST API（主节点，静态资源 + SPA） |
-| `chat_app` | 8082→8000 | `run_chat_app.py` | FastAPI 流式对话 + MCP |
+| `web` | 8080 | `run_fastapi.py` | FastAPI REST API（主节点，静态资源 + SPA，含 /api/v1/chat 流式对话） |
 | `scheduler` | — | `scheduler.py` | 收盘后数据 / 因子 / 信号调度 |
 | `job_server` | — | `job/job_server.py` | Redis Stream 任务消费者（消费组） |
 | `news_server` | — | `job/news_server.py` | 新闻聚合 |
@@ -88,8 +87,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 
 ```
 alphalom/
-├── run_fastapi.py        # FastAPI REST 入口
-├── run_chat_app.py       # FastAPI 对话入口
+├── run_fastapi.py        # FastAPI REST 入口（含流式对话 /api/v1/chat）
 ├── scheduler.py          # 定时任务入口
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置（按 ENV 加载 .env / .env.<env>）
@@ -131,8 +129,7 @@ cp .env.sample .env       # 配置数据库 / Redis / 各 LLM API Key
 ### 启动服务
 
 ```bash
-python run_fastapi.py          # 主服务（FastAPI，dev 下自动热重载）
-python run_chat_app.py         # AI 对话服务（独立进程，端口 8000）
+python run_fastapi.py          # 主服务（FastAPI，dev 下自动热重载，含流式对话 /api/v1/chat）
 python scheduler.py            # 定时调度
 docker-compose up -d           # 或一键编排全部服务
 

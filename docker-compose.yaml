@@ -14,19 +14,6 @@ services:
             WEB_WORKERS: 3
         restart: always
 
-    chat_app:
-        image: alphalom-service:latest
-        ports:
-            - "8082:8000"
-        working_dir: /app
-        command: python3 /app/run_chat_app.py
-        environment:
-            ENV: production
-            PYTHONPATH: /app
-            DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
-        restart: always
-
     scheduler:
         image: alphalom-service:latest
         working_dir: /app
