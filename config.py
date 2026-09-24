@@ -112,7 +112,12 @@ cache_setting = {
     # 监控股票列表：接口内部是 N+1 查询（每只票 4 次），开销大；
     # 所含数据（恐惧贪婪、52 周高低、主力行为阶段）都是日频更新，
     # 但 monitoring 标记可能被后台任务随时改动，故 TTL 取短一些（默认 5 分钟）
-    'monitored_stocks': int(os.getenv('CACHE_MONITORED_STOCKS', 300))
+    'monitored_stocks': int(os.getenv('CACHE_MONITORED_STOCKS', 300)),
+    # ETF 监控列表：与个股池同类（每只 ETF 2 次因子查询 + 1 次上游实时行情，是 N+1），
+    # 但它的载荷里带**实时报价**，缓存久了页面上的价格就是假的，
+    # 所以 TTL 取短（默认 60 秒），只用来吸收「反复进出页面」的重复请求。
+    # 增删 ETF 由写接口主动失效（见 routes/etf.py 的 ETF_LIST_NS），不依赖这个 TTL。
+    'etfs': int(os.getenv('CACHE_ETFS', 60))
 }
 
 # ===== 大模型路由配置 =====

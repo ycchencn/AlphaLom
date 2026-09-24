@@ -7,10 +7,13 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from fastapi import APIRouter, Query, HTTPException
+from fastapi.concurrency import run_in_threadpool
+from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from pydantic import BaseModel
 from typing import Optional
 from app.fastapi_app import api_prefix
+from config import cache_setting
 from databull import DataBullError
 from utils.data_loader import databull
 from service import FactorValueService
@@ -22,8 +25,14 @@ import pandas as pd
 
 etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
 
+# ETF 监控列表的缓存命名空间：装饰器与「增删后失效」两处共用同一常量，
+# 避免字符串写得不一致导致失效静默落空（表现是加完 ETF 页面不刷新）。
+ETF_LIST_NS = 'etfs'
+
 # ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；写成 `async def`
 # 会让下面循环里的同步 databull HTTP 调用直接占死事件循环 → 全站一起卡。
+# 唯一的例外是写路径 add_etf / delete_etf：它们要 `await FastAPICache.clear()`，
+# 必须是 async，所以内部的同步库操作显式走 run_in_threadpool（别去掉）。
 
 # ---------- 申赎清单（PCF）与成分股权重 ----------
 # PCF 只给「每个篮子包含多少股」（component_volume），要换算成占净值比必须乘最新价。
@@ -67,10 +76,19 @@ def _etf_name_from_databull(symbol: str, fallback: str = None) -> str:
 
 
 @etf_router.get('/etfs')
+@cache(expire=cache_setting['etfs'], namespace=ETF_LIST_NS)
 def get_etfs():
     """
     获取ETF监控列表（持久化在 etf_watchlist 表）。
-    不挂 @cache：增删需即时可见，且每只 ETF 的行情来自 databull 实时接口。
+
+    缓存：每只 ETF 都要单独查 2 次因子（52 周高低）+ 1 次上游实时行情，是典型的
+    N+1，而列表成员本身很少变动，故整体缓存（TTL 见 config.cache_setting['etfs']，
+    取短是因为载荷里含实时报价）。
+
+    ⚠️ 增删 ETF 的接口必须在写库后立刻
+    `await FastAPICache.clear(namespace=ETF_LIST_NS)`，否则用户加完看不到自己的改动
+    —— 前端（ETFInsight.vue）在添加/删除后会马上重新拉一次这个接口。
+    是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
     """
     rows = EtfService.list_watchlist()
     result = []
@@ -128,25 +146,42 @@ class EtfAddRequest(BaseModel):
 
 
 @etf_router.post('/etf')
-def add_etf(req: EtfAddRequest):
+async def add_etf(req: EtfAddRequest):
     """
     添加一只 ETF 到监控列表（持久化）。symbol 必填，name 可选（不传则由接口取）。
+
+    ⚠️ 这里用 `async def` 是本模块唯一的例外：必须 `await FastAPICache.clear()`
+    才能让 /etfs 的缓存立刻失效（同步 `def` 由 Starlette 丢线程池执行，里面没有
+    事件循环，await 不了）。而库操作本身是同步阻塞的（DB + name 缺失时还要请求
+    databull 取名），所以显式走 run_in_threadpool，别占死唯一的事件循环 ——
+    与 routes/portfolio.py 的处理方式一致。
     """
     try:
-        item = EtfService.add_watchlist(req.symbol, name=req.name)
+        item = await run_in_threadpool(EtfService.add_watchlist, req.symbol, name=req.name)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+    # 列表缓存必须立刻失效：前端加完会马上重新拉 /etfs，并期望这一条就在列表里。
+    # 幂等命中已有记录（重复添加）时也照清 —— 多清一次没有副作用。
+    await FastAPICache.clear(namespace=ETF_LIST_NS)
+
     return {'code': 0, 'message': 'ok', 'data': item.to_dict()}
 
 
 @etf_router.delete('/etf/{symbol}')
-def delete_etf(symbol: str):
+async def delete_etf(symbol: str):
     """
     从监控列表移除一只 ETF。
+
+    同 add_etf：需要 await 清缓存，故 async + run_in_threadpool。
     """
-    ok = EtfService.delete_watchlist(symbol)
+    ok = await run_in_threadpool(EtfService.delete_watchlist, symbol)
     if not ok:
         raise HTTPException(status_code=404, detail=f'ETF {symbol} 不在监控列表中')
+
+    # 已删掉的这只必须立刻从列表里消失，否则缓存还没过期，用户一刷新它又回来了
+    await FastAPICache.clear(namespace=ETF_LIST_NS)
+
     return {'code': 0, 'message': 'ok'}
 
 
