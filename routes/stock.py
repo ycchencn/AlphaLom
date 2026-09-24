@@ -355,14 +355,108 @@ def get_fundamental_scores(symbol: str):
     return scores
 
 
+# 财务三大报表 + 股本 + 每股指标。上游 /cn/stock/financial_data 靠 report_type 区分，
+# ⚠️ SDK 默认值是 'Balance' —— 漏传不报错但会静默拿到资产负债表，
+# 所以这里一律**显式必传**，且用白名单校验，避免前端拼错报表名拿到不相干数据。
+FINANCIAL_REPORT_TYPES = ('Balance', 'Income', 'CashFlow', 'Capital', 'PershareIndex')
+
+
+def _summarize_financial_rows(rows):
+    """把上游 `report_table` 扁平字典归一成前端好用的结构。
+
+    上游每行的真正载荷在 `report_table` 里（扁平 snake_case 字段，float 或 None），
+    外层只有 id/stock_code/report_type/report_date/announce_date。
+    这里**把 report_table 摊平到顶层**并统一日期格式：
+      - `report_date` 统一成 'YYYY-MM-DD'（上游在 report_table 内是 'YYYYMMDD'，
+        外层又是 'YYYY-MM-DD'，两种格式并存 → 前端排序/显示会踩坑）；
+      - 顺带按 report_date 降序返回（上游顺序不稳定，同一日期偶尔重复）。
+    """
+    out = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        table = row.get('report_table')
+        item = dict(table) if isinstance(table, dict) else {}
+
+        # report_date / announce_date 可能出现在两处，优先取 report_table 内的，再回退外层
+        raw_date = item.get('report_date') or row.get('report_date') or ''
+        raw_announce = item.get('announce_date') or row.get('announce_date') or ''
+        item['report_date'] = _normalize_fin_date(raw_date)
+        item['announce_date'] = _normalize_fin_date(raw_announce)
+        item['report_type'] = row.get('report_type')
+        out.append(item)
+
+    # 降序：最新一期在前（同日期去重，保留先出现的）
+    seen = set()
+    deduped = []
+    for r in sorted(out, key=lambda x: x.get('report_date') or '', reverse=True):
+        key = r.get('report_date')
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(r)
+    return deduped
+
+
+def _normalize_fin_date(value):
+    """'20241231' / '2024-12-31' → '2024-12-31'；无法识别的原样返回。"""
+    if not value:
+        return ''
+    s = str(value).strip()
+    if len(s) == 8 and s.isdigit():
+        return f'{s[0:4]}-{s[4:6]}-{s[6:8]}'
+    return s
+
+
 @stock_router.get('/stock/financial_data/{symbol}')
 @cache(expire=3600)
-def get_financial_data(symbol: str):
-    """获取个股财务数据"""
-    report = databull.get_stock_financial_data(
+def get_financial_data(
+        symbol: str,
+        report_type: str = Query(
+            'PershareIndex',
+            description='报表类型：Balance/Income/CashFlow/Capital/PershareIndex'
+        ),
+        periods: int = Query(12, ge=1, le=40, description='返回最近 N 期'),
+):
+    """获取个股财务数据（默认每股指标，可按报表切换）。
+
+    ⚠️ 三个坑（都在本项目里踩过/验证过）：
+    1. 必须**显式**传 report_type —— SDK 默认是 'Balance'，漏传会静默拿错报表；
+    2. SDK 返回的是 `{code, data}` 信封，SDK **不自动解包**，必须自己取内层 data，
+       否则前端拿到的是包着信封的一层壳（历史上 /stock/profile 就是这个坑）。
+    3. 上游 report_type 实测有 5 种（文档只列了 4 种，`PershareIndex` 文档里没有但可用）
+       → 以实测为准。这里的白名单与实测保持一致。
+
+    另：上游只接受日期窗口、不提供「最近 N 期」语义，所以窗口按 periods 反推
+    （一期 ≈ 一季，用 periods*100 天覆盖，再在 Python 侧截断到 periods 条）。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+    if report_type not in FINANCIAL_REPORT_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid report_type, expect one of {FINANCIAL_REPORT_TYPES}"
+        )
+
+    # periods 期 → 取数窗口。多留一倍冗余，避免跨年/停牌导致窗口内不满 periods 期。
+    start_date = get_date_by_n(-max(periods * 100, 400))
+    end_date = get_today()
+
+    resp = databull.get_stock_financial_data(
         symbol=symbol,
-        start_date=get_date_by_n(-365),
-        end_date=get_today(),
-        report_type='PershareIndex'
+        start_date=start_date,
+        end_date=end_date,
+        report_type=report_type,
     )
-    return report
+    # 解包 {code, data} 信封（SDK 不自动解包）
+    rows = resp.get('data') if isinstance(resp, dict) else resp
+    if not isinstance(rows, list):
+        rows = []
+
+    items = _summarize_financial_rows(rows)[:periods]
+    return {
+        'symbol': symbol,
+        'report_type': report_type,
+        'periods': periods,
+        'items': items,
+    }
