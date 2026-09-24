@@ -803,7 +803,7 @@ onUnmounted(() => {
                     <!-- 240px：与 K 线下方「成分股构成」配合的紧凑高度。
                          原来写 420px 会把成分股整块推到首屏之外（1600x1050 下文档高 2239px，
                          成分股卡片起点 1073px），而 ETF 详情的核心信息正是成分股穿透。 -->
-                    <div class="relative" style="height: 240px;">
+                    <div class="relative" style="height: 380px;">
                         <div ref="chartEl" id="chart" style="width: 100%; height: 100%;"></div>
                         <ProgressSpinner v-if="historyLoading" style="width: 40px; height: 40px"
                                         class="absolute inset-0 m-auto"/>
