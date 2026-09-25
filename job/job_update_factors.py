@@ -192,4 +192,8 @@ def job_update_stock_factor(stock_code, trade_date=None, save_last=False, time_p
 
 if __name__ == '__main__':
 
-    job_update_financial_score_all()
+    # job_update_financial_score_all()
+
+    # job_update_stock_factor_daily_all()
+
+    job_update_etf_factor_all()
