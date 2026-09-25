@@ -144,6 +144,36 @@ def enrich_assets_with_industry(assets):
             a['industry'] = '其他'
 
 
+def _default_summary(prof: dict) -> dict:
+    """新建策略还没有每日汇总（PortfolioDailySummary）时，构造一个与真实汇总字段一致、
+    且数值自洽的兜底 summary。
+
+    旧兜底只给 ``{total_unrealized_pnl: 0, total_assets: 0}``，会漏掉 ``position_ratio``
+    （前端仓位卡片 ``summary.position_ratio * 100`` → NaN%），且 ``total_assets=0`` 会让
+    「持仓市值」卡片按 ``total_assets - current_cash`` 算出负数。
+
+    这里用「当前现金 + 持仓市值」反推总资产与仓位比例，保证非负、非 NaN。
+    """
+    cash = float(prof.get('current_cash') or 0)
+    position_value = 0.0
+    for a in (prof.get('assets') or []):
+        try:
+            position_value += float(a.get('position_size') or 0) * float(a.get('position_price') or 0)
+        except (TypeError, ValueError):
+            pass
+    total_assets = cash + position_value
+    position_ratio = (position_value / total_assets) if total_assets > 0 else 0.0
+    return {
+        'total_assets': total_assets,
+        'total_unrealized_pnl': 0,
+        'total_pnl_pct': 0,
+        'position_ratio': position_ratio,
+        'cash_balance': cash,
+        'daily_pnl_change': 0,
+        'cumulative_realized_pnl': 0,
+    }
+
+
 @portfolio_router.get('/investment_portfolios')
 @cache(expire=360, namespace=PORTFOLIO_LIST_NS)
 def get_investment_portfolios(user_id: int = Depends(get_current_user_id)):
@@ -155,10 +185,10 @@ def get_investment_portfolios(user_id: int = Depends(get_current_user_id)):
     """
     portfolios = InvestmentPortfolioService.get_all(user_id=user_id)
     for prof in portfolios:
+        prof['assets'] = PortfolioAssetsService.get_all_by_portfolio_id(prof.get('portfolio_id'))
         prof['summary'] = PortfolioDailySummaryService.get_last_by_portfolio_id(prof.get('portfolio_id'))
         if prof['summary'] is None:
-            prof['summary'] = {'total_unrealized_pnl': 0, 'total_assets': 0}
-        prof['assets'] = PortfolioAssetsService.get_all_by_portfolio_id(prof.get('portfolio_id'))
+            prof['summary'] = _default_summary(prof)
         del prof['llm_prompt']
         del prof['position_plan']
     return portfolios
@@ -170,10 +200,10 @@ def get_investment_portfolios_info(portfolio_id: str, user_id: int = Depends(get
     """获取策略详情（仅限本人组合）"""
     prof = get_owned_portfolio(portfolio_id, user_id)
     prof['portfolio_id'] = portfolio_id
+    prof['assets'] = PortfolioAssetsService.get_all_by_portfolio_id(portfolio_id)
     prof['summary'] = PortfolioDailySummaryService.get_last_by_portfolio_id(portfolio_id)
     if prof['summary'] is None:
-        prof['summary'] = {'total_unrealized_pnl': 0, 'total_assets': 0}
-    prof['assets'] = PortfolioAssetsService.get_all_by_portfolio_id(portfolio_id)
+        prof['summary'] = _default_summary(prof)
     enrich_assets_with_industry(prof['assets'])
     prof['daily_pnl'] = DailyPnLRecordService.get_all_by_portfolio_id(portfolio_id)
     return prof

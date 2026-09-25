@@ -1045,7 +1045,7 @@ const reload = () => window.location.reload();
                 <template #title>总资产</template>
                 <template #content>
                     <div class="text-xl font-semibold text-blue-700 font-mono">
-                        {{ formatCurrency(profInfo.summary?.total_assets) }}
+                        {{ formatCurrency(profInfo.summary?.total_assets || 0) }}
                     </div>
                     <div class="text-xs text-gray-500 mt-1">股票市值 + 现金</div>
                 </template>
@@ -1063,7 +1063,7 @@ const reload = () => window.location.reload();
                 <template #title>仓位</template>
                 <template #content>
                     <div class="text-xl font-semibold text-purple-700 font-mono">
-                        {{ (profInfo.summary?.position_ratio * 100).toFixed(2) }}%
+                        {{ ((profInfo.summary?.position_ratio || 0) * 100).toFixed(2) }}%
                     </div>
                     <div class="text-xs text-gray-500 mt-1">股票市值 / 总资产</div>
                 </template>
@@ -1088,7 +1088,7 @@ const reload = () => window.location.reload();
                 <template #title>持仓市值</template>
                 <template #content>
                     <div class="text-xl font-semibold text-red-400 font-mono">
-                        {{ formatCurrency(profInfo.summary?.total_assets - profInfo.current_cash) }}
+                        {{ formatCurrency((profInfo.summary?.total_assets || 0) - (profInfo.current_cash || 0)) }}
                     </div>
                     <div class="text-xs text-gray-500 mt-1">持仓股数 * 现价</div>
                 </template>
