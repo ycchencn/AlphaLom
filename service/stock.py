@@ -279,6 +279,102 @@ class StockService:
             logger.error(f"remove_from_user_pool failed (user_id={user_id}, {symbol}): {e}")
             return False
 
+    # ---------- 股票池分组（标签式，不独立建表）----------
+
+    @staticmethod
+    def get_user_pool_group_map(user_id) -> Dict[str, Optional[str]]:
+        """symbol -> group_name（含 NULL），用于给监控列表注入分组信息。
+
+        监控列表接口会拿它把 `group_name` 塞进每只票的返回体，前端据此做左侧分组筛选。
+        """
+        try:
+            rows = db_session.query(
+                UserStockPool.symbol, UserStockPool.group_name
+            ).filter(UserStockPool.user_id == int(user_id)).all()
+            return {r[0]: r[1] for r in rows if r[0]}
+        except Exception as e:
+            logger.error(f"get_user_pool_group_map failed (user_id={user_id}): {e}")
+            return {}
+
+    @staticmethod
+    def get_user_pool_groups(user_id) -> List[Dict[str, Any]]:
+        """返回当前用户的分组列表（含每组股票数），按名称排序。
+
+        仅统计非空的 group_name；分组是「标签」语义，没有股票的分组不展示。
+        """
+        try:
+            rows = db_session.query(
+                UserStockPool.group_name,
+                func.count(UserStockPool.symbol),
+            ).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.group_name.isnot(None),
+                UserStockPool.group_name != '',
+            ).group_by(UserStockPool.group_name).order_by(
+                UserStockPool.group_name
+            ).all()
+            return [{'group_name': r[0], 'count': r[1]} for r in rows]
+        except Exception as e:
+            logger.error(f"get_user_pool_groups failed (user_id={user_id}): {e}")
+            return []
+
+    @staticmethod
+    def set_stock_group(user_id, symbol, group_name) -> bool:
+        """设置/清除某只票的分组（group_name 为空/None = 移回未分组）。
+
+        只改用户私有层那一行，票本身不会被移出池子。
+        """
+        if not user_id or not symbol:
+            return False
+        try:
+            item = db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol == symbol,
+            ).first()
+            if not item:
+                return False
+            item.group_name = group_name or None
+            db_session.commit()
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"set_stock_group failed (user_id={user_id}, {symbol}): {e}")
+            return False
+
+    @staticmethod
+    def rename_user_group(user_id, old_name, new_name) -> bool:
+        """重命名分组：把该用户下 old_name 的标签整批改成 new_name。"""
+        if not user_id or not old_name or not new_name or old_name == new_name:
+            return False
+        try:
+            db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.group_name == old_name,
+            ).update({UserStockPool.group_name: new_name}, synchronize_session=False)
+            db_session.commit()
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"rename_user_group failed (user_id={user_id}): {e}")
+            return False
+
+    @staticmethod
+    def delete_user_group(user_id, group_name) -> bool:
+        """删除分组：把该组下所有票的分组置空（移回未分组），不删除票本身。"""
+        if not user_id or not group_name:
+            return False
+        try:
+            db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.group_name == group_name,
+            ).update({UserStockPool.group_name: None}, synchronize_session=False)
+            db_session.commit()
+            return True
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"delete_user_group failed (user_id={user_id}): {e}")
+            return False
+
 
     @staticmethod
     def get_etfs(page=1, per_page=25, market=None) -> List[Dict[str, Any]]:

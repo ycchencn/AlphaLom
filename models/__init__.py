@@ -118,6 +118,9 @@ class UserStockPool(Base):
     symbol = Column(String(25), nullable=False, index=True, comment='股票代码')
     market = Column(String(10), default='cn', comment='市场：cn/hk/us')
     monitor_by = Column(String(50), comment='加入来源标签（沿用原 stocks.monitor_by 的取值习惯）')
+    # 分组名称：用户私有标签，NULL/空 = 未分组。分组本身不独立建表，
+    # 只是 user_stock_pool 行上的一个标签，便于在股票池页按分组筛选/整理。
+    group_name = Column(String(50), default=None, comment='分组名称，NULL/空=未分组')
     created_at = Column(DateTime, default=datetime.now, comment='加入时间')
 
     # ⚠️ 显式指定 charset/collate：库内历史表里 utf8mb4_bin / utf8mb4_unicode_ci /
@@ -135,6 +138,7 @@ class UserStockPool(Base):
             'symbol': self.symbol,
             'market': self.market,
             'monitor_by': self.monitor_by,
+            'group_name': self.group_name or '',
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
         }
 

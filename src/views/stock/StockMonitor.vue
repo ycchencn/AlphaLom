@@ -62,6 +62,7 @@ function loadStockList(){
 onBeforeMount(() => {
     // 获取个股数据
     loadStockList()
+    loadGroups()
     initFilters1();
 });
 
@@ -262,6 +263,130 @@ const getPhaseSeverity = (phaseInt) => {
     return PHASE_CONFIG[num]?.severity || PHASE_CONFIG[0].severity;
 };
 
+// ==================== 股票池分组（标签式，group_name）====================
+const groups = ref([]);                  // [{group_name, count}]
+// 选中分组：'__all__'=全部，''=未分组，其余为分组名
+const selectedGroup = ref('__all__');
+
+// 重命名 / 新建分组弹窗状态（必须各自用独立布尔 ref，不能把表达式绑到 v-model:visible）
+const renameVisible = ref(false);
+const renamingGroup = ref('');
+const renameNewName = ref('');
+const createGroupVisible = ref(false);
+const createGroupName = ref('');
+const createGroupSymbol = ref('');
+
+// 分组下拉选项：未分组 + 现有分组 + 「新建分组」哨兵项
+const groupOptions = computed(() => {
+    const opts = [{ label: '未分组', value: '' }];
+    for (const g of groups.value) {
+        opts.push({ label: g.group_name, value: g.group_name });
+    }
+    opts.push({ label: '＋ 新建分组', value: '__new__' });
+    return opts;
+});
+
+// 未分组数量（基于已加载列表实时算）
+const ungroupedCount = computed(() =>
+    stock_list.value.filter(s => !s.group_name).length
+);
+
+// 按选中分组前端过滤（列表已全量加载，无需服务端分页过滤）
+const filteredStockList = computed(() => {
+    if (selectedGroup.value === '__all__') return stock_list.value;
+    if (selectedGroup.value === '') return stock_list.value.filter(s => !s.group_name);
+    return stock_list.value.filter(s => s.group_name === selectedGroup.value);
+});
+
+function loadGroups() {
+    return axios.get('/api/v1/stock/groups').then(r => {
+        groups.value = Array.isArray(r.data) ? r.data : [];
+    }).catch(() => { groups.value = []; });
+}
+
+function handleGroupErr(error) {
+    let message = '操作失败，请重试';
+    if (axios.isAxiosError(error) && error.response) {
+        const d = error.response.data;
+        message = (d && (d.message || d.detail)) || message;
+    } else if (error instanceof Error) {
+        message = error.message;
+    }
+    showError(message);
+}
+
+async function setStockGroup(symbol, groupName) {
+    try {
+        await axios.put('/api/v1/stock/group', { symbol, group_name: groupName || null });
+        // 本地即时更新，避免整表重载闪烁
+        const item = stock_list.value.find(s => s.symbol === symbol);
+        if (item) item.group_name = groupName || '';
+        await loadGroups();
+    } catch (error) {
+        handleGroupErr(error);
+    }
+}
+
+function onGroupChange(symbol, val) {
+    if (val === '__new__') {
+        openCreateGroup(symbol);
+    } else {
+        setStockGroup(symbol, val);
+    }
+}
+
+function openCreateGroup(symbol) {
+    createGroupSymbol.value = symbol;
+    createGroupName.value = '';
+    createGroupVisible.value = true;
+}
+
+async function confirmCreateGroup() {
+    const name = createGroupName.value.trim();
+    if (!name) { showError('请输入分组名称'); return; }
+    createGroupVisible.value = false;
+    await setStockGroup(createGroupSymbol.value, name);
+}
+
+function startRename(groupName) {
+    renamingGroup.value = groupName;
+    renameNewName.value = groupName;
+    renameVisible.value = true;
+}
+
+async function confirmRename() {
+    const oldName = renamingGroup.value;
+    const newName = renameNewName.value.trim();
+    if (!newName) { showError('请输入新名称'); return; }
+    if (oldName === newName) { renameVisible.value = false; return; }
+    try {
+        await axios.put('/api/v1/stock/group/rename', { old_name: oldName, new_name: newName });
+        for (const s of stock_list.value) {
+            if (s.group_name === oldName) s.group_name = newName;
+        }
+        showSuccess('分组已重命名');
+        renameVisible.value = false;
+        await loadGroups();
+    } catch (error) {
+        handleGroupErr(error);
+    }
+}
+
+async function deleteGroup(groupName) {
+    if (!window.confirm(`确定删除分组「${groupName}」？\n组内股票将移回「未分组」（不会删除股票）。`)) return;
+    try {
+        await axios.delete('/api/v1/stock/group', { data: { group_name: groupName } });
+        for (const s of stock_list.value) {
+            if (s.group_name === groupName) s.group_name = '';
+        }
+        if (selectedGroup.value === groupName) selectedGroup.value = '__all__';
+        showSuccess('分组已删除');
+        await loadGroups();
+    } catch (error) {
+        handleGroupErr(error);
+    }
+}
+
 </script>
 
 <template>
@@ -354,10 +479,36 @@ const getPhaseSeverity = (phaseInt) => {
         </div>
       </template>
     </Dialog>
-    <div class="card">
+    <div class="pool-layout">
+      <!-- 左侧分组面板 -->
+      <aside class="group-panel">
+        <div class="group-panel-title">分组</div>
+        <ul class="group-items">
+          <li :class="['group-item', { active: selectedGroup === '__all__' }]" @click="selectedGroup = '__all__'">
+            <span class="gi-name">全部</span>
+            <span class="gi-count">{{ stock_list.length }}</span>
+          </li>
+          <li v-for="g in groups" :key="g.group_name"
+              :class="['group-item', { active: selectedGroup === g.group_name }]">
+            <span class="gi-name" @click="selectedGroup = g.group_name">{{ g.group_name }}</span>
+            <span class="gi-count">{{ g.count }}</span>
+            <span class="gi-actions">
+              <i class="pi pi-pencil" title="重命名" @click="startRename(g.group_name)"></i>
+              <i class="pi pi-trash" title="删除分组" @click="deleteGroup(g.group_name)"></i>
+            </span>
+          </li>
+          <li :class="['group-item', { active: selectedGroup === '' }]" @click="selectedGroup = ''">
+            <span class="gi-name">未分组</span>
+            <span class="gi-count">{{ ungroupedCount }}</span>
+          </li>
+        </ul>
+        <div class="group-add-hint">在右侧「分组」列中可新建 / 分配分组</div>
+      </aside>
+
+      <div class="card pool-table">
         <DataTable
             ref="dt1"
-            :value="stock_list"
+            :value="filteredStockList"
             :paginator="true"
             :rows="25"
             dataKey="symbol"
@@ -489,13 +640,56 @@ const getPhaseSeverity = (phaseInt) => {
                     />
                 </template>
             </Column>
+            <Column header="分组" :sortable="false" style="min-width: 140px">
+                <template #body="{ data }">
+                    <Dropdown
+                        :modelValue="data.group_name || ''"
+                        :options="groupOptions"
+                        optionLabel="label"
+                        optionValue="value"
+                        placeholder="未分组"
+                        size="small"
+                        class="w-full"
+                        @change="(e) => onGroupChange(data.symbol, e.value)"
+                    />
+                </template>
+            </Column>
             <Column field="verified" header="操作" dataType="boolean" bodyClass="text-center">
                 <template #body="{ data }">
                     <router-link class="text-blue-500" :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">查看</router-link>
                 </template>
             </Column>
         </DataTable>
+      </div>
     </div>
+
+    <!-- 重命名分组 -->
+    <Dialog v-model:visible="renameVisible" modal header="重命名分组" :style="{ width: '24rem' }">
+      <div class="flex flex-col gap-3">
+        <label class="font-semibold">原名称：{{ renamingGroup }}</label>
+        <InputText v-model="renameNewName" placeholder="输入新分组名称" class="w-full" @keyup.enter="confirmRename" />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <Button label="取消" severity="secondary" @click="renameVisible = false" />
+          <Button label="确定" @click="confirmRename" />
+        </div>
+      </template>
+    </Dialog>
+
+    <!-- 新建分组 -->
+    <Dialog v-model:visible="createGroupVisible" modal header="新建分组" :style="{ width: '24rem' }">
+      <div class="flex flex-col gap-3">
+        <label class="font-semibold">为 {{ createGroupSymbol }} 创建并分配到新分组</label>
+        <InputText v-model="createGroupName" placeholder="输入分组名称" class="w-full" @keyup.enter="confirmCreateGroup" />
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <Button label="取消" severity="secondary" @click="createGroupVisible = false" />
+          <Button label="确定" @click="confirmCreateGroup" />
+        </div>
+      </template>
+    </Dialog>
 
 </template>
 
@@ -558,5 +752,90 @@ const getPhaseSeverity = (phaseInt) => {
 .phase-tag--rise { background-color: #389e0d; }       /* 绿色 - 拉升 */
 .phase-tag--distribute { background-color: #d46b08; } /* 橙色 - 出货 */
 .phase-tag--unknown { background-color: #bfbfbf; }    /* 浅灰 - 未知 */
+
+/* 股票池分组布局：左侧分组面板 + 右侧表格 */
+.pool-layout {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.group-panel {
+  width: 200px;
+  flex: 0 0 200px;
+  border: 1px solid var(--p-content-border-color, #e5e7eb);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--p-content-background, #fff);
+  position: sticky;
+  top: 12px;
+}
+
+.group-panel-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.group-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.group-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.group-item:hover {
+  background: var(--p-content-hover-background, #f3f4f6);
+}
+
+.group-item.active {
+  background: var(--p-primary-color, #3b82f6);
+  color: #fff;
+}
+
+.group-item .gi-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-item .gi-count {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.group-item .gi-actions {
+  display: none;
+  gap: 4px;
+}
+
+.group-item:hover .gi-actions {
+  display: inline-flex;
+}
+
+.group-add-hint {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+.pool-table {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 
 </style>

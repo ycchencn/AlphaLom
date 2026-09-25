@@ -4,7 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from fastapi import APIRouter, Query, Request, HTTPException, Depends
+from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from app.fastapi_app import api_prefix
@@ -224,9 +224,16 @@ def get_stocks_monitored(
     stocks = StockService.get_monitoring_stock_pool(per_page=page_size, market=market,
                                                     user_id=user_id)
     if simple == 1:
+        # 简单模式也带上分组标签，便于前端分组下拉等复用
+        group_map = StockService.get_user_pool_group_map(user_id)
+        for stock in stocks:
+            stock['group_name'] = group_map.get(stock['symbol']) or ''
         return stocks
 
     symbols = [s['symbol'] for s in stocks]
+
+    # 分组标签映射（symbol -> group_name），用于给每只票注入 group_name
+    group_map = StockService.get_user_pool_group_map(user_id)
 
     # 两次批量查询取代 N+1：每只票原本 4 次往返，现在是 2 次固定往返
     greed_map = StockFearGreedService.get_latest_by_index_codes(symbols)
@@ -243,7 +250,73 @@ def get_stocks_monitored(
         )
         stock['52week_low'] = factor_map.get((symbol, '52week_low'), '')
         stock['52week_high'] = factor_map.get((symbol, '52week_high'), '')
+        # 注入分组标签（NULL → ''），供前端左侧分组面板筛选
+        stock['group_name'] = group_map.get(symbol) or ''
     return stocks
+
+
+# ---------- 股票池分组（标签式）----------
+
+@stock_router.get('/stock/groups')
+def get_stock_groups(user_id: int = Depends(get_current_user_id)):
+    """获取当前用户的分组列表（含每组股票数）。
+
+    分组是 `user_stock_pool.group_name` 标签，不独立建表，所以这里只做聚合统计、
+    不做缓存（写入后会清 MONITORED_STOCKS_NS，但本接口本身读库实时返回即可）。
+    """
+    return StockService.get_user_pool_groups(user_id)
+
+
+@stock_router.put('/stock/group')
+async def set_stock_group(
+    payload: dict = Body(...),
+    user_id: int = Depends(get_current_user_id),
+):
+    """设置/清除某只票的分组。
+
+    body: {symbol: str, group_name: str|null} —— group_name 为空/省略表示移回「未分组」。
+    只改用户私有层标签，不会把票移出池子。
+    """
+    symbol = (payload or {}).get('symbol')
+    group_name = (payload or {}).get('group_name')
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol is required")
+    ok = StockService.set_stock_group(user_id, symbol, group_name)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"{symbol} 不在你的股票池中")
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+    return {'code': 0, 'message': 'ok'}
+
+
+@stock_router.put('/stock/group/rename')
+async def rename_stock_group(
+    payload: dict = Body(...),
+    user_id: int = Depends(get_current_user_id),
+):
+    """重命名分组。body: {old_name: str, new_name: str}。"""
+    old_name = (payload or {}).get('old_name')
+    new_name = (payload or {}).get('new_name')
+    if not old_name or not new_name:
+        raise HTTPException(status_code=400, detail="old_name and new_name are required")
+    if old_name == new_name:
+        return {'code': 0, 'message': 'ok'}
+    StockService.rename_user_group(user_id, old_name, new_name)
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+    return {'code': 0, 'message': 'ok'}
+
+
+@stock_router.delete('/stock/group')
+async def delete_stock_group(
+    payload: dict = Body(...),
+    user_id: int = Depends(get_current_user_id),
+):
+    """删除分组：组内股票移回「未分组」，不删除票本身。body: {group_name: str}。"""
+    group_name = (payload or {}).get('group_name')
+    if not group_name:
+        raise HTTPException(status_code=400, detail="group_name is required")
+    StockService.delete_user_group(user_id, group_name)
+    await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+    return {'code': 0, 'message': 'ok'}
 
 
 @stock_router.get('/stock/greed_data/{stock_code}')
