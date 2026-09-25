@@ -90,10 +90,16 @@ const ensureFgChart = () => {
  * ⚠️ 数据是**倒序**的（后端按 trade_date desc），画图前必须 reverse 成时间升序，
  * 否则 X 轴的先后顺序整个反掉 —— 曲线形状会左右镜像，且不易察觉。
  */
-const renderFearGreedChart = async () => {
+const renderFearGreedChart = async (attempt = 0) => {
     await nextTick();
     const chart = ensureFgChart();
-    if (!chart) return;
+    if (!chart) {
+        // 容器尚未就绪（v-if 刚切换 / 父级过渡动画未结束 / 首帧布局未完成）→
+        // ensureFgChart 会因 clientWidth/Height 为 0 返回 null，图就永远空白。
+        // 用 requestAnimationFrame 重试（最多 ~0.5s），容器可测后再画，避免「数据到了图却空白」。
+        if (attempt < 30) requestAnimationFrame(() => renderFearGreedChart(attempt + 1));
+        return;
+    }
 
     const rows = [...(greed_data.value || [])].reverse();
     if (!rows.length) {
@@ -720,9 +726,10 @@ onMounted(async () => {
             : [];
         greed_data.value = _arr;
 
-        // 数据到位后渲染走势图（此刻 v-if 才让容器进 DOM，可以 init 了）
-        renderFearGreedChart();
+        // 先关 loading → 模板 v-if 切到图表块，<div ref="fgChartRef"> 进 DOM；
+        // 再渲染走势图（renderFearGreedChart 内部 await nextTick 后容器已挂载，可 init）。
         greedLoading.value = false;
+        renderFearGreedChart();
 
     }).catch(() => {
         greedLoading.value = false;
