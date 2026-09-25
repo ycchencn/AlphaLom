@@ -63,7 +63,10 @@ class ScanRedisBackend(RedisBackend):
             return 0
 
         removed = 0
-        async for k in self.redis.scan_iter(match=f'{namespace}:*', count=500):
+        # ⚠️ 真实 key = `{CACHE_PREFIX}:{namespace}:{hash}`（见 FastAPICache.init 的 prefix）。
+        # 若只按 `namespace:*` 扫描会永远匹配不到，导致所有 `FastAPICache.clear(namespace=...)` 静默失效，
+        # 表现为「改完代码 / 写完库，缓存却一直返回旧值」。必须拼上前缀。
+        async for k in self.redis.scan_iter(match=f'{CACHE_PREFIX}:{namespace}:*', count=500):
             removed += await self.redis.delete(k)
         return removed
 
