@@ -163,6 +163,12 @@ const router = createRouter({
                     meta: { title: '用户管理', requiresAuth: true, requiresAdmin: true }
                 },
                 {
+                    path: '/system/token_usage',
+                    name: 'token_usage_view',
+                    component: () => import('@/views/system/TokenUsage.vue'),
+                    meta: { title: 'Token 统计', requiresAuth: true, requiresAdmin: true }
+                },
+                {
                     path: '/ai/chat/',
                     name: 'ai_chat_view',
                     component: () => import('@/views/ai/chat.vue'),

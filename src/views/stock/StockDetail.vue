@@ -38,7 +38,7 @@ import * as echarts from 'echarts'
 let chart = ref(null)
 const toast = useToast();
 const route = useRoute();
-const news = ref(null);
+const news = ref([]);
 const greed_data = ref([]);
 
 // ===== 图表显示开关（后端 system_setting 的 chart_display 组）=====
@@ -415,6 +415,13 @@ const loadFinancialData = async (reportType = fin_report_type.value) => {
 const ohlc_data = ref([]);
 const ohlc_last = ref({})
 const loading = ref(false);
+// 各区块独立加载态：先展示「加载中」，数据到位后再切换内容；
+// 避免首屏数据未回时因判据为「空」而先闪「无数据」、随后整块跳成真实内容。
+const pageLoading = ref(true);     // 标题 + 行情价（核心首屏数据）
+const greedLoading = ref(true);    // 恐惧贪婪卡片
+const newsLoading = ref(true);     // 新闻动态
+const reportsLoading = ref(true);  // 研报数据
+const techLoading = ref(true);     // 技术面深度诊断
 const {showSuccess, showError} = useNotification();
 const stock_code = route.params.symbol;
 const stock_profile = ref(null);
@@ -616,6 +623,9 @@ onMounted(async () => {
     // 最新的一个K线
     ohlc_last.value = ohlc_data.value[ohlc_data.value.length - 1]
 
+    // 核心首屏数据已就绪（标题 + 行情价），关闭首屏 loading，交还价格/标题渲染。
+    pageLoading.value = false;
+
     // 图表显示开关（后端 system_setting 的 chart_display 组，默认关闭 K 线）。
     // ⚠️ 必须在 init('chart') 之前 await 到结果：容器 `#chart` 归 v-if="klineEnabled" 管，
     // 开关还没落地就 init 会拿到 null 直接抛错（页面整片白）。
@@ -654,11 +664,17 @@ onMounted(async () => {
         params: {stock_code: stock_code, page_size: 20, relation_level_only: false}
     }).then(response => {
         news.value = response.data?.items || [];
+        newsLoading.value = false;
+    }).catch(() => {
+        newsLoading.value = false;
     });
 
     // 获取技术分析报告
     axios.get(`/api/v1/stock/tech_analysis_report/${stock_code}`).then(response => {
         tech_report.value = response.data
+        techLoading.value = false;
+    }).catch(() => {
+        techLoading.value = false;
     });
 
     // 获取DCF分析报告
@@ -692,12 +708,18 @@ onMounted(async () => {
 
         // 数据到位后渲染走势图（此刻 v-if 才让容器进 DOM，可以 init 了）
         renderFearGreedChart();
+        greedLoading.value = false;
 
+    }).catch(() => {
+        greedLoading.value = false;
     });
 
     // 加载研报列表
     axios.get(`/api/v1/stock/research_reports/${stock_code}`).then(response => {
         research_reports.value = response.data || [];
+        reportsLoading.value = false;
+    }).catch(() => {
+        reportsLoading.value = false;
     });
 
     // 财务分析（tab4）：进页面就先取一次默认报表（每股指标），
@@ -950,7 +972,10 @@ onUnmounted(() => {
             class="text-sm font-light">{{ stock_info?.concepts || '加载中...' }}</i>
         </h1>
 
-        <h1 class="stock-price" v-if="ohlc_data.length > 0" :class="{
+        <div v-if="pageLoading" class="price-loading">
+            <i class="pi pi-spin pi-spinner"></i> 行情加载中...
+        </div>
+        <h1 class="stock-price" v-else-if="ohlc_data.length > 0" :class="{
                               'text-red-500': ohlc_last['chg_pct'] > 0,
                               'text-green-600': ohlc_last['chg_pct'] < 0,
                               }">
@@ -1024,7 +1049,10 @@ onUnmounted(() => {
                     </div>
                     <Divider/>
 
-                    <div v-if="greedLatest" class="fg-card fg-body">
+                    <div v-if="greedLoading" class="fg-loading">
+                        <i class="pi pi-spin pi-spinner"></i> 恐惧贪婪数据加载中...
+                    </div>
+                    <div v-else-if="greedLatest" class="fg-card fg-body">
                         <!-- 左：当前读数 -->
                         <div class="fg-current">
                             <div class="fg-value" :style="{ color: fearGreedColor(greedLatest.fear_greed) }">
@@ -1078,7 +1106,10 @@ onUnmounted(() => {
                     <div v-else class="empty-tip">该股票暂无恐惧贪婪数据</div>
                 </div>
 
-                <div class="mt-5" v-if="tech_report">
+                <div class="mt-5 fg-loading" v-if="techLoading">
+                    <i class="pi pi-spin pi-spinner"></i> 技术面分析加载中...
+                </div>
+                <div class="mt-5" v-else-if="tech_report">
                     <div class="font-semibold text-lg">
                         <i class="pi pi-chart-line text-green-500"></i> 技术面深度诊断
                     </div>
@@ -1163,6 +1194,7 @@ onUnmounted(() => {
                 <DataTable
                     tableStyle="font-size:12px"
                     :value="news"
+                    :loading="newsLoading"
                     :paginator="true"
                     :rows="5"
                     dataKey="id"
@@ -1172,7 +1204,7 @@ onUnmounted(() => {
                     :showGridlines="false"
                 >
                     <template #empty> No data found.</template>
-                    <template #loading> Loading customers data. Please wait.</template>
+                    <template #loading> 新闻加载中，请稍候...</template>
                     <Column field="stock_name" filterField="stock_name" header="">
                         <template #body="{ data }">
                             <div class="news-item">
@@ -1318,7 +1350,7 @@ onUnmounted(() => {
                         tableStyle="font-size:12px"
                         :rowHover="true"
                         :showGridlines="false"
-                        :loading="report_loading"
+                        :loading="reportsLoading"
                     >
                         <template #empty>暂无研报数据</template>
                         <template #loading>加载中...</template>
@@ -1533,6 +1565,20 @@ onUnmounted(() => {
     text-align: center;
     color: #94a3b8;
     font-size: 0.9rem;
+}
+
+/* 各区块「加载中」占位：与 .empty-tip 同类观感，避免首屏闪现「无数据」 */
+.fg-loading,
+.price-loading {
+    padding: 2rem 0;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.9rem;
+
+    .pi-spinner {
+        margin-right: 0.4rem;
+        vertical-align: -0.05em;
+    }
 }
 
 /* 右上角动作区（快速回测 / AI 估值分析 / 操作）：

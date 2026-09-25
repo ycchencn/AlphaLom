@@ -897,3 +897,46 @@ class LlmAgent(Base):
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
             'updated_at': self.updated_at.strftime('%Y-%m-%d %H:%M:%S') if self.updated_at else None,
         }
+
+
+class LlmTokenUsage(Base):
+    """每次 LLM 调用的 token 消耗与对话输入输出明细。
+
+    接入点：LLMBase / LLMBaseAsync 的各 create_completion 调用处（见 llms/llm_base.py、
+    llms/usage_recorder.py）。记录粒度 = 单次 LLM API 调用（工具调用多轮会记多条）。
+    user_id 来自请求级 ContextVar（后台 job 无请求上下文则为 NULL）；
+    scene/platform 来自 get_model_by_setting 写入实例的属性。
+    """
+
+    __tablename__ = 'llm_token_usage'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    user_id = Column(Integer, nullable=True, index=True, comment='调用者用户（users.id）；后台任务为 NULL')
+    scene = Column(String(50), nullable=True, index=True, comment='业务场景/LLM 配置名，如 stock_dcf_analysis / chat')
+    platform = Column(String(32), nullable=True, comment='平台标识：deepseek/volcengine/siliconflow/aliyun/zhipu')
+    model = Column(String(128), nullable=False, comment='模型名称')
+    prompt_tokens = Column(Integer, default=0, comment='输入 token 数')
+    completion_tokens = Column(Integer, default=0, comment='输出 token 数')
+    total_tokens = Column(Integer, default=0, comment='总 token 数')
+    input_text = Column(Text, nullable=True, comment='对话输入（messages 拼接，截断到 6000 字）')
+    output_text = Column(Text, nullable=True, comment='模型输出文本（截断到 6000 字）')
+    created_at = Column(DateTime, default=datetime.now, index=True, comment='调用时间')
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'scene': self.scene,
+            'platform': self.platform,
+            'model': self.model,
+            'prompt_tokens': self.prompt_tokens,
+            'completion_tokens': self.completion_tokens,
+            'total_tokens': self.total_tokens,
+            'input_text': self.input_text,
+            'output_text': self.output_text,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }

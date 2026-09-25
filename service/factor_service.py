@@ -311,28 +311,22 @@ class FactorValueService:
     @staticmethod
     def get_latest_trading_date(factor_name='cn_trading_date') -> Optional[date]:
         """
-        获取最新的交易日数据
+        获取最新的交易日（<= 今天）。
+        ⚠️ 已迁移到 databull 交易日历接口 + Redis 缓存（见 service/trading_calendar_service.py）。
+        factor_name 仅保留签名兼容，实际取 cn 市场日历。
         """
-        try:
-            latest = (
-                db_session.query(FactorValue.trade_date, FactorValue.value)
-                .filter(FactorValue.factor_name == factor_name, FactorValue.trade_date <= get_today(_format='%Y-%m-%d'),
-                        FactorValue.value == '1.0')
-                .order_by(FactorValue.trade_date.desc())
-                .first()
-            )
-            return latest[0] if latest else None
-        except Exception as e:
-            logger.error(f"Error getting latest date for factor {factor_name}: {e}")
-            return None
+        from service.trading_calendar_service import get_latest_trading_date as _cal_latest
+        return _cal_latest(market='cn')
 
     @staticmethod
-    def is_trading_day(factor_name='cn_trading_date') -> Optional[date]:
+    def is_trading_day(factor_name='cn_trading_date') -> bool:
         """
-        判断今天是不是交易日
+        判断今天是不是交易日。
+        ⚠️ 已迁移到 databull 交易日历接口 + Redis 缓存（见 service/trading_calendar_service.py）。
+        factor_name 仅保留签名兼容，实际取 cn 市场日历。
         """
-        return FactorValueService.get_latest_trading_date(factor_name=factor_name).strftime('%Y-%m-%d') == get_today(
-            _format='%Y-%m-%d')
+        from service.trading_calendar_service import is_trading_day as _cal_is
+        return _cal_is(market='cn')
 
     @staticmethod
     def df_to_records(df: pd.DataFrame, factor_name: str, source: str = 'custom') -> List[Dict[str, Any]]:

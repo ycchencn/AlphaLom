@@ -85,6 +85,12 @@ def get_model_by_setting(_setting_name: str = 'stock_dcf_analysis', _setting: Op
     else:
         raise ValueError(f"LLM 配置 'model' 字段无效：{model}")
 
+    # ⚠️ 把场景名与平台写进实例，供 token 使用量统计（llms.usage_recorder）按
+    # 「哪个场景 / 哪个平台」归集。scene 优先用 _setting 自己的 name（直接传 dict 时），
+    # 否则回退到配置名 _setting_name。
+    staff.scene = _setting.get('name') or _setting_name
+    staff.platform = platform
+
     logger.debug(f"创建 LLM 实例：platform={platform}, model={staff.model}")
     return staff
 

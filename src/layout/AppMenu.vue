@@ -72,8 +72,8 @@ const model = ref([
         ]
     },
     {
-        label: '系统设置',
-        enable: true, // 若设为 false，则整个系统设置分组不显示
+        label: '系统管理',
+        enable: true, // 若设为 false，则整个系统管理分组不显示
         items: [
             {
                 label: '大模型配置',
@@ -101,6 +101,13 @@ const model = ref([
                 to: '/system/user_manage',
                 enable: true,
                 // 只有管理员可见（普通用户看不到、进去也会被路由守卫挡回）
+                adminOnly: true,
+            },
+            {
+                label: 'Token 统计',
+                icon: 'pi pi-fw pi-chart-pie',
+                to: '/system/token_usage',
+                enable: true,
                 adminOnly: true,
             },
             {

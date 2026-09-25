@@ -42,6 +42,9 @@ class LLMBaseAsync:
         self.session: Optional[aiohttp.ClientSession] = None
         # 实例级缓存
         self._cached_tools: Optional[List[Dict[str, Any]]] = None
+        # token 使用量记录上下文（与 LLMBase 对齐）
+        self.scene = None
+        self.platform = None
 
     # ==================== 生命周期管理 ====================
 
@@ -135,7 +138,8 @@ class LLMBaseAsync:
             )
 
             assistant_message = completion.choices[0].message
-            self._print_token_usage(completion.usage)
+            self._print_token_usage(completion.usage, input_text=self._messages_to_text(current_messages),
+                                    output_text=assistant_message.content or '')
 
             # 解析工具调用（兼容标准格式 + DeepSeek 格式）
             tool_calls = self._parse_tool_calls(assistant_message, valid_function_names)
@@ -225,16 +229,54 @@ class LLMBaseAsync:
 
     # ==================== 辅助方法 ====================
 
-    def _print_token_usage(self, usage) -> dict:
-        """打印 Token 消耗统计"""
+    def _print_token_usage(self, usage, input_text='', output_text='') -> dict:
+        """打印并记录 Token 消耗统计（落库见 llms.usage_recorder）。"""
         if not usage:
             return {}
         prompt_tokens = getattr(usage, 'prompt_tokens', 0)
         completion_tokens = getattr(usage, 'completion_tokens', 0)
         total_tokens = getattr(usage, 'total_tokens', 0)
         logger.info(f"📊 Token 统计：输入 {prompt_tokens} | 输出 {completion_tokens} | 总计 {total_tokens}，模型：{self.model}")
+        try:
+            from utils.auth import request_user_id_var
+            from llms.usage_recorder import record_llm_usage
+            record_llm_usage(
+                user_id=request_user_id_var.get(),
+                scene=self.scene,
+                platform=self.platform,
+                model=self.model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                input_text=input_text,
+                output_text=output_text,
+            )
+        except Exception as e:
+            logger.warning(f"token 使用记录异常（已忽略）：{e}")
         return {
             'prompt_tokens': prompt_tokens,
             'completion_tokens': completion_tokens,
             'total_tokens': total_tokens
         }
+
+    def _messages_to_text(self, messages) -> str:
+        """把 messages 列表拼成可读文本（多模态 content 提取文本段），用于 usage 记录。"""
+        if not messages:
+            return ''
+        parts = []
+        for m in messages:
+            if not isinstance(m, dict):
+                parts.append(str(m))
+                continue
+            role = m.get('role', 'user')
+            content = m.get('content', '')
+            if isinstance(content, list):
+                segs = []
+                for seg in content:
+                    if isinstance(seg, dict) and seg.get('type') == 'text':
+                        segs.append(seg.get('text', ''))
+                    elif isinstance(seg, str):
+                        segs.append(seg)
+                content = '\n'.join(segs)
+            parts.append(f"[{role}]\n{content}")
+        return '\n\n'.join(parts)

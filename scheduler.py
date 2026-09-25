@@ -18,6 +18,7 @@ from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily,
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
 from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_beta_all
 from job.job_check_signal import job_check_signal_daily
+from service.trading_calendar_service import refresh_trading_calendar
 
 if __name__ == '__main__':
 
@@ -67,6 +68,10 @@ if __name__ == '__main__':
 
     # 每周五晚上更新基础评分
     scheduler.add_job(job_update_financial_score_all, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)
+
+    # 每天刷新交易日历并缓存到 Redis（databull trading_calendar 接口）
+    scheduler.add_job(refresh_trading_calendar, 'cron', hour=0, minute=5, timezone=beijing_tz,
+                     id='refresh_trading_calendar', replace_existing=True)
 
     try:
         # 开始执行计划任务

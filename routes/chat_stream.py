@@ -156,15 +156,28 @@ async def chat_stream(req: ChatStreamRequest, user: dict = Depends(get_current_u
         try:
             # OpenAI SDK 的 stream 是同步迭代器，必须放在线程池执行
             def _stream_call():
-                return staff.client.chat.completions.create(
-                    model=model_name,
-                    messages=msgs,
-                    stream=True,
-                )
+                # 尽量请求流式 usage（部分平台/SDK 不支持会报错，回退到不带该参数）
+                try:
+                    return staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=msgs,
+                        stream=True,
+                        stream_options={'include_usage': True},
+                    )
+                except Exception:
+                    return staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=msgs,
+                        stream=True,
+                    )
 
             stream = await anyio.to_thread.run_sync(_stream_call)
 
+            _usage = None
             for chunk in stream:
+                # 流式 usage 通常挂在最后一个 chunk 上
+                if getattr(chunk, 'usage', None) is not None:
+                    _usage = chunk.usage
                 content = chunk.choices[0].delta.content or ''
                 if content:
                     assistant_reply += content
@@ -176,6 +189,29 @@ async def chat_stream(req: ChatStreamRequest, user: dict = Depends(get_current_u
                 conversation_history.append({'role': 'user', 'content': req.message})
                 conversation_history.append({'role': 'assistant', 'content': assistant_reply})
                 save_session(key, conversation_history)
+
+                # 记录本次流式 LLM 调用的 token 与对话详情（失败不影响主链路）。
+                # scene 统一记为 chat_stream；user_id 优先取请求级 ContextVar，
+                # 兜底用当前登录用户 id。
+                try:
+                    from llms.usage_recorder import record_llm_usage
+                    from utils.auth import request_user_id_var
+                    input_text = '\n'.join(
+                        f"{m.get('role', '')}: {m.get('content', '')}" for m in msgs
+                    )
+                    record_llm_usage(
+                        user_id=request_user_id_var.get() or user.get('id'),
+                        scene='chat_stream',
+                        platform=platform,
+                        model=model_name,
+                        prompt_tokens=getattr(_usage, 'prompt_tokens', 0) or 0,
+                        completion_tokens=getattr(_usage, 'completion_tokens', 0) or 0,
+                        total_tokens=getattr(_usage, 'total_tokens', 0) or 0,
+                        input_text=input_text,
+                        output_text=assistant_reply,
+                    )
+                except Exception as e:
+                    logger.warning(f"chat token 使用记录失败（已忽略）：{e}")
 
         except Exception as e:
             error_msg = f'出错了：{str(e)}'

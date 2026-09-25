@@ -25,8 +25,14 @@ token 的取法（按优先级）：
 """
 
 from typing import Optional
+from contextvars import ContextVar
 
 from fastapi import Depends, HTTPException, Request
+
+# 请求级当前用户 id：在 get_current_user 解析令牌后写入，供 LLM 调用层记录
+# 「这次 LLM 调用是谁发起的」。后台任务（无 HTTP 请求上下文）未写入时为 None，
+# 落库时记录为匿名（user_id=NULL）。
+request_user_id_var: ContextVar = ContextVar('request_user_id', default=None)
 
 from service import UserService
 
@@ -64,6 +70,10 @@ def get_current_user(request: Request) -> dict:
     if not user:
         raise HTTPException(status_code=401, detail='登录已失效，请重新登录',
                             headers=_UNAUTHORIZED_HEADERS)
+    # ⚠️ 把当前用户 id 写进请求级 ContextVar，供 LLM 调用层（llms.usage_recorder）
+    # 记录「这次 LLM 调用是谁发起的」。写在这里而非依赖里，是因为 get_current_user
+    # 是所有需要用户信息的路由的统一入口，覆盖面最广。
+    request_user_id_var.set(int(user['id']))
     return user
 
 

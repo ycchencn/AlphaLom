@@ -4,6 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
+import asyncio
 import pandas as pd
 from fastapi import APIRouter, Query, Request, HTTPException, Depends
 from fastapi.concurrency import run_in_threadpool
@@ -240,6 +241,25 @@ def gen_quantstat(portfolio_id: str, user_id: int = Depends(get_current_user_id)
     return HTMLResponse(content=html_content)
 
 
+async def _kickoff_first_position_plan(portfolio_id):
+    """创建成功后后台跑首次调仓，并刷新相关缓存。
+
+    设计为「即发即忘」：在独立线程执行阻塞型调仓任务（DB + 行情 + LLM，可达数十秒），
+    不阻塞创建接口响应。异常只记日志，绝不影响创建结果。
+    仅当组合已配置 llm_prompt 时由调用方触发；函数内部还会再次校验，未配置则直接跳过。
+    """
+    try:
+        from backtest.strategy.ai_position_plan_daily import job_position_plan_daily
+        logger.info(f"后台触发首次调仓: portfolio_id={portfolio_id}")
+        # ⚠️ 必须丢线程池：job_position_plan_daily 全是同步阻塞调用，直接 await 会占死事件循环
+        await run_in_threadpool(job_position_plan_daily, portfolio_id=str(portfolio_id), send_feishu=False)
+        # 调仓写入 position_plan/desc 后，清掉详情缓存（列表缓存已在创建时清过），让用户刷新即见
+        await FastAPICache.clear(namespace=PORTFOLIO_DETAIL_NS)
+        logger.info(f"首次调仓完成并刷新缓存: portfolio_id={portfolio_id}")
+    except Exception as e:
+        logger.error(f"首次调仓后台任务失败: portfolio_id={portfolio_id}, err={e}")
+
+
 @portfolio_router.post('/investment_portfolios')
 async def create_portfolio(request: Request, user_id: int = Depends(get_current_user_id)):
     """新建投资组合（自动归属于当前用户）"""
@@ -267,6 +287,10 @@ async def create_portfolio(request: Request, user_id: int = Depends(get_current_
         if new_id is not None:
             # 列表缓存必须立刻失效：前端建完会马上重拉列表，否则 6 分钟内看不到自己的新组合
             await FastAPICache.clear(namespace=PORTFOLIO_LIST_NS)
+            # 仅对「已配置调仓提示词」的策略，创建后立即后台触发首次调仓；
+            # 后台线程执行，不阻塞创建响应。未配置 prompt 的组合会被 job 自身跳过，不会报错。
+            if (payload.get('llm_prompt') or '').strip():
+                asyncio.create_task(_kickoff_first_position_plan(new_id))
             return make_response(data={'portfolio_id': new_id}, msg='Created successfully')
         return make_response(msg='Failed to create (name may already exist)', code=400)
     except Exception as e:

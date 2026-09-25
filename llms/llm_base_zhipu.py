@@ -44,7 +44,8 @@ class LLMBaseZhipu(LLMBase):
             max_tokens=self.max_tokens,
             temperature=1.0
         )
-        self._print_token_usage(completion.usage)
+        self._print_token_usage(completion.usage, input_text=question,
+                                output_text=completion.choices[0].message.content)
         return completion.choices[0].message.content
 
 
