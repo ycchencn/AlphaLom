@@ -14,7 +14,7 @@ const loading1 = ref(null);
 const modal_visible = ref(false);
 const { showSuccess, showError } = useNotification();
 const modal_analysis_interval = ref(1)
-const filter_market = ref('cn')
+const filter_market = ref('')
 
 // 添加个股弹窗：搜索状态
 const searchKeyword = ref('');
@@ -33,7 +33,10 @@ function isWatched(symbol) {
 function loadStockList(){
     // 获取个股数据
     loading1.value = true;
-    return axios.get(`/api/v1/stocks_monitored?page_size=300&page=1&market=${filter_market.value}&v=1.2`).then(response => {
+    const params = { page_size: 300, page: 1, v: '1.2' };
+    // market 为空（「全部」）时不传该参数 → 后端返回全部市场；选定具体市场才带上
+    if (filter_market.value) params.market = filter_market.value;
+    return axios.get('/api/v1/stocks_monitored', { params }).then(response => {
         stock_list.value = response.data.map(item => {
             const ohlc = item.ohlc_last; // 可能为 null 或 undefined
             return {
@@ -224,6 +227,7 @@ const stockIntervalOptions = [
 ];
 
 const marketFilterOptions = [
+    { label: '全部', value: '' },
     { label: 'A股', value: 'cn' },
     { label: '美股', value: 'us' },
     { label: '港股', value: 'hk' },

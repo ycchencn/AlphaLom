@@ -198,7 +198,7 @@ async def delete_stock(symbol: str, user_id: int = Depends(get_current_user_id))
 @cache(expire=cache_setting['monitored_stocks'], namespace=MONITORED_STOCKS_NS)
 def get_stocks_monitored(
     page: int = Query(1, ge=1),
-    market: str = Query('cn'),
+    market: str = Query(None, description='市场筛选：cn-沪深, hk-港股, us-美股；不传/为空则返回全部市场'),
     page_size: int = Query(300, ge=1, le=1000),
     simple: int = Query(0, ge=0, le=1),
     user_id: int = Depends(get_current_user_id)
