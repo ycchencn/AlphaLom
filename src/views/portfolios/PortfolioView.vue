@@ -1125,21 +1125,28 @@ const reload = () => window.location.reload();
         <!-- 策略说明区域 -->
         <div v-if="profInfo?.position_plan" class="mb-8 space-y-5">
 
-            <Card>
+            <Card v-if="profInfo.position_plan.position_style">
+                <template #title><b class="text-lg">策略观点</b></template>
+                <template #content>
+                    <p class="text-gray-700 text-sm">{{ profInfo.position_plan.position_style }}</p>
+                </template>
+            </Card>
+
+            <Card v-if="profInfo.position_plan.market_context">
                 <template #title><b class="text-lg">市场点评</b></template>
                 <template #content>
                     <p class="text-gray-700 text-sm">{{ profInfo.position_plan.market_context }}</p>
                 </template>
             </Card>
 
-            <Card>
+            <Card v-if="profInfo.position_plan.trading_review">
                 <template #title><b class="text-lg">交易复盘</b></template>
                 <template #content>
                     <p class="text-gray-700 text-sm">{{ profInfo.position_plan.trading_review }}</p>
                 </template>
             </Card>
 
-            <Card>
+            <Card v-if="profInfo.position_plan.trading_rule_adjust">
                 <template #title><b class="text-lg">优化建议</b></template>
                 <template #content>
                     <p class="text-gray-700 text-sm">{{ profInfo.position_plan.trading_rule_adjust }}</p>
@@ -1226,9 +1233,10 @@ const reload = () => window.location.reload();
         </div>
 
         <!-- 操作建议摘要（按动作类型分组）+ 行业分布：桌面端左右并列 -->
-        <div class="flex flex-col xl:flex-row gap-6 items-start mb-8">
+        <div v-if="(profInfo?.position_plan?.actions?.length) || (industryDistribution && industryDistribution.data.length)" class="flex flex-col xl:flex-row gap-6 items-start mb-8">
             <!-- 左：操作建议摘要 -->
-            <div v-if="profInfo?.position_plan?.actions" class="w-full xl:flex-1 xl:min-w-0 space-y-6">
+            <div class="w-full xl:flex-1 xl:min-w-0 space-y-6">
+            <template v-if="buyActions.length || holdActions.length || sellActions.length">
             <!-- 买入建议 -->
             <div v-if="buyActions.length > 0">
                 <h3 class="text-lg font-semibold text-green-700 mb-2 flex items-center">
@@ -1286,6 +1294,8 @@ const reload = () => window.location.reload();
                   </span>
                 </div>
             </div>
+            </template>
+            <p v-else class="text-gray-500 text-sm">当前暂无买卖建议，可点击「AI 调仓分析」生成。</p>
             </div>
 
             <!-- 右：行业分布饼图（与买卖计划同行，固定宽度，不挤压表格）-->
