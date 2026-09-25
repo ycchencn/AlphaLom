@@ -7,7 +7,7 @@
 from datetime import date
 from typing import List, Dict, Any
 from utils.logger import logger
-from models import PortfolioDailySummary, DailyPnLRecord
+from models import PortfolioDailySummary, DailyPnLRecord, Stock
 from models.database import db_session
 from utils.data_loader import databull
 
@@ -47,8 +47,13 @@ class DailyStrategySimulator:
             size = asset['position_size']
             cost = asset['cost_price']
             if size > 0:
-                self.holdings[code] = {'size': size, 'cost': cost, 'market_price': asset['position_price']}
-                logger.info(f"持仓加载: {code} {asset['name']} - {size} 股 @ {cost:.2f}")
+                self.holdings[code] = {
+                    'size': size,
+                    'cost': cost,
+                    'market_price': asset['position_price'],
+                    'name': asset.get('name') or ''
+                }
+                logger.info(f"持仓加载: {code} {asset.get('name')} - {size} 股 @ {cost:.2f}")
 
     def execute_trades(self, position_plan: Dict | None, market_data: Dict[str, Dict]):
         """执行调仓计划（模拟交易）"""
@@ -104,7 +109,7 @@ class DailyStrategySimulator:
                         self.holdings[code]['size'] = new_size
                         self.holdings[code]['cost'] = round(new_avg_cost, 4)  # 保留4位小数防浮点误差
                     else:
-                        self.holdings[code] = {'size': qty, 'cost': price}
+                        self.holdings[code] = {'size': qty, 'cost': price, 'name': name, 'market_price': price}
 
                     self.trade_log.append({
                         'date': date.today(),
@@ -192,7 +197,7 @@ class DailyStrategySimulator:
             total_cost += cost_value
             total_unrealized_pnl += unrealized_pnl
 
-            name = self._get_stock_name(code)  # 可选：从外部传入名称映射
+            name = holding.get('name') or self._get_stock_name(code)  # 优先用持仓里可靠的名称，缺失再兜底
 
             # 记录
             records.append({
@@ -232,13 +237,35 @@ class DailyStrategySimulator:
         }
 
     def _get_stock_name(self, code: str) -> str:
-        """简易股票名称映射（实际可从 holdings 或外部字典获取）"""
+        """兜底获取股票名称：优先本地 stocks 表（无网络、无市场猜测），再回退 databull。
+
+        正常路径下名称来自持仓本身（load_holdings / 调仓计划已带入），本方法仅作最后兜底。
+        """
+        # 1) 本地 stocks 表（最可靠，且不受 market 前缀猜测影响）
         try:
-            stock_api = databull.get_stock_info(code, market='cn')
-            name = stock_api.get('name') if isinstance(stock_api, dict) else ''
-            return name
+            stock = self.db_session.query(Stock).filter(Stock.symbol == code).first()
+            if stock and getattr(stock, 'name', ''):
+                return stock.name
+        except Exception:
+            pass
+        # 2) 回退到 databull，按代码形态猜测市场（不再写死 cn）
+        try:
+            info = databull.get_stock_info(code, market=self._guess_market(code))
+            name = info.get('name') if isinstance(info, dict) else ''
+            return name or ''
         except Exception:
             return ''
+
+    @staticmethod
+    def _guess_market(code: str) -> str:
+        """按代码形态粗略判断市场：纯字母=美股，5 位纯数字=港股，其余按 A 股处理。"""
+        if not code:
+            return 'cn'
+        if code.isalpha():
+            return 'us'
+        if code.isdigit() and len(code) == 5:
+            return 'hk'
+        return 'cn'
 
     def save_daily_pnl_to_db(self, trading_date: str, total_value: float, daily_pnl_change:float, overwrite: bool = False):
         """
@@ -277,7 +304,7 @@ class DailyStrategySimulator:
                     date=trading_date,
                     portfolio_id=self.portfolio_id,
                     stock_code=rec['code'],
-                    stock_name=self._get_stock_name(rec['code']),
+                    stock_name=rec['name'],
                     position_size=rec['size'],
                     cost_price=rec['cost_price'],
                     close_price=rec['current_price'],
