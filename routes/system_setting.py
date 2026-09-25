@@ -143,7 +143,7 @@ def reset_llm_models_setting(scene: str):
 # 图表显示配置（chart_display）
 #
 # 详情页（个股 / ETF）的图表区块开关，目前只一项：
-#   chart_display.kline_enabled —— K 线（klinecharts 走势图）是否显示，**默认关闭**。
+#   chart_display.kline_enabled —— K 线（klinecharts 走势图）是否显示，**默认开启**。
 #
 # 设计取舍：
 # - **默认值写在代码里**（下面 _CHART_DISPLAY_DEFAULTS），表里没有行 = 用默认值。
@@ -159,7 +159,7 @@ CHART_DISPLAY_GROUP = 'chart_display'
 # 前端据此渲染表单，加新项只需往这里补一行 + 前端按 key 渲染。
 _CHART_DISPLAY_SPEC: Dict[str, Dict[str, Any]] = {
     'kline_enabled': {
-        'default': False,
+        'default': True,
         'label': '显示 K 线图',
         'description': '个股 / ETF 详情页的「走势图表」区块。关闭后该区块整块隐藏。',
         'value_type': 'bool',

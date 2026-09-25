@@ -3,7 +3,7 @@
 // 详情页图表区块的显示开关（后端 system_setting 的 chart_display 组）。
 //
 // 目前只有一项 `kline_enabled`：K 线（klinecharts 走势图）是否显示。
-// **默认关闭** —— 后端在代码里定义了默认值，表里没有配置行就用它（见 routes/system_setting.py）。
+// **默认开启** —— 后端在代码里定义了默认值（True），表里没有配置行就用它（见 routes/system_setting.py）。
 //
 // 为什么做成 composable：
 //   个股详情页与 ETF 详情页都要按同一个开关决定「走势图表」区块显不显示，
@@ -61,12 +61,14 @@ export function invalidateChartDisplay() {
  *   onMounted(() => loadChartDisplay());          // 或在已有的 onMounted 里调用
  */
 export function useChartDisplay() {
-    // 默认 false：与后端默认值一致（表里没配置时 = 关闭）
-    const klineEnabled = ref(false);
+    // 默认 true：与后端默认值一致（表里没配置时 = 开启，详情页默认展示走势图）
+    const klineEnabled = ref(true);
 
     const loadChartDisplay = async () => {
         const values = await fetchChartDisplay();
-        klineEnabled.value = values.kline_enabled === true;
+        // ⚠️ 只有后端**明确返回 false**才关：缺省 / 接口抖动 / 读取失败都保持默认开启，
+        // 否则一旦 /chart_display 请求失败（返回 {}），klineEnabled 会被误翻成 false 把走势图整块关掉。
+        klineEnabled.value = values.kline_enabled !== false;
         return klineEnabled.value;
     };
 

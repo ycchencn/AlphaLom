@@ -42,7 +42,7 @@ const news = ref([]);
 const greed_data = ref([]);
 
 // ===== 图表显示开关（后端 system_setting 的 chart_display 组）=====
-// klineEnabled=false → 「走势图表」区块整块隐藏（默认关闭，见 routes/system_setting.py）。
+// klineEnabled=false → 「走势图表」区块整块隐藏（默认开启，见 routes/system_setting.py，仅后端显式配置为 false 才隐藏）。
 // 数据照常取（恐贪卡片、DCF 估值都要用 ohlc 数据），只是不渲染 K 线。
 const {klineEnabled, loadChartDisplay} = useChartDisplay();
 
@@ -680,10 +680,15 @@ onMounted(async () => {
     // 获取DCF分析报告
     axios.get(`/api/v1/stock/dcf_research_report/${stock_code}`).then(response => {
         loading.value = false;
-        dcf_research_report.value = response.data
-        neutral.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.中性情景)
-        optimistic.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.乐观情景)
-        conservative.value = parseNumber(dcf_research_report.value.content_json?.每股内在价值?.保守情景)
+        const dcf = response.data;
+        dcf_research_report.value = dcf;
+        // ⚠️ 部分标的无 DCF 数据 → response.data 为 null，必须先判空再读 content_json，
+        // 否则会抛 "Cannot read properties of null (reading 'content_json')" 并中断后续（基本面评分 / 雷达图）。
+        if (dcf && dcf.content_json) {
+            neutral.value = parseNumber(dcf.content_json?.每股内在价值?.中性情景)
+            optimistic.value = parseNumber(dcf.content_json?.每股内在价值?.乐观情景)
+            conservative.value = parseNumber(dcf.content_json?.每股内在价值?.保守情景)
+        }
 
         // 获取基本面评分数据
         axios.get(`/api/v1/stock/fundamental_scores/${stock_code}`).then(response => {
@@ -691,9 +696,11 @@ onMounted(async () => {
             fundamental_scores.value = response.data
 
             let chartDom = document.getElementById('el');
-            echart1.value = echarts.init(chartDom)
-            render()
-
+            // 容器可能尚未挂载（v-if 未满足）→ init(null) 会抛错；先判空再画。
+            if (chartDom) {
+                echart1.value = echarts.init(chartDom)
+                render()
+            }
         });
     });
 
@@ -704,7 +711,14 @@ onMounted(async () => {
 
         // 后端按 trade_date 倒序返回。「最新值」取第一条，所以保留这份倒序数组给左栏用；
         // 画图时在 renderFearGreedChart 内部再 reverse 成升序。
-        greed_data.value = Array.isArray(response.data) ? response.data : [];
+        // ⚠️ 兼容多种返回形态：裸数组 / {data:[...]} / {items:[...]}，
+        // 避免老构建或不同封装下取到空（接口本身返回裸数组，这里兜底即可）。
+        const _raw = response.data;
+        const _arr = Array.isArray(_raw) ? _raw
+            : (_raw && Array.isArray(_raw.data)) ? _raw.data
+            : (_raw && Array.isArray(_raw.items)) ? _raw.items
+            : [];
+        greed_data.value = _arr;
 
         // 数据到位后渲染走势图（此刻 v-if 才让容器进 DOM，可以 init 了）
         renderFearGreedChart();

@@ -87,9 +87,12 @@ def token_usage_summary(
         by_scene[key]['total_tokens'] += r.total_tokens or 0
 
         d = r.created_at.strftime('%Y-%m-%d') if r.created_at else 'unknown'
-        daily.setdefault(d, {'date': d, 'calls': 0, 'total_tokens': 0})
+        daily.setdefault(d, {'date': d, 'calls': 0, 'total_tokens': 0,
+                             'prompt_tokens': 0, 'completion_tokens': 0})
         daily[d]['calls'] += 1
         daily[d]['total_tokens'] += r.total_tokens or 0
+        daily[d]['prompt_tokens'] += r.prompt_tokens or 0
+        daily[d]['completion_tokens'] += r.completion_tokens or 0
 
     return make_response(data={
         'total_calls': total_calls,
