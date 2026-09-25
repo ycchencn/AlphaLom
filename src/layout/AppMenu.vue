@@ -74,6 +74,7 @@ const model = ref([
     {
         label: '系统管理',
         enable: true, // 若设为 false，则整个系统管理分组不显示
+        adminOnly: true, // 整个「系统管理」仅管理员可见（非管理员连顶级菜单都不显示）
         items: [
             {
                 label: '大模型配置',
@@ -121,15 +122,19 @@ const model = ref([
     }
 ])
 
-// 侧边栏菜单按角色过滤：管理员能看到 `adminOnly` 的项（用户管理），普通用户看不到。
+// 侧边栏菜单按角色过滤：
+//  - 标了 `adminOnly` 的「整个分组」只有管理员可见（非管理员连顶级菜单都不显示）；
+//  - 分组内标了 `adminOnly` 的「子项」对非管理员隐藏。
 // ⚠️ 这只是「不显示」，真正的权限边界在后端（`require_admin` 会返回 403）——
 // 别把前端隐藏当成鉴权。
 const visibleModel = computed(() => {
     if (store.getters.isAdmin) return model.value
-    return model.value.map(group => {
-        if (!group.items) return group
-        return { ...group, items: group.items.filter(item => !item.adminOnly) }
-    })
+    return model.value
+        .filter(group => !group.adminOnly)            // 整组仅管理员可见
+        .map(group => {
+            if (!group.items) return group
+            return { ...group, items: group.items.filter(item => !item.adminOnly) }
+        })
 })
 </script>
 
