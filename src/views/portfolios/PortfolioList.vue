@@ -1,6 +1,9 @@
 <script setup>
 import Dialog from 'primevue/dialog';
 import ConfirmDialog from 'primevue/confirmdialog';
+import Dropdown from 'primevue/dropdown';
+import Textarea from 'primevue/textarea';
+import Button from 'primevue/button';
 import { computed, onBeforeMount, ref, watch } from 'vue';
 import axios from 'axios';
 import { formatCurrency } from '@/utils/function';
@@ -23,7 +26,8 @@ const createForm = ref({
     llm_setting: {
         model: '',
         platform: 'aliyun'
-    }
+    },
+    llm_prompt: ''
 });
 
 // 策略类型选项（与下方 PHASE_CONFIG 对齐）
@@ -157,7 +161,8 @@ const openCreateDialog = () => {
         llm_setting: {
             model: '',
             platform: 'aliyun'
-        }
+        },
+        llm_prompt: ''
     };
     createDialogVisible.value = true;
 };
@@ -200,7 +205,8 @@ const submitCreate = async () => {
             llm_setting: {
                 model: String(f.llm_setting.model || '').trim(),
                 platform: f.llm_setting.platform
-            }
+            },
+            llm_prompt: (f.llm_prompt || '').trim()
         });
         showSuccess('策略创建成功');
         createDialogVisible.value = false;
@@ -213,6 +219,48 @@ const submitCreate = async () => {
         showError(message);
     } finally {
         submitting.value = false;
+    }
+};
+
+// ===== AI 生成提示词（新增策略流程）=====
+const genVisible = ref(false);
+const generating = ref(false);
+const genForm = ref({ style: '', desc: '', constraints: '' });
+const genStyleOptions = [
+    { label: '稳健（控回撤、保本优先）', value: '稳健：严格控制回撤，优先保本，分散持仓' },
+    { label: '均衡（攻守兼备）', value: '均衡：攻守兼备，适度分散，不押注单一方向' },
+    { label: '激进（追高收益）', value: '激进：追求高收益，可集中持仓、提高换手' },
+    { label: '价值（低估值高分红）', value: '价值：侧重低估值、高分红、现金流稳定的标的' },
+    { label: '成长（高景气赛道）', value: '成长：侧重高景气、高成长赛道，容忍较高波动' },
+];
+
+const openGenPrompt = () => {
+    genForm.value = { style: '', desc: createForm.value.name || '', constraints: '' };
+    genVisible.value = true;
+};
+
+const generatePrompt = async () => {
+    generating.value = true;
+    try {
+        const { data } = await axios.post('/api/v1/investment_portfolios/generate_prompt', {
+            name: createForm.value.name || '',
+            desc: genForm.value.desc,
+            market: 'cn',
+            style: genForm.value.style,
+            constraints: genForm.value.constraints,
+            llm_setting: createForm.value.llm_setting || null,
+        });
+        if (data?.data?.prompt) {
+            createForm.value.llm_prompt = data.data.prompt;
+            showSuccess('已生成提示词，确认后点创建即可');
+            genVisible.value = false;
+        } else {
+            showError('生成结果为空，请重试');
+        }
+    } catch (e) {
+        showError(e?.response?.data?.detail || e?.response?.data?.msg || '生成失败，请重试');
+    } finally {
+        generating.value = false;
     }
 };
 
@@ -241,45 +289,45 @@ const formatType = (phaseInt) => {
     <ConfirmDialog></ConfirmDialog>
 
     <!-- 新增投资组合弹窗 -->
-    <Dialog v-model:visible="createDialogVisible" modal header="新增投资组合" :style="{ width: '28rem' }">
-        <div class="flex flex-col gap-4">
+    <Dialog v-model:visible="createDialogVisible" modal header="新增投资组合" :style="{ width: '40rem' }">
+        <div class="grid grid-cols-2 gap-x-4 gap-y-3">
             <div>
-                <label for="pf_name" class="font-semibold block mb-1">策略名称 <span class="text-red-500">*</span></label>
+                <label for="pf_name" class="font-semibold block mb-1 text-sm">策略名称 <span class="text-red-500">*</span></label>
                 <InputText id="pf_name" v-model="createForm.name" autocomplete="off" placeholder="请输入策略名称" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_strategy_type" class="font-semibold block mb-1">策略类型</label>
+                <label for="pf_strategy_type" class="font-semibold block mb-1 text-sm">策略类型</label>
                 <Dropdown id="pf_strategy_type" v-model="createForm.strategy_type" :options="strategyTypeOptions" optionLabel="label" optionValue="value" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_init_cash" class="font-semibold block mb-1">初始资金 <span class="text-red-500">*</span></label>
+                <label for="pf_init_cash" class="font-semibold block mb-1 text-sm">初始资金 <span class="text-red-500">*</span></label>
                 <InputNumber id="pf_init_cash" v-model="createForm.init_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_current_cash" class="font-semibold block mb-1">当前资金 <span class="text-red-500">*</span></label>
+                <label for="pf_current_cash" class="font-semibold block mb-1 text-sm">当前资金 <span class="text-red-500">*</span></label>
                 <InputNumber id="pf_current_cash" v-model="createForm.current_cash" mode="currency" currency="CNY" locale="zh-CN" :min="0" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_position_pct" class="font-semibold block mb-1">总仓位（%） <span class="text-red-500">*</span></label>
+                <label for="pf_position_pct" class="font-semibold block mb-1 text-sm">总仓位（%） <span class="text-red-500">*</span></label>
                 <InputNumber id="pf_position_pct" v-model="createForm.total_position_pct" :min="0" :max="100" suffix=" %" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_currency" class="font-semibold block mb-1">基准货币</label>
+                <label for="pf_currency" class="font-semibold block mb-1 text-sm">基准货币</label>
                 <Dropdown id="pf_currency" v-model="createForm.base_currency" :options="currencyOptions" optionLabel="label" optionValue="value" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_platform" class="font-semibold block mb-1">大模型平台</label>
+                <label for="pf_platform" class="font-semibold block mb-1 text-sm">大模型平台</label>
                 <Dropdown id="pf_platform" v-model="createForm.llm_setting.platform" :options="platformOptions" optionLabel="label" optionValue="value" class="w-full" />
             </div>
 
             <div>
-                <label for="pf_model" class="font-semibold block mb-1">模型名称 <span class="text-red-500">*</span></label>
+                <label for="pf_model" class="font-semibold block mb-1 text-sm">模型名称 <span class="text-red-500">*</span></label>
                 <Dropdown
                     id="pf_model"
                     v-model="createForm.llm_setting.model"
@@ -287,17 +335,54 @@ const formatType = (phaseInt) => {
                     :loading="modelsLoading"
                     editable
                     filter
-                    placeholder="选择模型，也可手动输入"
-                    :empty-message="modelsLoading ? '正在获取模型列表…' : '该平台暂无可用模型，可手动输入'"
-                    class="w-full"
-                />
+                        placeholder="选择模型，也可手动输入"
+                        :empty-message="modelsLoading ? '正在获取模型列表…' : '该平台暂无可用模型，可手动输入'"
+                        class="w-full"
+                    />
             </div>
+
+            <template v-if="createForm.strategy_type === 1">
+                <div class="col-span-2">
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-semibold text-sm">大模型提示词（AI 主观策略需要）</label>
+                        <Button type="button" label="AI 生成" severity="info" size="small" :loading="generating" @click="openGenPrompt" />
+                    </div>
+                    <Textarea v-model="createForm.llm_prompt" rows="3" placeholder="可点「AI 生成」自动生成，或手动填写（需保留 $holdings_text 等占位符）" class="w-full" />
+                </div>
+            </template>
         </div>
 
         <template #footer>
             <div class="flex justify-end gap-2">
                 <Button type="button" label="取消" severity="secondary" text @click="createDialogVisible = false" :disabled="submitting" />
                 <Button type="button" label="创建" :loading="submitting" @click="submitCreate" />
+            </div>
+        </template>
+    </Dialog>
+
+    <!-- AI 生成提示词（新增策略） -->
+    <Dialog v-model:visible="genVisible" modal header="AI 生成提示词" :style="{ width: '34rem' }">
+        <div class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="font-semibold block mb-1 text-sm">风格倾向（可选）</label>
+                    <Dropdown v-model="genForm.style" :options="genStyleOptions" optionLabel="label" optionValue="value" placeholder="不选则均衡" class="w-full" />
+                </div>
+                <div>
+                    <label class="font-semibold block mb-1 text-sm">额外约束（可选）</label>
+                    <Textarea v-model="genForm.constraints" rows="2" placeholder="单一标的≤20%仓，回避 ST，持仓 5~8 只" class="w-full" />
+                </div>
+            </div>
+            <div>
+                <label class="font-semibold block mb-1 text-sm">策略目标 / 描述</label>
+                <Textarea v-model="genForm.desc" rows="2" placeholder="如：侧重低估值蓝筹，控制回撤，回避高估值题材股" class="w-full" />
+            </div>
+            <p class="text-xs text-gray-400">生成结果会填入上方提示词框，确认无误后点「创建」即可。</p>
+        </div>
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="genVisible=false" :disabled="generating" />
+                <Button type="button" label="生成" :loading="generating" @click="generatePrompt" />
             </div>
         </template>
     </Dialog>

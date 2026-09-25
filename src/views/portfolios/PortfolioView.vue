@@ -17,6 +17,9 @@ import {
 } from '@/utils/function.js';
 import axios from 'axios';
 import Dialog from 'primevue/dialog';
+import Dropdown from 'primevue/dropdown';
+import Textarea from 'primevue/textarea';
+import Button from 'primevue/button';
 import MarkdownEditor from '@/components/MarkdownEditor.vue';
 
 const {showSuccess, showError} = useNotification();
@@ -441,6 +444,49 @@ const editorOptions = {
     fontSize: 12,
     scrollBeyondLastLine: false,
     automaticLayout: true
+};
+
+// ===== AI 生成提示词 =====
+// 点「AI 生成」后弹小窗收集策略风格/目标/约束，调后端生成一份带 $占位符 的 llm_prompt 回填编辑器。
+const genVisible = ref(false);
+const generating = ref(false);
+const genForm = ref({ style: '', desc: '', constraints: '' });
+const genStyleOptions = [
+    { label: '稳健（控回撤、保本优先）', value: '稳健：严格控制回撤，优先保本，分散持仓' },
+    { label: '均衡（攻守兼备）', value: '均衡：攻守兼备，适度分散，不押注单一方向' },
+    { label: '激进（追高收益）', value: '激进：追求高收益，可集中持仓、提高换手' },
+    { label: '价值（低估值高分红）', value: '价值：侧重低估值、高分红、现金流稳定的标的' },
+    { label: '成长（高景气赛道）', value: '成长：侧重高景气、高成长赛道，容忍较高波动' },
+];
+
+const openGenPrompt = () => {
+    genForm.value = { style: '', desc: profInfo.value?.desc || '', constraints: '' };
+    genVisible.value = true;
+};
+
+const generatePrompt = async () => {
+    generating.value = true;
+    try {
+        const { data } = await axios.post('/api/v1/investment_portfolios/generate_prompt', {
+            name: profInfo.value?.name || '',
+            desc: genForm.value.desc,
+            market: profInfo.value?.market || 'cn',
+            style: genForm.value.style,
+            constraints: genForm.value.constraints,
+            llm_setting: profInfo.value?.llm_setting || null,
+        });
+        if (data?.data?.prompt) {
+            code.value = data.data.prompt;
+            showSuccess('已生成提示词，记得点保存写入');
+            genVisible.value = false;
+        } else {
+            showError('生成结果为空，请重试');
+        }
+    } catch (e) {
+        showError(e?.response?.data?.detail || e?.response?.data?.msg || '生成失败，请重试');
+    } finally {
+        generating.value = false;
+    }
 };
 
 // 处理编辑器挂载完成事件
@@ -938,9 +984,37 @@ const reload = () => window.location.reload();
             />
         </div>
         <div class="flex justify-end gap-2">
+            <Button type="button" label="AI 生成" severity="info" :loading="generating" @click="openGenPrompt"></Button>
             <Button type="button" label="取消" severity="secondary" @click="modal_visible=false"></Button>
             <Button type="button" label="保存" @click="modal_visible=false;updatePortfolioPrompt();"></Button>
         </div>
+    </Dialog>
+
+    <!-- AI 生成提示词：收集风格/目标/约束后，调后端大模型生成带占位符的 llm_prompt -->
+    <Dialog v-model:visible="genVisible" modal header="AI 生成提示词" :style="{ width: '34rem' }">
+        <div class="flex flex-col gap-3">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="font-semibold block mb-1 text-sm">风格倾向（可选）</label>
+                    <Dropdown v-model="genForm.style" :options="genStyleOptions" optionLabel="label" optionValue="value" placeholder="不选则均衡" class="w-full" />
+                </div>
+                <div>
+                    <label class="font-semibold block mb-1 text-sm">额外约束（可选）</label>
+                    <Textarea v-model="genForm.constraints" rows="2" placeholder="单一标的≤20%仓，回避 ST，持仓 5~8 只" class="w-full" />
+                </div>
+            </div>
+            <div>
+                <label class="font-semibold block mb-1 text-sm">策略目标 / 描述</label>
+                <Textarea v-model="genForm.desc" rows="2" placeholder="如：侧重低估值蓝筹，控制回撤，回避高估值题材股" class="w-full" />
+            </div>
+            <p class="text-xs text-gray-400">生成结果会带入上方编辑器，确认无误后点「保存」写入。</p>
+        </div>
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="genVisible=false" :disabled="generating" />
+                <Button type="button" label="生成" :loading="generating" @click="generatePrompt" />
+            </div>
+        </template>
     </Dialog>
 
     <div class="card mx-auto relative" style="padding-top: 20px;">

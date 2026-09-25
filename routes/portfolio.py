@@ -18,6 +18,7 @@ from service import (
 )
 from models import Stock, StockIndustry
 from models.database import db_session
+from llms import get_model_by_setting
 from utils.common import is_etf
 from backtest.quant_stat_report import generate_html_report_string
 from fastapi.responses import HTMLResponse
@@ -326,3 +327,71 @@ async def trigger_position_plan_analysis(portfolio_id: str, request: Request,
     except Exception as e:
         logger.error(f"AI 调仓分析失败: {e}")
         return make_response(msg=f'Analysis failed: {str(e)}', code=500)
+
+
+@portfolio_router.post('/investment_portfolios/generate_prompt')
+def generate_portfolio_prompt(payload: dict, user_id: int = Depends(get_current_user_id)):
+    """基于用户描述的策略风格/目标/约束，调用大模型生成一份带占位符的调仓提示词。
+
+    生成的提示词供 job_position_plan_daily 使用（内部用 $holdings_text 等占位符做 Template 替换），
+    因此必须保留这些 $ 占位符变量，并要求模型以 JSON 输出调仓计划。
+    """
+    name = (payload.get('name') or '').strip()
+    desc = (payload.get('desc') or '').strip()
+    market = (payload.get('market') or 'cn').strip()
+    style = (payload.get('style') or '').strip()
+    target = (payload.get('target') or '').strip()
+    constraints = (payload.get('constraints') or '').strip()
+
+    meta = (
+        "你是一名量化投资系统的提示词工程师。为「AI 主观策略」的调仓 Agent 编写一段用户提示词（user prompt）。\n"
+        "这段提示词会被系统用以下占位符变量替换后发给大模型，模型据此输出调仓计划 JSON：\n"
+        "- $current_date：今天的日期（YYYYMMDD）\n"
+        "- $holdings_text：当前持仓列表（代码、名称、持仓量、成本、最新价）\n"
+        "- $stock_pool_text：候选股票池（可买入标的）\n"
+        "- $available_money：可用资金（元）\n"
+        "- $market_data_csv：大盘（上证指数）近 30 天行情 CSV\n"
+        "- $recent_news：近期相关新闻（JSON 字符串）\n"
+        "- $position_plan：上一次调仓计划（JSON），可能为空\n"
+        "- $stock_position_limit：单一标的仓位上限（只数）\n"
+        "要求：\n"
+        "1. 用中文撰写；必须原样保留上述所有 $ 占位符变量（不要替换成具体数值）。\n"
+        "2. 明确指示模型以 JSON 格式输出，结构为 "
+        "{\"position_style\": \"一句话风格描述\", \"actions\": [{\"action\": \"buy|sell|hold\", "
+        "\"stock_code\": \"代码\", \"stock_name\": \"名称\", \"quantity\": 整数手数, \"reason\": \"理由\"}]}。\n"
+        "3. 结合用户给出的策略定位与约束设计调仓倾向（如风控、行业偏好、仓位节奏）。\n"
+        "4. 不要输出任何解释，不要用 markdown 代码块围栏，只输出可直接作为提示词的正文。\n"
+    )
+    user_part = (
+        f"策略名称：{name or '（未命名）'}\n"
+        f"策略描述/定位：{desc or '（未提供）'}\n"
+        f"目标市场：{market}\n"
+        f"风格倾向：{style or '（未指定，请给出均衡建议）'}\n"
+        f"策略目标：{target or '（未提供）'}\n"
+        f"额外约束：{constraints or '（无）'}\n"
+        "请生成对应的调仓提示词。"
+    )
+
+    try:
+        llm_setting = payload.get('llm_setting')
+        staff = get_model_by_setting(_setting=llm_setting) if llm_setting else get_model_by_setting()
+        staff.set_response_text()
+        result = staff.create_completion(messages=[
+            {'role': 'system', 'content': meta},
+            {'role': 'user', 'content': user_part},
+        ])
+        prompt = (result.choices[0].message.content or '').strip()
+        # 兜底剥离可能的代码块围栏（模型有时不听话）
+        if prompt.startswith('```'):
+            prompt = '\n'.join(prompt.split('\n')[1:])
+        if prompt.endswith('```'):
+            prompt = prompt[:-3]
+        prompt = prompt.strip()
+    except Exception as e:
+        logger.warning(f"生成提示词失败：{e}")
+        raise HTTPException(status_code=500, detail=f'生成提示词失败：{e}')
+
+    if not prompt:
+        raise HTTPException(status_code=500, detail='生成结果为空，请重试')
+
+    return make_response(data={'prompt': prompt})
