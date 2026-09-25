@@ -16,6 +16,9 @@ from service import (
     PortfolioDailySummaryService,
     PortfolioTransactionService
 )
+from models import Stock, StockIndustry
+from models.database import db_session
+from utils.common import is_etf
 from backtest.quant_stat_report import generate_html_report_string
 from fastapi.responses import HTMLResponse
 from fastapi_cache import FastAPICache
@@ -68,6 +71,78 @@ def get_owned_portfolio(portfolio_id, user_id):
     return prof
 
 
+def enrich_assets_with_industry(assets):
+    """给持仓明细补充 `industry` 字段（行业分布饼图要用）。
+
+    行业权威来源是 `stock_industry` 表（覆盖池内+池外所有出现过的票），
+    兜底用 `stocks.industry`（监控池内票的旧字段），再兜底用 databull 公司资料按需拉取写回，
+    三者都没有才标成「其他」。
+
+    ⚠️ 不依赖 `stocks` 表：组合持仓可能包含监控池外的票，`stocks.industry` 覆盖不全，
+    之前就因此导致饼图一堆「其他」。
+    """
+    if not assets:
+        return
+    codes = [a.get('stock_code') for a in assets if a.get('stock_code')]
+    if not codes:
+        for a in assets:
+            a['industry'] = '其他'
+        return
+
+    # 1) 权威表 stock_industry
+    industry_map = {}
+    try:
+        rows = db_session.query(StockIndustry.symbol, StockIndustry.industry).filter(
+            StockIndustry.symbol.in_(codes)
+        ).all()
+        for sym, ind in rows:
+            if ind:
+                industry_map[sym] = ind
+    except Exception as e:
+        logger.warning(f"enrich assets industry (stock_industry) failed: {e}")
+
+    # 2) 兜底 stocks.industry（监控池内票）
+    missing = [c for c in codes if c not in industry_map]
+    if missing:
+        try:
+            rows = db_session.query(Stock.symbol, Stock.industry).filter(
+                Stock.symbol.in_(missing)
+            ).all()
+            for sym, ind in rows:
+                if ind and sym not in industry_map:
+                    industry_map[sym] = ind
+        except Exception as e:
+            logger.warning(f"enrich assets industry (stocks) failed: {e}")
+
+    # 3) 仍缺失 → 按需从 databull 拉取并写回 stock_industry（best-effort）
+    missing = [c for c in codes if c not in industry_map]
+    if missing:
+        from service.stock import StockService
+        for sym in missing:
+            try:
+                fields = StockService.company_profile_fields(sym, 'cn')
+                ind = fields.get('industry')
+                if ind:
+                    industry_map[sym] = ind
+                    try:
+                        db_session.merge(StockIndustry(symbol=sym, industry=ind, source='databull'))
+                        db_session.commit()
+                    except Exception:
+                        db_session.rollback()
+            except Exception as e:
+                logger.warning(f"fetch industry for {sym} failed: {e}")
+
+    for a in assets:
+        sym = a.get('stock_code')
+        if sym in industry_map:
+            a['industry'] = industry_map[sym]
+        elif is_etf(sym):
+            # ETF / 基金没有「行业」概念，单独归类，避免污染「其他」扇区
+            a['industry'] = 'ETF/基金'
+        else:
+            a['industry'] = '其他'
+
+
 @portfolio_router.get('/investment_portfolios')
 @cache(expire=360, namespace=PORTFOLIO_LIST_NS)
 def get_investment_portfolios(user_id: int = Depends(get_current_user_id)):
@@ -98,6 +173,7 @@ def get_investment_portfolios_info(portfolio_id: str, user_id: int = Depends(get
     if prof['summary'] is None:
         prof['summary'] = {'total_unrealized_pnl': 0, 'total_assets': 0}
     prof['assets'] = PortfolioAssetsService.get_all_by_portfolio_id(portfolio_id)
+    enrich_assets_with_industry(prof['assets'])
     prof['daily_pnl'] = DailyPnLRecordService.get_all_by_portfolio_id(portfolio_id)
     return prof
 

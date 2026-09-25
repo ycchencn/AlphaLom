@@ -54,6 +54,10 @@ const returnChartRef = ref(null);
 let equityChart = null;
 let returnChart = null;
 
+// 行业分布饼图（按持仓市值加权）
+const industryChartRef = ref(null);
+let industryChart = null;
+
 // 档位配色（红涨绿跌，A 股口径）
 const UP_COLOR = '#ef4444';
 const DOWN_COLOR = '#12783c';
@@ -161,7 +165,6 @@ const renderEquityChart = async () => {
         series: [{
             name: '净资产',
             type: 'line',
-            data: assets,
             smooth: true,
             showSymbol: false,
             connectNulls: true,
@@ -270,6 +273,62 @@ const renderReturnChart = async () => {
 const resizeCharts = () => {
     equityChart?.resize();
     returnChart?.resize();
+    industryChart?.resize();
+};
+
+// 行业分布饼图：扇区权重 = 持仓市值（size×price），tooltip 同时给出市值与占组合总市值比。
+// ⚠️ 颜色用固定调色板（红涨绿跌之外的中性色），行业数量不固定，ECharts 会循环取色。
+const INDUSTRY_PALETTE = [
+    '#ef4444', '#12783c', '#3b82f6', '#f59e0b', '#8b5cf6',
+    '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#0ea5e9',
+    '#a855f7', '#22c55e'
+];
+
+const renderIndustryPie = async () => {
+    await nextTick();
+    industryChart = ensureChart(industryChart, industryChartRef);
+    if (!industryChart) return;
+
+    const dist = industryDistribution.value;
+    if (!dist || !dist.data.length) { industryChart.clear(); return; }
+
+    industryChart.setOption({
+        color: INDUSTRY_PALETTE,
+        tooltip: {
+            trigger: 'item',
+            formatter: (p) => {
+                const pct = dist.total ? (p.value / dist.total * 100) : 0;
+                return `<div style="font-size:12px"><b>${p.name}</b><br/>`
+                    + `持仓市值：${formatCurrency(p.value)}<br/>`
+                    + `行业占比：<b>${pct.toFixed(2)}%</b></div>`;
+            }
+        },
+        legend: {
+            type: 'scroll',
+            orient: 'horizontal',
+            bottom: 2,
+            left: 'center',
+            itemWidth: 10,
+            itemHeight: 10,
+            itemGap: 10,
+            textStyle: { fontSize: 11, color: '#64748b' }
+        },
+        series: [{
+            name: '行业分布',
+            type: 'pie',
+            radius: ['42%', '62%'],
+            center: ['50%', '44%'],
+            avoidLabelOverlap: true,
+            itemStyle: { borderColor: '#fff', borderWidth: 2 },
+            label: { show: false },
+            labelLine: { show: false },
+            emphasis: {
+                label: { show: false },
+                itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' }
+            },
+            data: dist.data
+        }]
+    });
 };
 
 // 空态用的「区间统计」，让图表区在数据不足时也有信息而不是空白
@@ -285,6 +344,26 @@ const returnStats = computed(() => {
         min: Math.min(...pct),
         days: sorted.length
     };
+});
+
+// 行业分布（按持仓市值加权）：把持仓明细按 industry 聚合，权重 = 持仓量 × 现价。
+// 后端已在资产里补了 `industry` 字段（来自 stocks.industry，关联不到标「其他」），
+// 这里纯前端聚合，和页面其它「市值/占比」口径一致（getMarketValue 也是 size×price）。
+const industryDistribution = computed(() => {
+    const assets = profInfo.value?.assets || [];
+    const byIndustry = {};
+    let total = 0;
+    assets.forEach((a) => {
+        const mv = (a.position_size || 0) * (a.position_price || 0);
+        if (!mv) return; // 市值为 0 的标的（如已清仓）不计入分布
+        const ind = a.industry || '其他';
+        byIndustry[ind] = (byIndustry[ind] || 0) + mv;
+        total += mv;
+    });
+    const data = Object.keys(byIndustry)
+        .map((name) => ({ name, value: byIndustry[name] }))
+        .sort((x, y) => y.value - x.value); // 市值大的行业排前面
+    return { data, total };
 });
 
 // 编辑表单数据
@@ -550,6 +629,7 @@ onMounted(async () => {
         // 数据齐了才画（容器在 v-if 内，必须等 DOM 到位）
         await renderEquityChart();
         await renderReturnChart();
+        await renderIndustryPie();
 
     } catch (err) {
         // 401 已由 main.js 的响应拦截器处理（清令牌 + 跳登录），这里只负责把页面状态摆正，
@@ -580,12 +660,19 @@ watch(profInfo, (info) => {
     }
 });
 
+// 数据刷新（如「触发AI调仓分析」后重新拉取）时，行业饼图跟着重绘
+watch(industryDistribution, () => {
+    renderIndustryPie();
+});
+
 onUnmounted(() => {
     window.removeEventListener('resize', resizeCharts);
     equityChart?.dispose();
     equityChart = null;
     returnChart?.dispose();
     returnChart = null;
+    industryChart?.dispose();
+    industryChart = null;
 });
 
 const items = [
@@ -1064,8 +1151,10 @@ const reload = () => window.location.reload();
 
         </div>
 
-        <!-- 操作建议摘要（按动作类型分组） -->
-        <div v-if="profInfo?.position_plan?.actions" class="mb-8 space-y-6">
+        <!-- 操作建议摘要（按动作类型分组）+ 行业分布：桌面端左右并列 -->
+        <div class="flex flex-col xl:flex-row gap-6 items-start mb-8">
+            <!-- 左：操作建议摘要 -->
+            <div v-if="profInfo?.position_plan?.actions" class="w-full xl:flex-1 xl:min-w-0 space-y-6">
             <!-- 买入建议 -->
             <div v-if="buyActions.length > 0">
                 <h3 class="text-lg font-semibold text-green-700 mb-2 flex items-center">
@@ -1122,6 +1211,26 @@ const reload = () => window.location.reload();
                     <span v-if="action.reason" class="ml-2 text-xs opacity-80">{{ action.reason }}</span>
                   </span>
                 </div>
+            </div>
+            </div>
+
+            <!-- 右：行业分布饼图（与买卖计划同行，固定宽度，不挤压表格）-->
+            <div v-if="industryDistribution && industryDistribution.data.length" class="w-full xl:w-[420px] xl:flex-shrink-0">
+                <Card>
+                    <template #title>
+                        <div class="flex items-center justify-between gap-2 flex-wrap">
+                            <b class="text-lg">持仓行业分布</b>
+                            <span class="text-xs font-normal text-gray-500">
+                                按持仓市值加权 · 共 {{ industryDistribution.data.length }} 个行业
+                            </span>
+                        </div>
+                    </template>
+                    <template #content>
+                        <div class="pv-industry-chart">
+                            <div ref="industryChartRef" class="pv-chart"></div>
+                        </div>
+                    </template>
+                </Card>
             </div>
         </div>
 
@@ -1407,6 +1516,10 @@ const reload = () => window.location.reload();
 .pv-chart {
     width: 100%;
     height: 300px;
+}
+
+.pv-industry-chart {
+    width: 100%;
 }
 
 .pv-empty {

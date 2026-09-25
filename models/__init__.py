@@ -20,6 +20,35 @@ class TriggerType(str, Enum):
     DATE = "date"  # 一次性任务
 
 
+class StockIndustry(Base):
+    """股票→行业 权威映射表（持仓行业分布饼图用）。
+
+    为什么单独建表而不是复用 `stocks.industry`：
+    `stocks` 是监控股票池，只覆盖被加入监控的票；而投资组合的持仓可能包含
+    池外票，导致 `stocks.industry` 关联不上、饼图一堆「其他」。
+    本表以 symbol 为主键，覆盖池内+池外所有出现过的票，行业来源 databull 公司资料。
+    """
+    __tablename__ = 'stock_industry'
+
+    symbol = Column(String(25), primary_key=True, comment='股票代码，如 000001 / 600519')
+    industry = Column(String(100), comment='所属行业（证监会/国民经济行业分类）')
+    market = Column(String(10), default='cn', comment='市场：cn-沪深, hk-港股, us-美股')
+    source = Column(String(20), default='databull', comment='行业来源：databull / stocks')
+    update_time = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'symbol': self.symbol,
+            'industry': self.industry,
+            'market': self.market,
+            'source': self.source,
+        }
+
+
 class Stock(Base):
     __tablename__ = 'stocks'
 
