@@ -3,16 +3,20 @@
 import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
 import { computed, onBeforeMount, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
 import Dialog from 'primevue/dialog';
+import Menu from 'primevue/menu';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
+import NavSidePanel from '@/components/NavSidePanel.vue';
 
 const stock_list = ref([]);
 const filters1 = ref(null);
 const loading1 = ref(null);
 const modal_visible = ref(false);
 const { showSuccess, showError } = useNotification();
+const router = useRouter();
 const modal_analysis_interval = ref(1)
 const filter_market = ref('')
 
@@ -276,14 +280,30 @@ const createGroupVisible = ref(false);
 const createGroupName = ref('');
 const createGroupSymbol = ref('');
 
-// 分组下拉选项：未分组 + 现有分组 + 「新建分组」哨兵项
-const groupOptions = computed(() => {
-    const opts = [{ label: '未分组', value: '' }];
+// 左侧分组面板（NavSidePanel）的数据：全部 / 各分组（带计数 + 重命名·删除操作）/ 未分组
+const groupItems = computed(() => {
+    const items = [{
+        key: '__all__',
+        label: '全部',
+        count: stock_list.value.length,
+    }];
     for (const g of groups.value) {
-        opts.push({ label: g.group_name, value: g.group_name });
+        items.push({
+            key: g.group_name,
+            label: g.group_name,
+            count: g.count,
+            actions: [
+                { type: 'rename', iconClass: 'pi pi-pencil', title: '重命名' },
+                { type: 'delete', iconClass: 'pi pi-trash', title: '删除分组' },
+            ],
+        });
     }
-    opts.push({ label: '＋ 新建分组', value: '__new__' });
-    return opts;
+    items.push({
+        key: '',
+        label: '未分组',
+        count: ungroupedCount.value,
+    });
+    return items;
 });
 
 // 未分组数量（基于已加载列表实时算）
@@ -327,12 +347,48 @@ async function setStockGroup(symbol, groupName) {
     }
 }
 
-function onGroupChange(symbol, val) {
-    if (val === '__new__') {
-        openCreateGroup(symbol);
-    } else {
-        setStockGroup(symbol, val);
+function onGroupSelect(key) {
+    selectedGroup.value = key;
+}
+
+function onGroupAction({ key, type }) {
+    if (type === 'rename') startRename(key);
+    else if (type === 'delete') deleteGroup(key);
+}
+
+// 行内「操作」下拉菜单（查看详情 / 设置分组 / 取消分组），全表共用一个 Menu 实例
+const rowMenu = ref();
+const rowMenuModel = ref([]);
+function onRowMenuToggle(event, data) {
+    const items = [
+        {
+            label: '设置分组',
+            icon: 'pi pi-folder',
+            items: [
+                { label: '未分组', command: () => setStockGroup(data.symbol, '') },
+                ...groups.value.map((g) => ({
+                    label: g.group_name,
+                    command: () => setStockGroup(data.symbol, g.group_name),
+                })),
+                { separator: true },
+                { label: '＋ 新建分组', command: () => openCreateGroup(data.symbol) },
+            ],
+        },
+        {
+            label: '查看详情',
+            icon: 'pi pi-eye',
+            command: () => router.push({ name: 'stock-detail', params: { symbol: data.symbol } }),
+        },
+    ];
+    if (data.group_name) {
+        items.unshift({
+            label: '取消分组',
+            icon: 'pi pi-times',
+            command: () => setStockGroup(data.symbol, ''),
+        });
     }
+    rowMenuModel.value = items;
+    rowMenu.value.toggle(event);
 }
 
 function openCreateGroup(symbol) {
@@ -480,30 +536,16 @@ async function deleteGroup(groupName) {
       </template>
     </Dialog>
     <div class="pool-layout">
-      <!-- 左侧分组面板 -->
-      <aside class="group-panel">
-        <div class="group-panel-title">分组</div>
-        <ul class="group-items">
-          <li :class="['group-item', { active: selectedGroup === '__all__' }]" @click="selectedGroup = '__all__'">
-            <span class="gi-name">全部</span>
-            <span class="gi-count">{{ stock_list.length }}</span>
-          </li>
-          <li v-for="g in groups" :key="g.group_name"
-              :class="['group-item', { active: selectedGroup === g.group_name }]">
-            <span class="gi-name" @click="selectedGroup = g.group_name">{{ g.group_name }}</span>
-            <span class="gi-count">{{ g.count }}</span>
-            <span class="gi-actions">
-              <i class="pi pi-pencil" title="重命名" @click="startRename(g.group_name)"></i>
-              <i class="pi pi-trash" title="删除分组" @click="deleteGroup(g.group_name)"></i>
-            </span>
-          </li>
-          <li :class="['group-item', { active: selectedGroup === '' }]" @click="selectedGroup = ''">
-            <span class="gi-name">未分组</span>
-            <span class="gi-count">{{ ungroupedCount }}</span>
-          </li>
-        </ul>
-        <div class="group-add-hint">在右侧「分组」列中可新建 / 分配分组</div>
-      </aside>
+      <!-- 左侧分组面板（与 /market/news_flow 话题列表共用 NavSidePanel，保证风格一致） -->
+      <NavSidePanel
+        title="分组"
+        subtitle="点击切换 · 悬停可重命名 / 删除 · 新建在行内操作"
+        :items="groupItems"
+        :activeKey="selectedGroup"
+        :responsive="true"
+        @select="onGroupSelect"
+        @action="onGroupAction"
+      />
 
       <div class="card pool-table">
         <DataTable
@@ -640,23 +682,16 @@ async function deleteGroup(groupName) {
                     />
                 </template>
             </Column>
-            <Column header="分组" :sortable="false" style="min-width: 140px">
-                <template #body="{ data }">
-                    <Dropdown
-                        :modelValue="data.group_name || ''"
-                        :options="groupOptions"
-                        optionLabel="label"
-                        optionValue="value"
-                        placeholder="未分组"
-                        size="small"
-                        class="w-full"
-                        @change="(e) => onGroupChange(data.symbol, e.value)"
-                    />
-                </template>
-            </Column>
             <Column field="verified" header="操作" dataType="boolean" bodyClass="text-center">
                 <template #body="{ data }">
-                    <router-link class="text-blue-500" :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">查看</router-link>
+                    <Button
+                        type="button"
+                        icon="pi pi-ellipsis-v"
+                        size="small"
+                        text
+                        aria-label="操作"
+                        @click="(e) => onRowMenuToggle(e, data)"
+                    />
                 </template>
             </Column>
         </DataTable>
@@ -690,6 +725,9 @@ async function deleteGroup(groupName) {
         </div>
       </template>
     </Dialog>
+
+    <!-- 行内操作菜单（查看详情 / 设置分组 / 取消分组），全表共用一个实例 -->
+    <Menu ref="rowMenu" :model="rowMenuModel" :popup="true" />
 
 </template>
 
@@ -739,11 +777,11 @@ async function deleteGroup(groupName) {
 }
 
 .phase-tag {
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: bold;
-  color: white;
-  text-align: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: bold;
+    color: white;
+    text-align: center;
 }
 
 /* 不同阶段的颜色定义 */
@@ -753,89 +791,22 @@ async function deleteGroup(groupName) {
 .phase-tag--distribute { background-color: #d46b08; } /* 橙色 - 出货 */
 .phase-tag--unknown { background-color: #bfbfbf; }    /* 浅灰 - 未知 */
 
-/* 股票池分组布局：左侧分组面板 + 右侧表格 */
+/* 股票池分组布局：左侧分组面板（NavSidePanel）+ 右侧表格，二者紧贴无间距 */
 .pool-layout {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
-
-.group-panel {
-  width: 200px;
-  flex: 0 0 200px;
-  border: 1px solid var(--p-content-border-color, #e5e7eb);
-  border-radius: 8px;
-  padding: 10px;
-  background: var(--p-content-background, #fff);
-  position: sticky;
-  top: 12px;
-}
-
-.group-panel-title {
-  font-weight: 600;
-  margin-bottom: 8px;
-  font-size: 13px;
-}
-
-.group-items {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.group-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-}
-
-.group-item:hover {
-  background: var(--p-content-hover-background, #f3f4f6);
-}
-
-.group-item.active {
-  background: var(--p-primary-color, #3b82f6);
-  color: #fff;
-}
-
-.group-item .gi-name {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.group-item .gi-count {
-  font-size: 11px;
-  opacity: 0.7;
-}
-
-.group-item .gi-actions {
-  display: none;
-  gap: 4px;
-}
-
-.group-item:hover .gi-actions {
-  display: inline-flex;
-}
-
-.group-add-hint {
-  margin-top: 10px;
-  font-size: 11px;
-  color: #9ca3af;
-  line-height: 1.4;
+    display: flex;
+    align-items: stretch;
 }
 
 .pool-table {
-  flex: 1 1 auto;
-  min-width: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* 窄屏（显示器宽度不足）：改为顶部横向分组条，表格独占整行宽度 */
+@media (max-width: 1100px) {
+    .pool-layout {
+        flex-direction: column;
+    }
 }
 
 </style>

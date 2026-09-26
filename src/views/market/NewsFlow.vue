@@ -7,6 +7,7 @@ import Tag from 'primevue/tag';
 import {useToast} from 'primevue/usetoast';
 import BullishBearishIndicator from '@/components/BullishBearishIndicator.vue';
 import {formatDaysAgo} from '@/utils/function.js';
+import NavSidePanel from '@/components/NavSidePanel.vue';
 
 // ================= 固定话题 =================
 // 话题即搜索关键词，作为**代码内的固定配置**维护，不在页面上增删改。
@@ -37,6 +38,12 @@ const FIXED_TOPICS = [
 const news = ref([]);
 const loading = ref(false);
 const activeTopic = ref(ALL_NEWS_TOPIC);
+
+// 左侧话题导航面板（与股票池分组共用 NavSidePanel 组件，保证视觉一致）
+const topicItems = computed(() => FIXED_TOPICS.map((t) => ({ key: t, label: t })));
+function onTopicSelect(key) {
+    activeTopic.value = key;
+}
 
 // 服务端分页状态：DataTable 的 lazy 模式由这些字段驱动
 const page = ref(1);
@@ -119,25 +126,15 @@ onBeforeUnmount(() => {
 
 <template>
     <div class="flex bg-gray-50 overflow-hidden">
-        <!-- 左侧：固定话题导航面板 -->
-        <div class="min-w-56 border-r border-gray-200 bg-white flex flex-col shadow-sm z-10">
-            <div class="p-4 border-b border-gray-200 bg-gray-50">
-                <h3 class="font-semibold text-base text-gray-700">话题列表</h3>
-                <p class="text-xs text-gray-400 mt-1 leading-snug">固定筛选词，按摘要匹配</p>
-            </div>
-
-            <div class="flex-1 overflow-y-auto p-2 space-y-1">
-                <div
-                    v-for="topic in FIXED_TOPICS"
-                    :key="topic"
-                    class="px-3 py-2.5 rounded-md cursor-pointer truncate transition-all duration-200 hover:bg-blue-50"
-                    :class="{ 'bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-500': activeTopic === topic }"
-                    @click="activeTopic = topic"
-                >
-                    {{ topic }}
-                </div>
-            </div>
-        </div>
+        <!-- 左侧：固定话题导航面板（与股票池分组共用 NavSidePanel 组件） -->
+        <NavSidePanel
+            title="话题列表"
+            subtitle="固定筛选词，按摘要匹配"
+            :items="topicItems"
+            :activeKey="activeTopic"
+            :responsive="false"
+            @select="onTopicSelect"
+        />
 
         <!-- 右侧：新闻数据表格 -->
         <div class="flex-1 p-4 overflow-y-auto flex flex-col bg-white">
