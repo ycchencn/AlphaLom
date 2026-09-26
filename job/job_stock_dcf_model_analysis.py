@@ -40,7 +40,11 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         return False
 
     staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
-    staff.role_base = '你需要根据客户提供的资料对股票进行DCF估值分析，请使用Markdown输出'
+    staff.role_base = (
+        '你是一位拥有20年经验的资深证券分析师与量化估值专家。'
+        '请使用系统挂载的 MCP 工具主动获取实时行情、财务与新闻数据后再做分析，'
+        '使用 Markdown 输出，重点数据加粗。'
+    )
     staff.set_response_text()
 
     trade_date = FactorValueService.get_latest_trading_date()
@@ -50,55 +54,73 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         stock_info = {}
     stock_name = stock_info.get('company_name')
 
-    start_date = get_date_by_n(-120, _format='%Y%m%d')  # 获取120天的行情
-    end_date = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')
-
-    # 1 数据预处理 - 入库行情、新闻、题材、财报、技术因子、动量数据
-    try:
-        market_data = databull.get_stock_history(
-            symbol=_stock_code,
-            start_date=start_date,
-            end_date=end_date)
-        # 需要重置索引，否则输出的数据没有日期
-        market_data = market_data.reset_index()
-    except Exception as e:
-        raise f"数据获取失败: {e}"
-
-    # 2 获取股票基础信息
+    # 1 稳定且可靠的基础上下文：公司概况、财务每股指标、近期新闻（预取后注入 prompt）
     stock_detail = get_stock_detail(_stock_code=_stock_code, market=stock_info.get('market', 'cn'))
-
-    # 3 获取关联新闻供LLM分析
     relative_news = MarketNewsService.search(stock_code=_stock_code, page_size=30)
-
-    # 获取财务报告数据 PershareIndex
     report_pershare_index = databull.get_stock_financial_data(
         symbol=_stock_code,
         start_date=get_date_by_n(finance_report_date_limit * 365),
         end_date=get_today(), report_type='PershareIndex'
     )
 
-    # 4 大模型汇总输出分析报告
-    template = Template(prompt_template)
+    # 2 紧凑的近期行情快照：仅作「模型未调用工具 / 工具失败时」的兜底基线，
+    #    避免把 120 天 CSV 全量塞进 prompt（既省 token，也规避工具默认区间过时问题）。
+    #    完整行情由 agent 通过 get_stock_history 工具按需拉取。
+    recent_end = trade_date.strftime('%Y%m%d')
+    recent_start = get_date_by_n(-30, _format='%Y%m%d')
+    recent_quotes = None
+    try:
+        recent_quotes = databull.get_stock_history(
+            symbol=_stock_code, start_date=recent_start, end_date=recent_end
+        ).reset_index()
+    except Exception as e:
+        logger.warning(f"[{_stock_code}] 紧凑行情快照获取失败（将不提供兜底基线）：{e}")
+    history_hint = (
+        f"建议通过 get_stock_history 拉取 {recent_start} ~ {recent_end}"
+        f"（可扩展到近 120 个交易日）的日线，用于判断近期走势与确认当前股价"
+    )
 
+    # 3 组装 prompt 并交给大模型（agent 模式：模型可调用 MCP 工具自主多轮取数）
+    template = Template(prompt_template)
     prompt = template.safe_substitute(
         stock_name=stock_name,
         stock_code=_stock_code,
         stock_detail=stock_detail,
         today=trade_date,
-        market_data=market_data.to_csv(),
+        recent_quotes=recent_quotes.to_csv() if recent_quotes is not None else '（未获取到）',
         relative_news=relative_news,
-        report_pershare_index=report_pershare_index
+        report_pershare_index=report_pershare_index,
+        history_hint=history_hint,
     )
 
-    logger.info(f"传入大模型进行DCF分析：{stock_name}【{_stock_code}】，大模型版本：{staff.model}")
+    logger.info(f"传入大模型进行DCF分析（agent模式）：{stock_name}【{_stock_code}】，模型：{staff.model}")
 
-    content = staff.ask(question=prompt)
+    content = ''
+    try:
+        resp = staff.create_completion_with_tools(messages=[
+            {'role': 'system', 'content': staff.role_base},
+            {'role': 'user', 'content': prompt},
+        ])
+        content = (resp.get('final_answer') or '').strip()
+        tool_calls = resp.get('tool_calls') or []
+        if tool_calls:
+            summary = ', '.join(
+                f"{t['function_name']}({json.dumps(t['parameters'], ensure_ascii=False)})"
+                for t in tool_calls
+            )
+            logger.info(f"[{_stock_code}] DCF Agent 共 {len(tool_calls)} 次工具调用：{summary}")
+        else:
+            logger.info(f"[{_stock_code}] DCF Agent 未使用工具（直接作答）")
+        if resp.get('truncated'):
+            logger.warning(f"[{_stock_code}] DCF Agent 达到工具调用轮数上限，报告可能不完整")
+    except Exception as e:
+        # agent 模式异常（如 MCP 不可达）时降级为单轮 ask，保证研报仍可产出
+        logger.warning(f"[{_stock_code}] DCF Agent 调用失败，降级为单轮模式：{e}")
+        content = staff.ask(question=prompt)
 
-    # completion_resp = staff.create_completion_with_tools(messages=[
-    #     {'role': 'system', 'content': staff.role_base},
-    #     {'role': 'user', 'content': prompt}
-    # ], )
-    # content = completion_resp.get('final_answer')
+    if not content:
+        logger.error(f"[{_stock_code}] DCF 分析未产出内容，跳过入库")
+        return False
 
     # 提取报告里面的股价预测数据
     report_extra = dcf_report_extra(_stock_code, content)
