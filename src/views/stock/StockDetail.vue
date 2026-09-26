@@ -28,11 +28,7 @@ import {useToast} from 'primevue/usetoast';
 import {useNotification} from '@/composables/useNotification';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import router from '@/router'
-import Tabs from 'primevue/tabs';
-import TabList from 'primevue/tablist';
-import Tab from 'primevue/tab';
-import TabPanels from 'primevue/tabpanels';
-import TabPanel from 'primevue/tabpanel';
+import NavSidePanel from '@/components/NavSidePanel.vue';
 import * as echarts from 'echarts'
 
 let chart = ref(null)
@@ -397,6 +393,18 @@ const resizeFinChart = () => {
 /** 当前激活的 tab（用于「切到 tab4 时才首次渲染图表」）。 */
 const activeTab = ref('tab1');
 
+// 左侧导航面板（NavSidePanel）的跳转项：与原来的 5 个 Tab 一一对应。
+const tabItems = [
+    { key: 'tab1', label: '技术面分析' },
+    { key: 'tab2', label: '基本面分析' },
+    { key: 'tab3', label: '新闻动态' },
+    { key: 'tab4', label: '财务分析' },
+    { key: 'tab5', label: '研报数据' },
+];
+const onTabSelect = (key) => {
+    activeTab.value = key;
+};
+
 /** 拉取财务数据。切换报表时重新取（不同 report_type 是不同接口调用）。 */
 const loadFinancialData = async (reportType = fin_report_type.value) => {
     fin_loading.value = true;
@@ -755,7 +763,7 @@ watch(fin_report_type, (val) => {
 });
 
 // 切到「财务分析」tab 时才首次渲染趋势图：
-// PrimeVue 的 TabPanel 非激活时容器 display:none、clientWidth 为 0，
+// v-show 非激活时容器 display:none、clientWidth 为 0，
 // 过早 init 会得到 0x0 画布（表现为「图是空的」）。所以数据虽早就取好，
 // 图表必须等到 tab 真正可见再画。
 watch(activeTab, (val) => {
@@ -985,7 +993,7 @@ onUnmounted(() => {
         </div>
     </Drawer>
 
-    <div class="card relative mb-0 pb-0" style="padding: 20px 15px;">
+    <div class="card relative mb-0 pb-0 stock-info-top">
 
         <!-- 标题 -->
         <h1 class="text-2xl font-bold mb-3 text-gray-800">
@@ -1017,16 +1025,16 @@ onUnmounted(() => {
         </div>
     </div>
 
-    <Tabs v-model:value="activeTab">
-        <TabList style="border-top: 1px solid #eee;">
-            <Tab value="tab1">技术面分析</Tab>
-            <Tab value="tab2">基本面分析</Tab>
-            <Tab value="tab3">新闻动态</Tab>
-            <Tab value="tab4">财务分析</Tab>
-            <Tab value="tab5">研报数据</Tab>
-        </TabList>
-        <TabPanels>
-            <TabPanel value="tab1">
+    <div class="sd-layout">
+        <NavSidePanel
+            title="分析"
+            :items="tabItems"
+            :activeKey="activeTab"
+            @select="onTabSelect"
+        />
+
+        <div class="sd-content">
+            <div v-show="activeTab === 'tab1'">
 
                 <!-- 「走势图表」区块由后端配置 chart_display.kline_enabled 控制（默认关闭，整块隐藏）。
                      注意：区块隐藏但**数据照常加载**（ohlc_data 供恐贪卡片与 DCF 估值使用），
@@ -1141,9 +1149,9 @@ onUnmounted(() => {
                     </MarkdownRenderer>
                 </div>
 
-            </TabPanel>
+            </div>
 
-            <TabPanel value="tab2">
+            <div v-show="activeTab === 'tab2'">
 
                 <div class="mt-5 flex flex-col md:flex-row gap-6">
 
@@ -1209,9 +1217,9 @@ onUnmounted(() => {
                 </div>
 
 
-            </TabPanel>
+            </div>
 
-            <TabPanel value="tab3">
+            <div v-show="activeTab === 'tab3'">
                 <DataTable
                     tableStyle="font-size:12px"
                     :value="news"
@@ -1273,10 +1281,10 @@ onUnmounted(() => {
                         </template>
                     </Column>
                 </DataTable>
-            </TabPanel>
+            </div>
 
             <!-- 财务分析：报表切换 + 核心指标卡片 + 趋势图 -->
-            <TabPanel value="tab4">
+            <div v-show="activeTab === 'tab4'">
                 <div class="mt-5">
 
                     <div class="font-semibold text-lg">
@@ -1357,9 +1365,9 @@ onUnmounted(() => {
                     </template>
 
                 </div>
-            </TabPanel>
+            </div>
 
-            <TabPanel value="tab5">
+            <div v-show="activeTab === 'tab5'">
                 <div class="mt-5">
                     <div class="font-semibold text-lg mb-3">
                         <i class="pi pi-file text-blue-500"></i> 深度研报
@@ -1393,9 +1401,9 @@ onUnmounted(() => {
                         </Column>
                     </DataTable>
                 </div>
-            </TabPanel>
-        </TabPanels>
-    </Tabs>
+            </div>
+        </div>
+    </div>
 
 </template>
 
@@ -1775,6 +1783,37 @@ onUnmounted(() => {
     .fin-chart-wrap .fin-chart {
         height: 240px;
     }
+}
+
+/* ========================
+   股票详情：左侧 NavSidePanel 导航 + 右侧内容区
+   面板用自身的 border-r 与内容紧贴（不另加 gap）；
+   窄屏（≤1100px）NavSidePanel 自动变顶部横滚条，这里同步把布局改为纵向堆叠。
+   ======================== */
+.sd-layout {
+    display: flex;
+    align-items: stretch;
+}
+
+.sd-content {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding-left: 16px;
+}
+
+@media (max-width: 1100px) {
+    .sd-layout {
+        flex-direction: column;
+    }
+
+    .sd-content {
+        padding-left: 0;
+    }
+}
+
+.stock-info-top {
+    padding: 20px 15px;
+    border-bottom: 1px solid #dedede;
 }
 
 </style>
