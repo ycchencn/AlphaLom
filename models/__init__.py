@@ -944,3 +944,44 @@ class LlmTokenUsage(Base):
             'output_text': self.output_text,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
         }
+
+
+class ApiKey(Base):
+    """用户对外 API 密钥（portfolio 数据接口用）。
+
+    明文只在创建时返回一次，落库只存 sha256 摘要（key_hash）。
+    Redis 同时存一份 `key_prefix + key_hash -> JSON{"u": user_id, "q": daily_quota}` 做快速校验，
+    吊销即删键，下次校验直接 401。DB 表是管理视图（列表 / 吊销 / 改名）的权威来源。
+    """
+
+    __tablename__ = 'api_key'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='密钥内部 id（管理接口用）')
+    user_id = Column(Integer, nullable=False, index=True, comment='所属用户（users.id）')
+    name = Column(String(100), nullable=False, default='default', comment='用户给密钥起的备注名')
+    # 明文形如 `flp_` + 随机串；key_prefix 取前 12 字符（flp_ + 8 位）用于列表展示，不泄露完整密钥
+    key_prefix = Column(String(12), nullable=False, comment='明文密钥前缀（前 12 字符），用于展示')
+    key_hash = Column(String(64), nullable=False, unique=True, index=True, comment='sha256(明文密钥)，hex')
+    status = Column(String(10), nullable=False, default='active', comment='active / revoked')
+    # 单枚密钥每日配额覆盖（次）；None 表示回退到 api_setting['daily_quota']
+    daily_quota = Column(Integer, nullable=True, comment='单密钥每日配额覆盖；NULL=用全局默认')
+    last_used_at = Column(DateTime, nullable=True, comment='最近一次成功调用时间（节流写入）')
+    created_at = Column(DateTime, default=datetime.now, comment='创建时间')
+    expires_at = Column(DateTime, nullable=True, comment='过期时间；NULL=不过期')
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict_masked(self):
+        """管理列表/详情用：绝不返回 key_hash 以外能还原明文的字段。"""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'key_prefix': self.key_prefix,
+            'status': self.status,
+            'daily_quota': self.daily_quota,
+            'last_used_at': self.last_used_at.strftime('%Y-%m-%d %H:%M:%S') if self.last_used_at else None,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+            'expires_at': self.expires_at.strftime('%Y-%m-%d %H:%M:%S') if self.expires_at else None,
+        }

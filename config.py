@@ -131,6 +131,20 @@ auth_setting = {
     'token_ttl': int(os.getenv('AUTH_TOKEN_TTL', 7 * 24 * 3600)),   # 秒，默认 7 天
 }
 
+# ===== 对外 API（API Key 鉴权）=====
+# 对外暴露的 portfolio 数据接口用 API Key 鉴权（区别于登录会话 token）。
+# 密钥本身存库（api_key 表），同时把 `sha256(明文) -> {user_id, 每日配额}` 写入 Redis
+# 做快速校验；吊销即删 Redis 键，下次校验直接 401。
+# 配额按「用户 + 自然日」计（`apiquota:used:{user_id}:{YYYYMMDD}`），同一用户多枚 Key 共享额度。
+api_setting = {
+    # Redis 键前缀：前缀 + sha256(明文key) -> JSON{"u": user_id, "q": daily_quota|null}
+    'key_prefix': os.getenv('API_KEY_PREFIX', 'alphalom:apikey:'),
+    # 密钥自身有效期（秒），默认 1 年；到 0 表示长期有效（仅由 Redis TTL 兜底）
+    'key_ttl': int(os.getenv('API_KEY_TTL', 365 * 24 * 3600)),
+    # 单用户每日调用默认配额（具体数值，非 None）；可在每枚 Key 上覆盖（Key 配额为 None 时回退到此值）。
+    'daily_quota': int(os.getenv('API_DAILY_QUOTA', 1000)),
+}
+
 # ===== 大模型路由配置 =====
 # key 为业务场景名，get_model_by_setting(key) 据此返回对应 LLM 实例
 llm_model_setting = {

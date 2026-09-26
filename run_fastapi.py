@@ -34,6 +34,8 @@ from routes.backtest import backtest_router
 from routes.agent import agent_router
 from routes.chat_stream import chat_router
 from routes.token_usage import token_usage_router
+from routes.api_key import api_key_router
+from app.external_api import create_external_app
 
 app.include_router(auth_router)
 app.include_router(stock_router)
@@ -49,6 +51,13 @@ app.include_router(backtest_router)
 app.include_router(agent_router)
 app.include_router(chat_router)
 app.include_router(token_usage_router)
+app.include_router(api_key_router)
+
+# ==================== 对外 API 子应用（mount 必须在 SPA catch-all 之前）====================
+# /api/ext 提供独立的 Swagger/OpenAPI（API Key 鉴权 + 每日配额），详见 app/external_api.py。
+# 必须在下面的 `if os.path.isdir(static_dir)` SPA 兜底之前 mount，否则 /api/ext/* 会被当成页面回落。
+ext_app = create_external_app()
+app.mount('/api/ext', ext_app)
 
 # ==================== 登录接口 ====================
 # 登录 / 登出 / 当前用户 / 用户管理已统一收敛到 routes/auth.py（含签发与校验逻辑），
