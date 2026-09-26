@@ -3,6 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 import axios from 'axios';
 import * as echarts from 'echarts';
+import {
+    COLORS, FONT, PALETTE,
+    axisLabel, splitLine, tooltipBase,
+} from '@/utils/echartsTheme'
 import { useNotification } from '@/composables/useNotification';
 
 const { showError, showInfo } = useNotification();
@@ -214,38 +218,38 @@ const renderChart = async () => {
         {
             name: '组合净值', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
             data: s.equity, symbol: 'none', sampling: 'lttb',
-            lineStyle: { width: 1.6, color: '#ef4444' }, itemStyle: { color: '#ef4444' },
+            lineStyle: { width: 1.6, color: COLORS.up }, itemStyle: { color: COLORS.up },
         },
         {
             name: '组合回撤', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
             data: s.drawdown, symbol: 'none', sampling: 'lttb',
-            lineStyle: { width: 1, color: '#ef4444' }, itemStyle: { color: '#ef4444' },
-            areaStyle: { opacity: 0.18, color: '#ef4444' },
+            lineStyle: { width: 1, color: COLORS.up }, itemStyle: { color: COLORS.up },
+            areaStyle: { opacity: 0.18, color: COLORS.up },
         },
     ];
     if (hasBench) {
         series.splice(1, 0, {
             name: '基准净值', type: 'line', xAxisIndex: 0, yAxisIndex: 0,
             data: s.benchmark_equity, symbol: 'none', sampling: 'lttb',
-            lineStyle: { width: 1.4, color: '#3b82f6' }, itemStyle: { color: '#3b82f6' },
+            lineStyle: { width: 1.4, color: PALETTE[0] }, itemStyle: { color: PALETTE[0] },
         });
         series.push({
             name: '基准回撤', type: 'line', xAxisIndex: 1, yAxisIndex: 1,
             data: s.benchmark_drawdown, symbol: 'none', sampling: 'lttb',
-            lineStyle: { width: 1, color: '#3b82f6', type: 'dashed' }, itemStyle: { color: '#3b82f6' },
-            areaStyle: { opacity: 0.08, color: '#3b82f6' },
+            lineStyle: { width: 1, color: PALETTE[0], type: 'dashed' }, itemStyle: { color: PALETTE[0] },
+            areaStyle: { opacity: 0.08, color: PALETTE[0] },
         });
     }
 
     c.setOption({
         animation: false,
-        legend: { top: 0, left: 54, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: 9, color: '#64748b' } },
+        legend: { top: 0, left: 54, itemWidth: 14, itemHeight: 8, textStyle: { fontSize: FONT.axis, color: COLORS.secondary } },
         // 两个 grid 共用一条竖线光标，鼠标在净值图上移动时回撤图同步跟随
         axisPointer: { link: [{ xAxisIndex: 'all' }] },
         tooltip: {
             trigger: 'axis',
-            axisPointer: { type: 'cross', label: { fontSize: 9 } },
-            textStyle: { fontSize: 10 },
+            axisPointer: { type: 'cross', label: { fontSize: FONT.axis } },
+            textStyle: { fontSize: FONT.label },
             formatter: (params) => {
                 if (!params?.length) return '';
                 const i = params[0].dataIndex;
@@ -268,21 +272,21 @@ const renderChart = async () => {
             {
                 type: 'category', gridIndex: 1, data: s.dates, boundaryGap: false,
                 axisTick: { show: false },
-                axisLabel: { fontSize: 9, color: '#94a3b8', formatter: (v) => String(v).slice(0, 7) },
+                axisLabel: axisLabel({formatter: (v) => String(v).slice(0, 7)}),
             },
         ],
         yAxis: [
             {
                 type: 'value', gridIndex: 0, scale: true, name: '净值',
-                nameTextStyle: { fontSize: 9, color: '#94a3b8' },
-                axisLabel: { fontSize: 9, color: '#94a3b8' },
-                splitLine: { lineStyle: { color: '#eef1f6' } },
+                nameTextStyle: { fontSize: FONT.axis, color: COLORS.axisLabel },
+                axisLabel: axisLabel(),
+                splitLine: splitLine(),
             },
             {
                 type: 'value', gridIndex: 1, max: 0, name: '回撤',
-                nameTextStyle: { fontSize: 9, color: '#94a3b8' },
-                axisLabel: { fontSize: 9, color: '#94a3b8', formatter: (v) => `${(v * 100).toFixed(0)}%` },
-                splitLine: { lineStyle: { color: '#eef1f6' } },
+                nameTextStyle: { fontSize: FONT.axis, color: COLORS.axisLabel },
+                axisLabel: axisLabel({formatter: (v) => `${(v * 100).toFixed(0)}%`}),
+                splitLine: splitLine(),
             },
         ],
         dataZoom: [{ type: 'inside', xAxisIndex: [0, 1], zoomOnMouseWheel: true, moveOnMouseMove: true }],

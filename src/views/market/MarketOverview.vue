@@ -19,6 +19,10 @@ import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import axios from 'axios'
 import * as echarts from 'echarts'
+import {
+    COLORS, LINE, FONT,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+} from '@/utils/echartsTheme'
 import ProgressBar200p from '@/components/ProgressBar200p.vue'
 
 // ========================
@@ -260,15 +264,14 @@ const renderFearGreedChart = async () => {
     }
     chart.setOption({
         grid: {left: 32, right: 12, top: 16, bottom: 22},
-        tooltip: {
-            trigger: 'axis',
+        tooltip: tooltipBase({
             formatter: (params) => {
                 const p = params[0]
                 const d = rows[p.dataIndex]
                 return `${d.trade_date}<br/>综合: <b>${d.fear_greed}</b>（${fearGreedLabel(d.fear_greed)}）`
                     + `<br/>波动分: ${d.vol_score ?? '--'}<br/>动量分: ${d.mom_score ?? '--'}`
             }
-        },
+        }),
         xAxis: {
             type: 'category',
             data: rows.map((r) => r.trade_date),
@@ -279,32 +282,20 @@ const renderFearGreedChart = async () => {
             min: 0,
             max: 100,
             splitNumber: 2,
-            axisLabel: {fontSize: 9, color: '#94a3b8'},
-            splitLine: {lineStyle: {color: '#eef1f6'}}
+            axisLabel: axisLabel(),
+            splitLine: splitLine()
         },
         series: [{
             type: 'line',
             data: rows.map((r) => r.fear_greed),
             smooth: true,
             showSymbol: false,
-            lineStyle: {width: 1.5, color: '#ef4444'},
+            ...lineSeriesStyle({color: '#ef4444', shadow: false}),
             areaStyle: {
-                color: {
-                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                    colorStops: [
-                        {offset: 0, color: 'rgba(239,68,68,0.28)'},
-                        {offset: 1, color: 'rgba(239,68,68,0.02)'}
-                    ]
-                }
+                color: areaGradient('#ef4444', 0.28, 0.02)
             },
             // 50 为多空分界参考线
-            markLine: {
-                silent: true,
-                symbol: 'none',
-                label: {show: false},
-                lineStyle: {type: 'dashed', color: '#cbd5e1'},
-                data: [{yAxis: 50}, {yAxis: 25}, {yAxis: 75}]
-            }
+            markLine: markLevels([50, 25, 75], {color: COLORS.guideStrong})
         }]
     })
 }
@@ -421,8 +412,7 @@ const renderGrowthValueChart = async () => {
     chart.setOption({
         // 右侧留白给副轴刻度
         grid: {left: 34, right: 42, top: 16, bottom: 22},
-        tooltip: {
-            trigger: 'axis',
+        tooltip: tooltipBase({
             formatter: (params) => {
                 const i = params[0].dataIndex
                 const d = rows[i]
@@ -431,7 +421,7 @@ const renderGrowthValueChart = async () => {
                     + `创业板指: ${d.growth_close}（${((d.growth_norm - 1) * 100).toFixed(2)}%）<br/>`
                     + `上证红利: ${d.value_close}（${((d.value_norm - 1) * 100).toFixed(2)}%）`
             }
-        },
+        }),
         xAxis: {
             type: 'category',
             data: dates,
@@ -445,8 +435,8 @@ const renderGrowthValueChart = async () => {
                 type: 'value',
                 scale: true,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#94a3b8', formatter: (v) => v.toFixed(2)},
-                splitLine: {lineStyle: {color: '#eef1f6'}}
+                axisLabel: axisLabel({formatter: (v) => v.toFixed(2)}),
+                splitLine: splitLine()
             },
             {
                 // 副轴：两条成分腿的归一化净值。
@@ -457,8 +447,8 @@ const renderGrowthValueChart = async () => {
                 min: (v) => Math.min(v.min, 1) - (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
                 max: (v) => Math.max(v.max, 1) + (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#cbd5e1', formatter: (v) => v.toFixed(2)},
-                splitLine: {show: false}
+                axisLabel: axisLabel({color: COLORS.axisLabelThin, formatter: (v) => v.toFixed(2)}),
+                splitLine: splitLine({show: false})
             }
         ],
         series: [
@@ -469,24 +459,12 @@ const renderGrowthValueChart = async () => {
                 data: ratio,
                 smooth: true,
                 showSymbol: false,
-                lineStyle: {width: 1.5, color: mainColor},
+                ...lineSeriesStyle({color: mainColor, shadow: false}),
                 areaStyle: {
-                    color: {
-                        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                        colorStops: [
-                            {offset: 0, color: 'rgba(239,68,68,0.22)'},
-                            {offset: 1, color: 'rgba(239,68,68,0.02)'}
-                        ]
-                    }
+                    color: areaGradient(mainColor, 0.22, 0.02)
                 },
                 // 1.0 = 区间起点，比值在此之上为成长占优
-                markLine: {
-                    silent: true,
-                    symbol: 'none',
-                    label: {show: false},
-                    lineStyle: {type: 'dashed', color: '#cbd5e1'},
-                    data: [{yAxis: 1}]
-                }
+                markLine: markLevels([1], {color: COLORS.guideStrong})
             },
             {
                 name: '创业板指',
@@ -495,7 +473,7 @@ const renderGrowthValueChart = async () => {
                 data: gNorm,
                 smooth: true,
                 showSymbol: false,
-                lineStyle: {width: 1, color: '#ef4444', opacity: 0.45, type: 'dotted'}
+                ...lineSeriesStyle({color: '#ef4444', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             },
             {
                 name: '上证红利',
@@ -504,7 +482,7 @@ const renderGrowthValueChart = async () => {
                 data: vNorm,
                 smooth: true,
                 showSymbol: false,
-                lineStyle: {width: 1, color: '#12783c', opacity: 0.45, type: 'dotted'}
+                ...lineSeriesStyle({color: '#12783c', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             }
         ]
     })

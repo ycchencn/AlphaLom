@@ -2,6 +2,10 @@
 import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import axios from 'axios';
 import * as echarts from 'echarts';
+import {
+    COLORS, FONT, PALETTE,
+    axisLabel, splitLine, tooltipBase,
+} from '@/utils/echartsTheme'
 import Card from 'primevue/card';
 
 const summary = ref(null);
@@ -132,25 +136,25 @@ const renderTrend = async () => {
     const calls = daily.map((d) => d.calls || 0);
 
     trendChart.setOption({
-        color: ['#3b82f6', '#10b981', '#f59e0b'],
-        tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-        legend: { data: ['输入 Token', '输出 Token', '调用次数'], bottom: 0, textStyle: { fontSize: 11, color: '#64748b' } },
+        color: PALETTE.slice(0, 3),
+        tooltip: tooltipBase({ axisPointer: { type: 'cross' } }),
+        legend: { data: ['输入 Token', '输出 Token', '调用次数'], bottom: 0, textStyle: { fontSize: FONT.legend, color: COLORS.secondary } },
         grid: { left: 56, right: 56, top: 24, bottom: 44 },
         xAxis: {
             type: 'category', boundaryGap: false, data: dates,
-            axisLine: { lineStyle: { color: '#e2e8f0' } },
-            axisLabel: { color: '#64748b', fontSize: 11 }
+            axisLine: { lineStyle: { color: COLORS.axisLine } },
+            axisLabel: axisLabel({ color: COLORS.secondary, fontSize: FONT.legend })
         },
         yAxis: [
             {
                 type: 'value', name: 'Token',
-                axisLabel: { color: '#64748b', fontSize: 11 },
-                splitLine: { lineStyle: { color: '#f1f5f9' } }
+                axisLabel: axisLabel({ color: COLORS.secondary, fontSize: FONT.legend }),
+                splitLine: splitLine()
             },
             {
                 type: 'value', name: '次数',
-                axisLabel: { color: '#64748b', fontSize: 11 },
-                splitLine: { show: false }
+                axisLabel: axisLabel({ color: COLORS.secondary, fontSize: FONT.legend }),
+                splitLine: splitLine({ show: false })
             }
         ],
         series: [
@@ -194,7 +198,7 @@ const renderModelPie = async () => {
                     + `调用：${m ? m.calls : 0} 次</div>`;
             }
         },
-        legend: { type: 'scroll', bottom: 0, left: 'center', textStyle: { fontSize: 11, color: '#64748b' } },
+        legend: { type: 'scroll', bottom: 0, left: 'center', textStyle: { fontSize: FONT.legend, color: COLORS.secondary } },
         series: [{
             name: '按模型', type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
             avoidLabelOverlap: true, itemStyle: { borderColor: '#fff', borderWidth: 2 },
@@ -227,7 +231,7 @@ const renderScenePie = async () => {
                     + `调用：${s ? s.calls : 0} 次</div>`;
             }
         },
-        legend: { type: 'scroll', bottom: 0, left: 'center', textStyle: { fontSize: 11, color: '#64748b' } },
+        legend: { type: 'scroll', bottom: 0, left: 'center', textStyle: { fontSize: FONT.legend, color: COLORS.secondary } },
         series: [{
             name: '按场景', type: 'pie', radius: ['40%', '65%'], center: ['50%', '45%'],
             avoidLabelOverlap: true, itemStyle: { borderColor: '#fff', borderWidth: 2 },

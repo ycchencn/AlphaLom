@@ -5,7 +5,8 @@ import {init, dispose} from 'klinecharts';
 import {ref} from 'vue';
 import {useRoute} from 'vue-router';
 import {chartConfigs} from '@/utils/constants.js';
-import StockValuationChart from '@/components/StockValuationChart.vue'
+// DCF 三情景估值图：ECharts 版（旧手绘 SVG 版 StockValuationChart.vue 保留，可随时切回）
+import StockValuationChart from '@/components/StockValuationChartEcharts.vue'
 import {
     fetchStockMarketData,
     fetchStockInfo,
@@ -30,6 +31,10 @@ import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import router from '@/router'
 import NavSidePanel from '@/components/NavSidePanel.vue';
 import * as echarts from 'echarts'
+import {
+    COLORS, LINE, FONT, PALETTE,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+} from '@/utils/echartsTheme'
 
 let chart = ref(null)
 const toast = useToast();
@@ -113,8 +118,7 @@ const renderFearGreedChart = async (attempt = 0) => {
 
     chart.setOption({
         grid: {left: 30, right: 48, top: 14, bottom: 20},
-        tooltip: {
-            trigger: 'axis',
+        tooltip: tooltipBase({
             formatter: (params) => {
                 const d = rows[params[0].dataIndex];
                 const v = d.fear_greed == null ? null : Number(d.fear_greed);
@@ -125,7 +129,7 @@ const renderFearGreedChart = async (attempt = 0) => {
                     + `动量分: ${d.mom_score == null ? '--' : Number(d.mom_score).toFixed(1)}<br/>`
                     + `收盘价: ${d.close == null ? '--' : Number(d.close).toFixed(2)}`;
             }
-        },
+        }),
         xAxis: {type: 'category', data: dates, show: false},
         yAxis: [
             {
@@ -135,8 +139,8 @@ const renderFearGreedChart = async (attempt = 0) => {
                 min: 0,
                 max: 100,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#94a3b8'},
-                splitLine: {lineStyle: {color: '#eef1f6'}}
+                axisLabel: axisLabel(),
+                splitLine: splitLine()
             },
             {
                 // 右轴：收盘价。与左轴**完全解耦**的自适应量程（scale: true 不强制含 0），
@@ -144,8 +148,8 @@ const renderFearGreedChart = async (attempt = 0) => {
                 type: 'value',
                 scale: true,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#cbd5e1', formatter: (v) => Number(v).toFixed(2)},
-                splitLine: {show: false}
+                axisLabel: axisLabel({color: COLORS.axisLabelThin, formatter: (v) => Number(v).toFixed(2)}),
+                splitLine: splitLine({show: false})
             }
         ],
         series: [
@@ -157,24 +161,12 @@ const renderFearGreedChart = async (attempt = 0) => {
                 smooth: true,
                 showSymbol: false,
                 connectNulls: true,
-                lineStyle: {width: 1.5, color: mainColor},
+                ...lineSeriesStyle({color: mainColor, shadow: false}),
                 areaStyle: {
-                    color: {
-                        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                        colorStops: [
-                            {offset: 0, color: 'rgba(239,68,68,0.22)'},
-                            {offset: 1, color: 'rgba(239,68,68,0.02)'}
-                        ]
-                    }
+                    color: areaGradient(mainColor, 0.22, 0.02)
                 },
                 // 25/50/75 三条档位参考线（与全站恐惧贪婪分档阈值一致）
-                markLine: {
-                    silent: true,
-                    symbol: 'none',
-                    label: {show: false},
-                    lineStyle: {type: 'dashed', color: '#e2e8f0'},
-                    data: [{yAxis: 25}, {yAxis: 50}, {yAxis: 75}]
-                }
+                markLine: markLevels([25, 50, 75])
             },
             {
                 name: '收盘价',
@@ -184,7 +176,7 @@ const renderFearGreedChart = async (attempt = 0) => {
                 smooth: true,
                 showSymbol: false,
                 connectNulls: true,
-                lineStyle: {width: 1, color: '#64748b', opacity: 0.5, type: 'dotted'}
+                ...lineSeriesStyle({color: COLORS.secondary, width: LINE.secondary, type: 'dotted', opacity: 0.5, shadow: false})
             }
         ]
     });
@@ -340,7 +332,7 @@ const renderFinChart = async () => {
     let inds = finIndicators.value.filter((i) => i.unit === '%').slice(0, 3);
     if (!inds.length) inds = finIndicators.value.slice(0, 1);
 
-    const PALETTE = ['#3b82f6', '#f97316', '#10b981', '#8b5cf6'];
+    // 调色板取自 echartsTheme（见顶部 import）
 
     const series = inds.map((ind, idx) => ({
         name: ind.name,
@@ -353,28 +345,27 @@ const renderFinChart = async () => {
             const v = r[ind.key];
             return v === null || v === undefined ? null : Number(v);
         }),
-        lineStyle: {width: 2, color: PALETTE[idx % PALETTE.length]},
+        ...lineSeriesStyle({color: PALETTE[idx % PALETTE.length], width: LINE.primary, shadow: false}),
         itemStyle: {color: PALETTE[idx % PALETTE.length]},
     }));
 
     chart.setOption({
         grid: {left: 46, right: 16, top: 30, bottom: 24},
-        legend: {top: 0, textStyle: {fontSize: 11, color: '#64748b'}},
-        tooltip: {
-            trigger: 'axis',
+        legend: {top: 0, textStyle: {fontSize: FONT.legend, color: COLORS.secondary}},
+        tooltip: tooltipBase({
             valueFormatter: (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2)),
-        },
+        }),
         xAxis: {
             type: 'category',
             data: dates,
-            axisLabel: {fontSize: 10, color: '#94a3b8'},
-            axisLine: {lineStyle: {color: '#e2e8f0'}},
+            axisLabel: axisLabel({fontSize: FONT.label}),
+            axisLine: {lineStyle: {color: COLORS.axisLine}},
         },
         yAxis: {
             type: 'value',
             scale: true,
-            axisLabel: {fontSize: 10, color: '#94a3b8'},
-            splitLine: {lineStyle: {color: '#eef1f6'}},
+            axisLabel: axisLabel({fontSize: FONT.label}),
+            splitLine: splitLine(),
         },
         series,
     }, true); // notMerge=true：切报表时彻底替换，避免旧 series 残留
@@ -582,7 +573,7 @@ function render() {
         title: {
             text: ''
         },
-        textStyle: {fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif', fontSize: 10, color: '#333'},
+        textStyle: {fontFamily: 'PingFang SC, Microsoft YaHei, sans-serif', fontSize: FONT.label, color: '#333'},
         legend: {
             data: ['d1']
         },
@@ -613,7 +604,7 @@ function render() {
                 ],
                 symbolSize: 3,
                 lineStyle: {
-                    width: 2
+                    width: LINE.primary
                 }
             }
         ]

@@ -5,6 +5,10 @@ import {useRoute, useRouter} from 'vue-router';
 import axios from 'axios';
 import {init, dispose} from 'klinecharts';
 import * as echarts from 'echarts';
+import {
+    COLORS, LINE, FONT,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+} from '@/utils/echartsTheme'
 import {chartConfigs} from '@/utils/constants.js';
 import Card from 'primevue/card';
 import DataTable from 'primevue/datatable';
@@ -319,8 +323,7 @@ const renderFearGreedChart = async () => {
 
     chart.setOption({
         grid: {left: 30, right: 48, top: 14, bottom: 20},
-        tooltip: {
-            trigger: 'axis',
+        tooltip: tooltipBase({
             formatter: (params) => {
                 const d = rows[params[0].dataIndex];
                 const v = d.fear_greed == null ? null : Number(d.fear_greed);
@@ -331,7 +334,7 @@ const renderFearGreedChart = async () => {
                     + `动量分: ${d.mom_score == null ? '--' : Number(d.mom_score).toFixed(1)}<br/>`
                     + `收盘价: ${d.close == null ? '--' : Number(d.close).toFixed(2)}`;
             }
-        },
+        }),
         xAxis: {type: 'category', data: dates, show: false},
         yAxis: [
             {
@@ -341,8 +344,8 @@ const renderFearGreedChart = async () => {
                 min: 0,
                 max: 100,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#94a3b8'},
-                splitLine: {lineStyle: {color: '#eef1f6'}}
+                axisLabel: axisLabel(),
+                splitLine: splitLine()
             },
             {
                 // 右轴：收盘价。与左轴**完全解耦**的自适应量程（scale: true 不强制含 0），
@@ -350,8 +353,8 @@ const renderFearGreedChart = async () => {
                 type: 'value',
                 scale: true,
                 splitNumber: 2,
-                axisLabel: {fontSize: 9, color: '#cbd5e1', formatter: (v) => Number(v).toFixed(2)},
-                splitLine: {show: false}
+                axisLabel: axisLabel({color: COLORS.axisLabelThin, formatter: (v) => Number(v).toFixed(2)}),
+                splitLine: splitLine({show: false})
             }
         ],
         series: [
@@ -363,24 +366,12 @@ const renderFearGreedChart = async () => {
                 smooth: true,
                 showSymbol: false,
                 connectNulls: true,
-                lineStyle: {width: 1.5, color: mainColor},
+                ...lineSeriesStyle({color: mainColor, shadow: false}),
                 areaStyle: {
-                    color: {
-                        type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                        colorStops: [
-                            {offset: 0, color: 'rgba(239,68,68,0.22)'},
-                            {offset: 1, color: 'rgba(239,68,68,0.02)'}
-                        ]
-                    }
+                    color: areaGradient(mainColor, 0.22, 0.02)
                 },
                 // 25/50/75 三条档位参考线（与全站恐惧贪婪分档阈值一致）
-                markLine: {
-                    silent: true,
-                    symbol: 'none',
-                    label: {show: false},
-                    lineStyle: {type: 'dashed', color: '#e2e8f0'},
-                    data: [{yAxis: 25}, {yAxis: 50}, {yAxis: 75}]
-                }
+                markLine: markLevels([25, 50, 75])
             },
             {
                 name: '收盘价',
@@ -390,7 +381,7 @@ const renderFearGreedChart = async () => {
                 smooth: true,
                 showSymbol: false,
                 connectNulls: true,
-                lineStyle: {width: 1, color: '#64748b', opacity: 0.5, type: 'dotted'}
+                ...lineSeriesStyle({color: COLORS.secondary, width: LINE.secondary, type: 'dotted', opacity: 0.5, shadow: false})
             }
         ]
     });

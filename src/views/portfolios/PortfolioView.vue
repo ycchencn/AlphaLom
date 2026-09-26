@@ -2,6 +2,10 @@
 import {ref, onMounted, onUnmounted, computed, watch, nextTick} from 'vue';
 import {useRoute} from 'vue-router';
 import * as echarts from 'echarts';
+import {
+    COLORS, LINE, FONT,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+} from '@/utils/echartsTheme'
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import Card from 'primevue/card';
@@ -62,8 +66,8 @@ const industryChartRef = ref(null);
 let industryChart = null;
 
 // 档位配色（红涨绿跌，A 股口径）
-const UP_COLOR = '#ef4444';
-const DOWN_COLOR = '#12783c';
+const UP_COLOR = COLORS.up;
+const DOWN_COLOR = COLORS.down;
 
 // 孤儿实例三件套（与 MarketOverview / StockDetail 同构）：
 // 容器在 v-if 内 → init 必须等数据到位；宿主 DOM 被替换/摘除时要 dispose 重建。
@@ -132,9 +136,8 @@ const renderEquityChart = async () => {
 
     equityChart.setOption({
         grid: {left: 52, right: 20, top: 16, bottom: 26},
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: {type: 'line', lineStyle: {color: '#cbd5e1', type: 'dashed'}},
+        tooltip: tooltipBase({
+            axisPointer: {type: 'line', lineStyle: {color: COLORS.guideStrong, type: 'dashed'}},
             formatter: (params) => {
                 const p = params[0];
                 const idx = p.dataIndex;
@@ -149,21 +152,21 @@ const renderEquityChart = async () => {
                     + chgHtml
                     + `</div>`;
             }
-        },
+        }),
         xAxis: {
             type: 'category',
             data: dates,
             boundaryGap: false,
-            axisLine: {lineStyle: {color: '#eef1f6'}},
-            axisLabel: {fontSize: 9, color: '#94a3b8', hideOverlap: true},
+            axisLine: {lineStyle: {color: COLORS.splitLine}},
+            axisLabel: axisLabel({hideOverlap: true}),
             axisTick: {show: false}
         },
         yAxis: {
             type: 'value',
             scale: true,
             splitNumber: 4,
-            axisLabel: {fontSize: 9, color: '#94a3b8', formatter: compactMoney},
-            splitLine: {lineStyle: {color: '#eef1f6'}}
+            axisLabel: axisLabel({formatter: compactMoney}),
+            splitLine: splitLine()
         },
         series: [{
             name: '净资产',
@@ -171,7 +174,7 @@ const renderEquityChart = async () => {
             smooth: true,
             showSymbol: false,
             connectNulls: true,
-            lineStyle: {width: 2, color: mainColor},
+            ...lineSeriesStyle({color: mainColor, width: LINE.primary, shadow: false}),
             data: assets.map((v, i) => {
                 if (i === 0 || i === assets.length - 1 || i === maxIdx || i === minIdx) {
                     return {value: v, symbol: 'circle', symbolSize: 5};
@@ -180,15 +183,12 @@ const renderEquityChart = async () => {
             }),
             itemStyle: {color: mainColor},
             areaStyle: {
-                color: {
-                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                    colorStops: [{offset: 0, color: areaFrom}, {offset: 1, color: areaTo}]
-                }
+                color: areaGradient(mainColor, 0.20, 0.02)
             },
             markPoint: {
                 symbol: 'pin',
                 symbolSize: 30,
-                label: {fontSize: 9, color: '#fff', formatter: (p) => compactMoney(p.value)},
+                label: {fontSize: FONT.axis, color: '#fff', formatter: (p) => compactMoney(p.value)},
                 data: [
                     {type: 'max', name: '最高', itemStyle: {color: '#94a3b8'}},
                     {type: 'min', name: '最低', itemStyle: {color: '#cbd5e1'}}
@@ -218,9 +218,8 @@ const renderReturnChart = async () => {
 
     returnChart.setOption({
         grid: {left: 46, right: 20, top: 16, bottom: 26},
-        tooltip: {
-            trigger: 'axis',
-            axisPointer: {type: 'line', lineStyle: {color: '#cbd5e1', type: 'dashed'}},
+        tooltip: tooltipBase({
+            axisPointer: {type: 'line', lineStyle: {color: COLORS.guideStrong, type: 'dashed'}},
             formatter: (params) => {
                 const p = params[0];
                 const v = pct[p.dataIndex];
@@ -230,21 +229,21 @@ const renderReturnChart = async () => {
                     + `${v >= 0 ? '+' : ''}${v.toFixed(2)}%</b><br/>`
                     + `净资产：${formatCurrency(sorted[p.dataIndex].total_assets)}</div>`;
             }
-        },
+        }),
         xAxis: {
             type: 'category',
             data: dates,
             boundaryGap: false,
-            axisLine: {lineStyle: {color: '#eef1f6'}},
-            axisLabel: {fontSize: 9, color: '#94a3b8', hideOverlap: true},
+            axisLine: {lineStyle: {color: COLORS.splitLine}},
+            axisLabel: axisLabel({hideOverlap: true}),
             axisTick: {show: false}
         },
         yAxis: {
             type: 'value',
             scale: true,
             splitNumber: 4,
-            axisLabel: {fontSize: 9, color: '#94a3b8', formatter: (v) => Number(v).toFixed(1) + '%'},
-            splitLine: {lineStyle: {color: '#eef1f6'}}
+            axisLabel: axisLabel({formatter: (v) => Number(v).toFixed(1) + '%'}),
+            splitLine: splitLine()
         },
         series: [{
             name: '累计收益率',
@@ -253,22 +252,13 @@ const renderReturnChart = async () => {
             smooth: true,
             showSymbol: false,
             connectNulls: true,
-            lineStyle: {width: 2, color: mainColor},
+            ...lineSeriesStyle({color: mainColor, width: LINE.primary, shadow: false}),
             itemStyle: {color: mainColor},
             areaStyle: {
-                color: {
-                    type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-                    colorStops: [{offset: 0, color: areaFrom}, {offset: 1, color: areaTo}]
-                }
+                color: areaGradient(mainColor, 0.20, 0.02)
             },
             // 0% 基准线：收益/亏损的分界，没有它看不出「什么时候开始亏的」
-            markLine: {
-                silent: true,
-                symbol: 'none',
-                label: {show: false},
-                lineStyle: {type: 'dashed', color: '#e2e8f0'},
-                data: [{yAxis: 0}]
-            }
+            markLine: markLevels([0])
         }]
     });
 };
@@ -314,7 +304,7 @@ const renderIndustryPie = async () => {
             itemWidth: 10,
             itemHeight: 10,
             itemGap: 10,
-            textStyle: { fontSize: 11, color: '#64748b' }
+            textStyle: { fontSize: FONT.legend, color: COLORS.secondary }
         },
         series: [{
             name: '行业分布',
