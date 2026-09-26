@@ -46,8 +46,8 @@ if __name__ == '__main__':
     # 技术面因子计算任务（个股池 + ETF 监控清单，见 job_update_stock_factor_daily）
     scheduler.add_job(job_update_stock_factor_daily, 'cron', hour=20, minute=10, timezone=beijing_tz)
 
-    # 个股走势技术分析
-    scheduler.add_job(job_check_signal_daily, 'cron', hour=20, minute=10, timezone=beijing_tz)
+    # 个股走势技术分析（降频：每周一/三/五，节省 agent 模式下的 token 消耗）
+    scheduler.add_job(job_check_signal_daily, 'cron', day_of_week='mon,wed,fri', hour=20, minute=10, timezone=beijing_tz)
 
     # 量化回测任务执行，运算个股beta数据
     scheduler.add_job(job_update_stock_beta_all, 'cron', hour=20, minute=15, timezone=beijing_tz)
