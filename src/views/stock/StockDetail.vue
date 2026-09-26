@@ -462,6 +462,70 @@ const optimistic = ref(95)
 const neutral = ref(78)
 const conservative = ref(55)
 
+/* ============ 基本面分析 tab 辅助：评分维度明细 / 估值结论摘要 ============ */
+const reAnalyzing = ref(false)
+
+/** 雷达图 5 个维度的实际分值（与 render() 中雷达 indicator 一一对应） */
+const scoreDimensions = computed(() => {
+    const fs = fundamental_scores.value || {}
+    const dcfScore = calcDcfScore(
+        ohlc_last.value?.close ?? 0, optimistic.value, neutral.value, conservative.value
+    ).finalScore
+    return [
+        { key: 'cash', label: '现金流质量', value: fs.cash_quality_score ?? null },
+        { key: 'dcf', label: 'DCF估值', value: Number.isFinite(dcfScore) ? Math.round(dcfScore) : null },
+        { key: 'debt', label: '资产负债', value: fs.debt_ratio_score ?? null },
+        { key: 'profit', label: '归母净利润', value: fs.profit_growth_score ?? null },
+        { key: 'roe', label: '净资产收益率', value: fs.roe_score ?? null },
+    ]
+})
+const hasScores = computed(() => scoreDimensions.value.some(d => d.value != null && d.value !== 0))
+
+/** 评分着色：高=红（优）/ 中=橙 / 低=绿（弱），与全站「涨红跌绿、利好=红」一致 */
+const scoreColor = (v) => {
+    if (v == null) return '#9ca3af'
+    if (v >= 75) return COLORS.up
+    if (v >= 50) return '#f59e0b'
+    return COLORS.down
+}
+
+/** DCF 估值结论摘要（复用 dcf_research_report.content_json，与下方图表同源） */
+const dcfCurrentPrice = computed(() =>
+    parseNumber(dcf_research_report.value?.content_json?.当前股价) || ohlc_last.value?.close || 0
+)
+const dcfNeutralValue = computed(() =>
+    parseNumber(dcf_research_report.value?.content_json?.每股内在价值?.中性情景)
+)
+const dcfMarginPct = computed(() => {
+    const p = dcfCurrentPrice.value
+    const v = dcfNeutralValue.value
+    if (!p || !v) return null
+    return Number(((v - p) / p * 100).toFixed(1))
+})
+const marginColor = computed(() => {
+    const m = dcfMarginPct.value
+    if (m == null) return '#9ca3af'
+    return m >= 0 ? COLORS.up : COLORS.down
+})
+const valuationVerdict = computed(() => dcf_research_report.value?.content_json?.估值判断 || '—')
+const verdictSeverity = computed(() => {
+    const t = valuationVerdict.value || ''
+    if (t.includes('低估')) return 'success'
+    if (t.includes('泡沫') || t.includes('高估')) return 'danger'
+    if (t.includes('合理')) return 'info'
+    return 'warn'
+})
+const fmtPrice = (v) => (v ? '¥' + Number(v).toFixed(2) : '—')
+
+const reAnalyze = () => {
+    if (reAnalyzing.value) return
+    reAnalyzing.value = true
+    axios.put(`/api/v1/stock/re_analysis/${stock_code}`, {})
+        .then(() => showSuccess('已提交重新分析任务'))
+        .catch(() => showError('操作失败，请重试'))
+        .finally(() => { reAnalyzing.value = false })
+}
+
 const items = [
     {
         label: '重新分析',
@@ -1144,69 +1208,140 @@ onUnmounted(() => {
 
             <div v-show="activeTab === 'tab2'">
 
-                <div class="mt-5 flex flex-col md:flex-row gap-6">
-
-                    <!-- 左侧 -->
-                    <div class="w-full md:w-1/2 flex flex-col">
-
-                        <div class="text-sm text-gray-500 mb-2">
-                            公司名：{{ stock_profile?.company_name || '加载中...' }}
+                <!-- 公司概况 -->
+                <Card class="mb-5">
+                    <template #title>
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-building text-blue-500"></i>
+                            <span>公司概况</span>
                         </div>
-
-                        <div class="text-sm text-gray-500 mb-2">
-                            行业：{{ stock_profile?.industry || '加载中...' }}
+                    </template>
+                    <template #content>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2 text-sm">
+                            <div class="flex justify-between border-b border-gray-100 py-1.5">
+                                <span class="text-gray-500">公司名称</span>
+                                <span class="font-medium text-right">{{ stock_profile?.company_name || '—' }}</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-100 py-1.5">
+                                <span class="text-gray-500">所属行业</span>
+                                <span class="font-medium text-right">{{ stock_profile?.industry || '—' }}</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-100 py-1.5">
+                                <span class="text-gray-500">实际控制人</span>
+                                <span class="font-medium text-right">{{ stock_profile?.actual_controller || '—' }}</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-100 py-1.5" v-if="stock_profile?.office_address">
+                                <span class="text-gray-500">办公地址</span>
+                                <span class="font-medium text-right">{{ stock_profile.office_address }}</span>
+                            </div>
+                            <div class="flex justify-between border-b border-gray-100 py-1.5" v-if="stock_profile?.website">
+                                <span class="text-gray-500">公司网站</span>
+                                <a :href="'https://' + stock_profile.website" target="_blank" class="text-blue-500 hover:underline">{{ stock_profile.website }}</a>
+                            </div>
                         </div>
-
-                        <div class="text-sm text-gray-500 mb-2">
-                            实控人：{{ stock_profile?.actual_controller || '加载中...' }}
+                        <Divider class="my-3" />
+                        <div class="text-sm" v-if="stock_profile?.company_introduction">
+                            <div class="text-gray-500 mb-1">公司介绍</div>
+                            <div class="text-gray-700 leading-relaxed">{{ stock_profile.company_introduction }}</div>
                         </div>
-
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.office_address">
-                            地址：{{ stock_profile?.office_address || '加载中...' }}
+                        <div class="text-sm mt-3" v-if="stock_profile?.business_scope">
+                            <div class="text-gray-500 mb-1">经营范围</div>
+                            <div class="text-gray-700 leading-relaxed">{{ stock_profile.business_scope }}</div>
                         </div>
+                    </template>
+                </Card>
 
-                        <div class="text-sm text-gray-500 mb-2" v-if="stock_profile?.website">
-                            网站：<a :href="'https://' + stock_profile?.website"
-                                    target="_blank">{{ stock_profile?.website || '加载中...' }}</a>
-                        </div>
+                <!-- 基本面评分 + DCF 估值结论 -->
+                <div class="flex flex-col lg:flex-row gap-5">
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            公司介绍：{{ stock_profile?.company_introduction || '加载中...' }}
-                        </div>
+                    <!-- 基本面评分雷达 + 维度明细 -->
+                    <Card class="w-full lg:w-1/2">
+                        <template #title>
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i class="pi pi-chart-pie text-green-500"></i>
+                                    <span>基本面评分</span>
+                                </div>
+                                <Button label="重新分析" size="small" severity="secondary" text
+                                        :loading="reAnalyzing" @click="reAnalyze" />
+                            </div>
+                        </template>
+                        <template #content>
+                            <div class="flex flex-col md:flex-row gap-4 items-center">
+                                <div ref="el" id="el" class="w-full md:w-1/2" style="height:240px"></div>
+                                <div class="w-full md:w-1/2 flex flex-col gap-2.5">
+                                    <div v-for="dim in scoreDimensions" :key="dim.key" class="text-sm">
+                                        <div class="flex justify-between mb-1">
+                                            <span class="text-gray-600">{{ dim.label }}</span>
+                                            <span class="font-semibold" :style="{ color: scoreColor(dim.value) }">{{ dim.value ?? '—' }}</span>
+                                        </div>
+                                        <div class="h-1.5 rounded bg-gray-100 overflow-hidden">
+                                            <div class="h-full rounded transition-all"
+                                                 :style="{ width: (dim.value || 0) + '%', background: scoreColor(dim.value) }"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p v-if="!hasScores" class="text-xs text-gray-400 mt-3">
+                                该标的尚未生成基本面评分，可点击「重新分析」触发计算。
+                            </p>
+                        </template>
+                    </Card>
 
-                        <div class="text-sm text-gray-500 mb-2">
-                            经营范围：{{ stock_profile?.business_scope || '加载中...' }}
-                        </div>
-
-                    </div>
-
-                    <!-- 右侧 -->
-                    <div class="w-full md:w-1/2 flex flex-col">
-                        <div ref="el" id="el"></div>
-                    </div>
+                    <!-- DCF 估值结论 -->
+                    <Card class="w-full lg:w-1/2" v-if="dcf_research_report?.content_json">
+                        <template #title>
+                            <div class="flex items-center gap-2">
+                                <i class="pi pi-chart-line text-green-500"></i>
+                                <span>DCF 估值结论</span>
+                            </div>
+                        </template>
+                        <template #content>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="rounded-lg bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">当前股价</div>
+                                    <div class="text-lg font-bold">{{ fmtPrice(dcfCurrentPrice) }}</div>
+                                </div>
+                                <div class="rounded-lg bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">中性情景内在价值</div>
+                                    <div class="text-lg font-bold" :style="{ color: COLORS.up }">{{ fmtPrice(dcfNeutralValue) }}</div>
+                                </div>
+                                <div class="rounded-lg bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">安全边际（中性）</div>
+                                    <div class="text-lg font-bold" :style="{ color: marginColor }">
+                                        {{ dcfMarginPct == null ? '—' : (dcfMarginPct > 0 ? '+' : '') + dcfMarginPct + '%' }}
+                                    </div>
+                                </div>
+                                <div class="rounded-lg bg-gray-50 p-3">
+                                    <div class="text-xs text-gray-500">估值判断</div>
+                                    <Tag :severity="verdictSeverity" class="mt-1">{{ valuationVerdict }}</Tag>
+                                </div>
+                            </div>
+                        </template>
+                    </Card>
 
                 </div>
 
-                <div class="flex flex-col md:flex-row gap-6 mt-5" v-if="dcf_research_report">
-
-                    <div class="w-full md:w-1/2 flex flex-col">
-                        <div class="font-semibold text-lg">
-                            <i class="pi pi-chart-line text-green-500"></i> DCF 三情景估值
+                <!-- DCF 估值走势图：单独一行，避免被半宽卡片挤压 -->
+                <Card class="mt-5 w-full" v-if="dcf_research_report?.content_json">
+                    <template #title>
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-chart-line text-green-500"></i>
+                            <span>DCF 估值走势图</span>
                         </div>
-                        <Divider/>
+                    </template>
+                    <template #content>
                         <StockValuationChart
-                            v-if="dcf_research_report?.content_json"
-                            :data="dcf_research_report?.content_json"
+                            :data="dcf_research_report.content_json"
                             :currentPrice="ohlc_last['close']"
                             title=""
                             ratingText=""
                             ratingColor="#f97316"
                             :historyData="realHistoryData"
+                            :chartHeight="320"
                         />
-                    </div>
-
-                </div>
-
+                    </template>
+                </Card>
 
             </div>
 
