@@ -12,6 +12,12 @@ from datetime import date
 from typing import Optional, Dict, Any
 from service.factor_desc import ALL_FACTOR_FIELDS, technical_fields
 
+# 选股时回溯「最近多少个有数据的交易日」。
+# 日更按监控池分批落库，单日可能只覆盖极少标的（实测 2026-09-28 仅 7 只），
+# 取 1 天会漏掉绝大多数标的；取 5 天可把覆盖从 7 只提到 ~171 只，且查询仍是
+# 主键等值扫描（0.04s 级）。数值越大覆盖越全、但会引入更旧的值。
+LOOKBACK_DATES = 5
+
 
 class FactorSelectorService:
 
@@ -141,39 +147,68 @@ class FactorSelectorService:
 
         Returns:
             dict: {"selected_tickers": [...], "details": {...}}
+
+        ⚠️ 性能要点（2026-09-29 重写，实测 57s → 1.3s）：
+
+        `factor_values` 是 2100 万行的 EAV 长表，主键是
+        (trade_date, ticker, factor_name) —— 注意 **trade_date 是第一列**。
+        原来的实现用 `ROW_NUMBER() OVER (PARTITION BY ticker, factor_name ORDER BY
+        trade_date DESC)` 配合 `trade_date <= asof_date` 取「每个标的最新值」，
+        两个问题叠在一起：
+
+          1. `PARTITION BY (ticker, factor_name)` 与主键前缀
+             `(trade_date, ...)` 不匹配，MySQL 只能全表扫 1165 万行再排序；
+          2. `trade_date <= asof` 是范围条件，即使走索引也要扫大量历史分区。
+
+        改成「先把 asof 之前的最新交易日**求出来**，再用等值条件命中主键」：
+        日更任务按「监控池批次」分批计算并落库，所以**同一天里可能只有一小部分标的
+        有数据**（实测 2026-09-28 只有 7 只标的写全了技术因子，而 09-21 有 108 只）。
+        因此「取全表最大 trade_date」会挑到一个几乎空的日子，选股结果自然接近 0 命中。
+
+        正确做法：取每个因子在 asof 之前的 **最近 K 个有数据的交易日**，
+        再对这些日期做 `trade_date IN (...)` 等值扫描（命中主键首列，0.04s 级）。
+        一个标的只要在上述任一天有该因子的值就参与筛选，等价于「用最近一次落库的值」，
+        既容忍分批落库，又把扫描量限制在几十万行内。
         """
         factor_names = list(conditions.keys())
         if not factor_names:
             return {"selected_tickers": [], "details": {}}
 
-        # 第一步：为每个 ticker 获取每个因子的最新值（截至 asof_date）
-        # 使用窗口函数 + 条件聚合
-        latest_factor_values = (
+        # 第一步：为每个因子取出它在 asof_date 之前「最近 K 个有数据的交易日」。
+        # 不用全表 MAX —— 见 docstring，MAX 会落到只有极少标的的分批落库日。
+        latest_dates = set()
+        for fname in factor_names:
+            rows = (
+                session.query(FactorValue.trade_date)
+                .filter(FactorValue.factor_name == fname,
+                        FactorValue.trade_date <= asof_date)
+                .group_by(FactorValue.trade_date)
+                .order_by(FactorValue.trade_date.desc())
+                .limit(LOOKBACK_DATES)
+                .all()
+            )
+            latest_dates.update(r[0] for r in rows if r[0] is not None)
+
+        if not latest_dates:
+            return {"selected_tickers": [], "details": {}}
+
+        # 第二步：只扫这些最近交易日，按 ticker 分组做条件聚合。
+        # `trade_date IN (...)` 命中主键首列 → 扫描量从 1165 万行降到几十万行。
+        valid_latest = (
             session.query(
-                FactorValue.ticker,
-                FactorValue.factor_name,
-                FactorValue.value,
-                func.row_number().over(
-                    partition_by=[FactorValue.ticker, FactorValue.factor_name],
-                    order_by=FactorValue.trade_date.desc()
-                ).label('rn')
+                FactorValue.ticker.label('ticker'),
+                FactorValue.factor_name.label('factor_name'),
+                FactorValue.value.cast(Float).label('value'),
             )
             .filter(
+                FactorValue.trade_date.in_(sorted(latest_dates)),
                 FactorValue.factor_name.in_(factor_names),
-                FactorValue.trade_date <= asof_date,
-                FactorValue.value.isnot(None)
+                FactorValue.value.isnot(None),
             )
             .subquery()
         )
 
-        # 第二步：只取 rn = 1 的记录（即每个 ticker 每个因子的最新值）
-        valid_latest = session.query(
-            latest_factor_values.c.ticker,
-            latest_factor_values.c.factor_name,
-            latest_factor_values.c.value.cast(Float).label('value')
-        ).filter(latest_factor_values.c.rn == 1).subquery()
-
-        # 第三步：按 ticker 分组，用条件聚合提取每个因子的值，并应用 WHERE/HAVING 过滤
+        # 第三步：按 ticker 分组，用条件聚合提取每个因子的值，并应用 HAVING 过滤
         group_cols = [valid_latest.c.ticker]
         select_cols = [valid_latest.c.ticker]
 

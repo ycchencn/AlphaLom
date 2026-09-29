@@ -12,6 +12,7 @@ from service.news_digest_service import NewsDigestService
 from service.factor_service import FactorValueService
 from service.factor_selector_service import FactorSelectorService
 from service.factor_cal_service import FactorCalService
+from service.factor_analysis_service import FactorAnalysisService
 from service.factor_desc import factor_descriptions, financial_factor_descriptions
 from service.job_service import JobService
 from service.portfolio_daily_summary_service import PortfolioDailySummaryService

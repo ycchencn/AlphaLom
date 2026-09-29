@@ -311,7 +311,7 @@ function setColorOptions() {
 </script>
 
 <template>
-    <Fluid class="grid grid-cols-12 gap-8">
+    <Fluid class="grid grid-cols-12 gap-8 mt-root">
         <div class="col-span-12 xl:col-span-6">
             <div class="card">
                 <div class="font-semibold text-xl mb-4">沪深+港股 市场温度指标</div>
@@ -326,3 +326,12 @@ function setColorOptions() {
         </div>
     </Fluid>
 </template>
+
+<style scoped lang="scss">
+/* 页面外边距对齐全站约定：横向 2rem（=24px），与 .card 页内容左边缘一致（204）。
+   原先无 style 块，grid 直接顶到内容区左边缘。注意 gap-8 是栅格列间距，
+   不等于页面外边距，两者都需要。 */
+.mt-root {
+    padding: 2rem;
+}
+</style>

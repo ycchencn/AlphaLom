@@ -1,14 +1,45 @@
 <script setup>
 
 import {FilterMatchMode, FilterOperator} from '@primevue/core/api';
-import {onBeforeMount, ref} from 'vue';
+import {computed, onBeforeMount, ref} from 'vue';
 import {formatPercentage} from '@/utils/function';
+import ToggleSwitch from 'primevue/toggleswitch';
 import axios from 'axios';
 
 const stock_list = ref([]);
 const filters1 = ref(null);
 const loading1 = ref(null);
 const dt1 = ref(null);
+
+// ==================== 赔率过滤 ====================
+// 「赔率低」的判定口径：**保守情景空间 <= 0**。
+// 即哪怕按 DCF 最悲观的一档估值，价格也已经没有上行空间（估值 >= 现价），
+// 这种票风险收益比很差，默认不展示。
+//
+// 为什么不看「中性空间」：中性情景偏乐观，很多票中性为正、保守为负，
+// 也就是说「合理估值下能涨，但一旦基本面走弱就要亏」，这恰恰是低赔率的典型特征。
+const MIN_ODDS_SPACE = 0;
+
+// 默认开启过滤（用户明确要求「赔率很低的不要显示」）；
+// 保留开关是为了不丢信息 —— 需要看全量时一键切回，且表头会告知隐藏了多少只。
+const hideLowOdds = ref(true);
+
+// 判定单条记录是否属于「低赔率」。
+// ⚠️ cons_space 缺失（null）时**不算**低赔率 —— 缺数据不等于赔率差，
+// 直接隐藏会让用户以为这只票不存在；宁可显示出来由用户判断。
+function isLowOdds(item) {
+    const v = item?.cons_space;
+    if (v === null || v === undefined) return false;
+    return Number(v) <= MIN_ODDS_SPACE;
+}
+
+// 低赔率条目数（用于表头提示与开关文案）
+const lowOddsCount = computed(() => stock_list.value.filter(isLowOdds).length);
+
+// 实际渲染的数据：关闭过滤时给全量，开启时剔除低赔率
+const visibleList = computed(() =>
+    hideLowOdds.value ? stock_list.value.filter((it) => !isLowOdds(it)) : stock_list.value
+);
 
 function loadStockList() {
     // 获取个股数据
@@ -56,7 +87,7 @@ function initFilters1() {
     <div class="card">
         <DataTable
             ref="dt1"
-            :value="stock_list"
+            :value="visibleList"
             :paginator="true"
             :rows="50"
             dataKey="symbol"
@@ -73,9 +104,19 @@ function initFilters1() {
         >
             <template #header>
                 <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
-                    <!-- 左侧：下拉框 -->
-                    <div class="w-full md:w-auto">
+                    <!-- 左侧：标题 + 计数 + 赔率过滤开关 -->
+                    <div class="w-full md:w-auto flex flex-wrap items-center gap-3">
                         <span class="font-semibold">DCF估值信息汇总 - 每周更新</span>
+                        <span class="dcf-count">
+                            显示 {{ visibleList.length }} / {{ stock_list.length }}
+                        </span>
+                        <label class="dcf-toggle" :title="`隐藏「保守空间 ≤ ${MIN_ODDS_SPACE * 100}%」的低赔率个股`">
+                            <ToggleSwitch v-model="hideLowOdds" size="small"/>
+                            <span>隐藏低赔率</span>
+                            <span v-if="hideLowOdds && lowOddsCount > 0" class="dcf-hint">
+                                （已隐藏 {{ lowOddsCount }} 只）
+                            </span>
+                        </label>
                     </div>
                     <!-- 右侧：按钮 + 搜索框 -->
                     <div class="flex flex-wrap items-center gap-2 w-full md:w-auto justify-end md:justify-start">
@@ -93,7 +134,13 @@ function initFilters1() {
                     </div>
                 </div>
             </template>
-            <template #empty> No data found.</template>
+            <template #empty>
+                <span v-if="hideLowOdds && stock_list.length">
+                    当前条件下没有赔率合格的个股（已隐藏 {{ lowOddsCount }} 只低赔率标的），
+                    可关闭「隐藏低赔率」查看全部。
+                </span>
+                <span v-else>No data found.</span>
+            </template>
             <template #loading> Loading customers data. Please wait.</template>
             <Column field="symbol" filterField="symbol" header="代码">
                 <template #body="{ data }">
@@ -147,8 +194,7 @@ function initFilters1() {
                         {{ data.cons_space != null ? (data.cons_space * 100).toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
-            </Column>
-            <Column field="update_time" filterField="update_time" header="更新时间">
+            </Column>            <Column field="update_time" filterField="update_time" header="更新时间">
                 <template #body="{ data }">
                     {{ data.update_time }}
                 </template>
@@ -210,7 +256,6 @@ function initFilters1() {
 .phase-tag--accumulate {
     background-color: #1890ff;
 }
-
 /* 蓝色 - 吸筹 */
 .phase-tag--wash {
     background-color: #531dab;
@@ -232,5 +277,28 @@ function initFilters1() {
 }
 
 /* 浅灰 - 未知 */
+
+/* ==================== 赔率过滤控件 ==================== */
+.dcf-count {
+    font-size: 11px;
+    color: #8a8a8a;
+    font-variant-numeric: tabular-nums;
+}
+
+.dcf-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 400;
+    color: #4a4a4a;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.dcf-hint {
+    font-size: 11px;
+    color: #b0752a;
+}
 
 </style>

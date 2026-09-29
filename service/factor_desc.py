@@ -659,6 +659,69 @@ factor_descriptions = [
         "usage": "综合评估交易热度，避免单窗口噪声。"
     },
     {
+        "field": "mom_5",
+        "name": "5日动量",
+        "description": "过去5个交易日的累计收益率，衡量超短期价格动能。",
+        "formula": "mom_5 = close / close.shift(5) - 1",
+        "usage": "捕捉超短线爆发力，噪声较大，通常与更长周期动量配合使用。"
+    },
+    {
+        "field": "mom_acc",
+        "name": "动量加速度",
+        "description": "短周期动量相对长周期动量的差值，衡量动能是加速还是衰减。",
+        "formula": "mom_acc = (mom_5 - ((1+mom_20)^(1/4) - 1)) * 10",
+        "usage": "正值表示短期动能强于中期（加速），负值表示动能衰减。"
+    },
+    {
+        "field": "mom_risk_adj_5",
+        "name": "5日风险调整动量",
+        "description": "5日动量除以同期日收益率标准差（中性化），衡量单位风险下的收益。",
+        "formula": "mom_risk_adj_5 = mom_5 / (std(ret, 5) * sqrt(5) + 1e-8)",
+        "usage": "比原始动量更公平地比较不同波动水平标的的趋势质量。"
+    },
+    {
+        "field": "mom_risk_adj_10",
+        "name": "10日风险调整动量",
+        "description": "10日动量除以同期日收益率标准差，衡量单位风险下的收益。",
+        "formula": "mom_risk_adj_10 = mom_10 / (std(ret, 10) * sqrt(10) + 1e-8)",
+        "usage": "用于识别「稳健上涨」与「高波动虚涨」的区别。"
+    },
+    {
+        "field": "mom_risk_adj_20",
+        "name": "20日风险调整动量",
+        "description": "20日动量除以同期日收益率标准差，衡量单位风险下的收益。",
+        "formula": "mom_risk_adj_20 = mom_20 / (std(ret, 20) * sqrt(20) + 1e-8)",
+        "usage": "中期趋势质量的衡量，常用于趋势策略的因子暴露。"
+    },
+    {
+        "field": "mom_risk_adj_50",
+        "name": "50日风险调整动量",
+        "description": "50日动量除以同期日收益率标准差，衡量单位风险下的收益。",
+        "formula": "mom_risk_adj_50 = mom_50 / (std(ret, 50) * sqrt(50) + 1e-8)",
+        "usage": "中长期趋势质量的衡量。"
+    },
+    {
+        "field": "atr_14",
+        "name": "ATR真实波幅(14)",
+        "description": "14日平均真实波幅，衡量价格的平均波动幅度（绝对值，单位同股价）。",
+        "formula": "ATR = SMA(TR, 14)，TR = max(high-low, |high-prev_close|, |low-prev_close|)",
+        "usage": "常用于设定动态止损（如 现价 - 2×ATR）与仓位管理。"
+    },
+    {
+        "field": "atr_14_annualized",
+        "name": "年化ATR波幅",
+        "description": "ATR(14) 的年化处理值（乘以 √252），便于跨标的、跨周期比较波动水平。",
+        "formula": "atr_14_annualized = ATR * sqrt(252)",
+        "usage": "与 vol_* 同为波动率度量，但基于真实波幅而非收益率标准差。"
+    },
+    {
+        "field": "closing_strength",
+        "name": "收盘强度",
+        "description": "收盘价在当日最高最低区间中的相对位置，衡量多头在尾盘的掌控力。",
+        "formula": "closing_strength = (close - low) / (high - low)",
+        "usage": "接近 1 表示尾盘强势收在高位；接近 0 表示收在低位，常与量能结合判断。"
+    },
+    {
         "field": "52week_high",
         "name": "52周最高价",
         "description": "过去52周（约一年）内的最高交易价格。",
@@ -675,9 +738,9 @@ factor_descriptions = [
     {
         "field": "52week_position",
         "name": "52周相对位置",
-        "description": "当前价格在52周价格区间内的相对位置，数值范围通常为 0~1。",
-        "formula": "(close - 52week_low) / (52week_high - 52week_low)",
-        "usage": "综合指标。0.5 为中位；>0.8 为高位（可能超买）；<0.2 为低位（可能超卖）。"
+        "description": "当前价格在52周价格区间内的相对位置，**取值 0~100**（百分比）。",
+        "formula": "(close - 52week_low) / (52week_high - 52week_low) * 100",
+        "usage": "50 为中位；>80 为高位（可能超买）；<20 为低位（可能超卖）。"
     }
 ]
 

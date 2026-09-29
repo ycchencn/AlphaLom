@@ -393,6 +393,7 @@ class StockService:
         concepts: str = None,
         securities_type: str = None,
         monitoring: int = None,
+        industry: str = None,
         page: int = 1,
         per_page: int = 50,
         fields: Optional[List[str]] = None,
@@ -407,6 +408,7 @@ class StockService:
         :param concepts: 概念
         :param securities_type: 证券类型
         :param monitoring: 个股监控标记
+        :param industry: 所属行业（精确匹配，用于同行业横向对比）
         :param page: 分页页码
         :param per_page: 每页数量
         :param fields: 指定返回的字段列表。如果为 None，返回所有字段。
@@ -431,6 +433,8 @@ class StockService:
             query = query.filter(Stock.securities_type == securities_type)
         if monitoring:
             query = query.filter(Stock.monitoring == monitoring)
+        if industry:
+            query = query.filter(Stock.industry == industry)
 
         # --- 2. 字段选择 ---
         # 注意：如果指定了 order_by，建议确保排序字段包含在查询字段中，或者 SQLAlchemy 能够处理

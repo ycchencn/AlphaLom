@@ -44,6 +44,12 @@ const model = ref([
                 icon: 'pi pi-fw pi-chart-line',
                 to: '/quant/portfolio_backtest',
                 enable: true,
+            },
+            {
+                label: '因子选股',
+                icon: 'pi pi-fw pi-filter',
+                to: '/quant/factor_screen',
+                enable: true,
             }
         ]
     },

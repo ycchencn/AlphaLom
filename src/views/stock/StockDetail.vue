@@ -28,6 +28,7 @@ import axios from 'axios';
 import {useToast} from 'primevue/usetoast';
 import {useNotification} from '@/composables/useNotification';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
+import FactorPanel from '@/components/FactorPanel.vue';
 import router from '@/router'
 import NavSidePanel from '@/components/NavSidePanel.vue';
 import * as echarts from 'echarts'
@@ -1123,6 +1124,10 @@ onUnmounted(() => {
                     </div>
                     <div id="chart"></div>
                 </div>
+
+                <!-- 专业因子分析（因子看板 / 技术面仪表盘 / 因子雷达 / 行业对比）。
+                     数据来自 routes/factor.py，组件自带取数，失败静默降级不影响本页其它区块。 -->
+                <FactorPanel v-if="stock_code" :symbol="stock_code" />
 
                 <!-- 恐惧贪婪：走势 + 当前读数（与大盘页「成长 vs 价值」同款卡片）。
                      左侧竖排当前值 / 档位 / 日期 / 解读 + 分项迷你条，

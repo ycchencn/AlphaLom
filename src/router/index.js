@@ -94,6 +94,12 @@ const router = createRouter({
                     meta: { title: '量化信号', requiresAuth: true }
                 },
                 {
+                    path: '/quant/factor_screen',
+                    name: 'factor_screen',
+                    component: () => import('@/views/quant/FactorScreen.vue'),
+                    meta: { title: '因子选股', requiresAuth: true }
+                },
+                {
                     path: '/quant/records',
                     name: 'table',
                     component: () => import('@/views/quant/QuantRecords.vue'),

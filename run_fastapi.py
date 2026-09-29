@@ -35,6 +35,7 @@ from routes.agent import agent_router
 from routes.chat_stream import chat_router
 from routes.token_usage import token_usage_router
 from routes.api_key import api_key_router
+from routes.factor import factor_router
 from app.external_api import create_external_app
 
 app.include_router(auth_router)
@@ -52,6 +53,7 @@ app.include_router(agent_router)
 app.include_router(chat_router)
 app.include_router(token_usage_router)
 app.include_router(api_key_router)
+app.include_router(factor_router)
 
 # ==================== 对外 API 子应用（mount 必须在 SPA catch-all 之前）====================
 # /api/ext 提供独立的 Swagger/OpenAPI（API Key 鉴权 + 每日配额），详见 app/external_api.py。

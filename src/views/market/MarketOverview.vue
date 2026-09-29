@@ -832,7 +832,9 @@ onUnmounted(() => {
 <style scoped lang="scss">
 
 .dashboard-container {
-    padding: 1.5rem;
+    /* 页面外边距对齐全站约定：横向 2rem（=24px），与 .card 页内容左边缘一致（204）。
+       原先是四边 1.5rem，横向比别人少 6px，看起来「缩了一点」。 */
+    padding: 2rem;
     background: #f5f7fb;
     min-height: 100vh;
 }
