@@ -4,7 +4,8 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 
  系统设置接口。配置持久化在 system_setting 表（通用 KV，见 service/system_setting_service.py），
- 当前开放三组：
+ 当前开放四组：
+   - 「通用设置」general_setting：目前是时区（展示口径）；
    - 「大模型路由配置」llm_model_setting：每个业务场景一个平台 + 一个（或几个）模型；
    - 「大模型平台配置」llm_platform_setting：各平台的启用开关 / API Key（加密存储）/ Base URL；
    - 「图表显示配置」chart_display：详情页各图表区块的开关（目前是 K 线）。
@@ -502,3 +503,100 @@ def test_llm_platform_setting(
     except Exception as e:
         return {'code': 0, 'ok': False, 'platform': platform, 'message': f'连接失败：{e}',
                 'models_count': 0}
+
+
+# ==========================================================================
+# 通用设置（general_setting）
+#
+# 目前只有一项：**时区**。它决定「页面上显示的时间按哪个时区解释」。
+#
+# 存储：
+#   general_setting.timezone = "Asia/Shanghai"（IANA 时区名，字符串）
+# - **库里没有该行 = 用代码默认值**（utils.timezone_util.DEFAULT_TIMEZONE）；
+# - 「恢复默认」= 删行，与 chart_display / llm_platform 语义一致。
+#
+# ⚠️ 作用范围：**只影响展示**，不改定时任务调度。
+#   调度（news_server 的 cron、交易日口径）固定按 A 股业务时区走 —— 见
+#   utils.timezone_util 顶部说明。设置在页面里也明确告知用户这一点，
+#   避免误以为改时区能改任务触发时刻。
+#
+# 读接口**不加管理员门禁**：前端各页都要拿它来格式化时间，属于普通用户能力；
+# 写接口必须管理员 —— 改的是全站展示口径。
+# ==========================================================================
+
+GENERAL_SETTING_GROUP = 'general_setting'
+
+
+def _general_view() -> Dict[str, Any]:
+    """通用设置视图（当前生效值 + 默认值 + 是否自定义 + 常用时区清单）。"""
+    from utils.timezone_util import get_setting_view
+    return get_setting_view()
+
+
+@settings_router.get('/general')
+def get_general_setting():
+    """
+    读取通用设置（**无需管理员**：前端各页格式化时间都要用它）。
+
+    返回当前生效时区、代码默认时区、是否已被表内配置覆盖、常用时区候选清单，
+    以及该时区此刻的时间和 UTC 偏移（前端做「现在是几点」的实时预览）。
+    """
+    view = _general_view()
+    return {'code': 0, 'data': view, **view}
+
+
+class GeneralTimezoneRequest(BaseModel):
+    """写入时区。必须是可识别的 IANA 名（如 Asia/Shanghai / UTC / America/New_York）。"""
+    timezone: str
+
+
+@settings_router.put('/general/timezone')
+def update_general_timezone(
+        req: GeneralTimezoneRequest,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    写入展示时区（存在则更新）。改完立即生效，无需重启。
+
+    校验：必须是 zoneinfo / pytz 都认得的 IANA 时区名。写错会静默回退默认时区
+    （见 timezone_util.get_timezone_name），那等于改了没生效还看不出原因，所以这里硬拒。
+    """
+    from utils.timezone_util import TIMEZONE_KEY, _is_valid_timezone
+
+    name = (req.timezone or '').strip()
+    if not name:
+        raise HTTPException(status_code=400, detail='时区不能为空')
+    if not _is_valid_timezone(name):
+        raise HTTPException(
+            status_code=400,
+            detail=f'无法识别的时区：{name}。请填写 IANA 时区名（如 Asia/Shanghai、UTC、America/New_York）。',
+        )
+
+    try:
+        SystemSettingService.upsert(
+            key=f'{GENERAL_SETTING_GROUP}.{TIMEZONE_KEY}',
+            value=name,
+            group=GENERAL_SETTING_GROUP,
+            value_type='string',
+            description='通用设置：时间展示时区（IANA 名，如 Asia/Shanghai）',
+            updated_by=_admin.get('username'),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f'保存时区设置失败 timezone={name}: {e}')
+        raise HTTPException(status_code=500, detail=f'保存失败：{e}')
+
+    return {'code': 0, 'message': 'ok', 'data': _general_view()}
+
+
+@settings_router.delete('/general/timezone')
+def reset_general_timezone(_admin: dict = Depends(require_admin)):
+    """
+    删除时区配置 = 恢复代码默认值（Asia/Shanghai）。
+
+    幂等：本来就没有配置行时也返回成功，只是 deleted=False。
+    """
+    from utils.timezone_util import TIMEZONE_KEY
+    deleted = SystemSettingService.delete(f'{GENERAL_SETTING_GROUP}.{TIMEZONE_KEY}')
+    return {'code': 0, 'message': 'ok', 'deleted': deleted, 'data': _general_view()}

@@ -142,6 +142,14 @@ const router = createRouter({
                     meta: { title: '组合回测', requiresAuth: true }
                 },
                 {
+                    path: '/system/general_setting',
+                    name: 'general_setting_view',
+                    component: () => import('@/views/system/GeneralSetting.vue'),
+                    // 改的是全站时间展示口径 → 管理员专属；
+                    // 后端 PUT/DELETE 有 require_admin 兜底（GET 故意放开，各页格式化时间要读）
+                    meta: { title: '通用设置', requiresAuth: true, requiresAdmin: true }
+                },
+                {
                     path: '/system/llm_setting/',
                     name: 'llm_setting_view',
                     component: () => import('@/views/system/LlmModelSetting.vue'),

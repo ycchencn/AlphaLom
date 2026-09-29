@@ -9,6 +9,7 @@ import BullishBearishIndicator from '@/components/BullishBearishIndicator.vue';
 import {formatDaysAgo} from '@/utils/function.js';
 import NavSidePanel from '@/components/NavSidePanel.vue';
 import {store} from '@/store';
+import {formatWallClock, formatWallClockTime, nowFieldsInTimezone, parseWallClock} from '@/composables/useTimezone.js';
 
 // ================= 固定话题 =================
 // 话题即搜索关键词，作为**代码内的固定配置**维护，不在页面上增删改。
@@ -53,7 +54,9 @@ function onTopicSelect(key) {
 const digest = ref(null);
 const digestLoading = ref(false);
 const digestRefreshing = ref(false);
-const nextRefreshAt = ref(null);       // Date | null
+// 后端给的原始时间串（不带时区后缀，是「展示时区的墙上时间」）——
+// **不做 Date 转换**，展示时按纯字段解析，避免浏览器本地时区把时间搬走。
+const nextRefreshAtRaw = ref('');
 const showHighlights = ref(false);     // 「更多」展开次要要点
 
 const isAdmin = computed(() => store.getters.isAdmin);
@@ -70,13 +73,28 @@ const loadDigest = async () => {
         const res = await axios.get('/api/v1/market/news_digest');
         const data = res.data || {};
         digest.value = data.digest || null;
-        nextRefreshAt.value = toDate(data.next_refresh_at);
+        nextRefreshAtRaw.value = data.next_refresh_at || '';
+        if (data.timezone) digestTimezone.value = data.timezone;
     } catch (e) {
         // 速览是锦上添花：拉不到就静默保持空态，绝不弹错挡住下面的新闻流
         console.warn('新闻速览加载失败', e);
     } finally {
         digestLoading.value = false;
     }
+};
+
+// 把「展示时区的墙上时间」串换算成距离现在的毫秒数。
+// ⚠️ 不能直接 new Date(str) 再减 Date.now()：那按浏览器本地时区解释，
+//    在 UTC 机器上会把轮询时刻算偏 8 小时。这里用该时区当前墙钟反推。
+const wallClockToDelayMs = (raw, tzName) => {
+    const now = nowFieldsInTimezone(tzName);
+    const t = parseWallClock(raw);
+    if (!now || !t) return null;
+    // ⚠️ 跨月/跨年要算对的日差：用 Date.UTC 构造两个"墙钟坐标"相减，
+    //    两端偏移一致 → 差值就是真实天数差（这里只借它算天数，不涉及时区推断）。
+    const nowMs = Date.UTC(now.y, now.m - 1, now.d, now.h, now.mi);
+    const targetMs = Date.UTC(t.y, t.m - 1, t.d, t.h, t.mi);
+    return targetMs - nowMs;
 };
 
 // 下一次拉取时刻：优先「本轮刷新时间 + 1 分钟」（新速览刚落库就去取），
@@ -86,9 +104,13 @@ const scheduleDigestPoll = () => {
     if (digestTimer) clearTimeout(digestTimer);
 
     let delay = DIGEST_MAX_POLL_MS;
-    if (nextRefreshAt.value) {
-        const untilNew = nextRefreshAt.value.getTime() + 60 * 1000 - Date.now();
-        delay = untilNew > 0 ? Math.min(Math.max(untilNew, 60 * 1000), DIGEST_MAX_POLL_MS) : 60 * 1000;
+    if (nextRefreshAtRaw.value) {
+        const diffMs = wallClockToDelayMs(nextRefreshAtRaw.value, digestTimezone.value);
+        if (diffMs !== null) {
+            const untilNew = diffMs + 60 * 1000;   // 到点后多等 1 分钟再去取
+            // diffMs 为负（后端算的时刻已过）说明该立刻拉一次，这里按 1 分钟下限处理
+            delay = untilNew > 0 ? Math.min(Math.max(untilNew, 60 * 1000), DIGEST_MAX_POLL_MS) : 60 * 1000;
+        }
     }
     digestTimer = setTimeout(async () => {
         await loadDigest();
@@ -104,7 +126,8 @@ const refreshDigest = async () => {
         const res = await axios.post('/api/v1/market/news_digest/refresh');
         const data = res.data || {};
         if (data.digest) digest.value = data.digest;
-        if (data.next_refresh_at) nextRefreshAt.value = toDate(data.next_refresh_at);
+        if (data.next_refresh_at) nextRefreshAtRaw.value = data.next_refresh_at;
+        if (data.timezone) digestTimezone.value = data.timezone;
         toast.add({severity: 'success', summary: '已重新生成', detail: '速览已更新', life: 2500});
         scheduleDigestPoll();
     } catch (e) {
@@ -191,30 +214,26 @@ const onPage = (event) => {
 };
 
 // ================= 派生 =================
-// 后端给的时间是 ISO 串（2026-09-29T15:30:00，北京时间无时区后缀）或已经是 Date，
-// 统一收敛成 Date；解析失败返回 null，让调用方走空态而不是渲染 "Invalid Date"。
-const toDate = (raw) => {
-    if (!raw) return null;
-    const d = raw instanceof Date ? raw : new Date(String(raw).replace(' ', 'T'));
-    return Number.isNaN(d.getTime()) ? null : d;
-};
-
+// ⚠️ 后端给的时间串是**展示时区的墙上时间、不带时区后缀**（如 2026-09-29T21:30:00）。
+//    绝不能直接 `new Date(str)` —— 那会按**浏览器本地时区**解释，一台 UTC 的机器上
+//    就会把它显示成 13:30（比真实生成时刻少 8 小时，曾真实发生过）。
+//    统一走 composable 里的「当纯字段解析」，只取年月日时分。
 const pad2 = (n) => String(n).padStart(2, '0');
 
-// 速览生成时间，形如 09.29 15:30
+// 后端随速览一起返回的展示时区名（前端据此做跨天判断，不依赖浏览器本地时区）
+const digestTimezone = ref('Asia/Shanghai');
+
+// 速览生成时间，形如 09.29 21:30
 const digestGeneratedText = computed(() => {
-    const d = toDate(digest.value?.generated_at);
-    if (!d) return '';
-    return `${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    return formatWallClock(digest.value?.generated_at);
 });
 
-// 下一轮自动生成时间，形如 16:30（跨天时前缀「明日」）
+// 下一轮自动生成时间，形如 22:30（跨天时前缀「明日」）
+// ⚠️ 跨天比较用**后端时区**的当前墙钟，不用 new Date()（后者是浏览器本地时区）
 const nextRefreshText = computed(() => {
-    const d = nextRefreshAt.value;
-    if (!d) return '';
-    const now = new Date();
-    const sameDay = d.getDate() === now.getDate() && d.getMonth() === now.getMonth();
-    return `${sameDay ? '' : '明日 '}${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const raw = nextRefreshAtRaw.value;
+    if (!raw) return '';
+    return formatWallClockTime(raw, nowFieldsInTimezone(digestTimezone.value));
 });
 
 // search() 现在只返回本页条数 + has_more（不再为拿总数多跑一次 COUNT 全表统计）。

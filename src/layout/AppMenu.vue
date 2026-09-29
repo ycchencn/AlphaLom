@@ -83,6 +83,14 @@ const model = ref([
         adminOnly: true, // 整个「系统管理」仅管理员可见（非管理员连顶级菜单都不显示）
         items: [
             {
+                label: '通用设置',
+                icon: 'pi pi-fw pi-cog',
+                to: '/system/general_setting',
+                enable: true,
+                // 改的是全站时间展示口径 → 仅管理员可见（与路由 requiresAdmin 一致）
+                adminOnly: true,
+            },
+            {
                 label: '大模型配置',
                 icon: 'pi pi-fw pi-sliders-h',
                 to: '/system/llm_setting',

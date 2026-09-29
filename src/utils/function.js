@@ -325,16 +325,35 @@ export function fearGreedToText(value) {
     return fearGreedLevel(value);
 }
 
+/**
+ * 把时间换算成「多久以前」。
+ *
+ * ⚠️ 关于时区：后端返回的时间串是**展示时区的墙上时间、不带时区后缀**
+ * （如 2026-09-29T21:30:00）。这里用 `new Date(str)` 解析会按**浏览器本地时区**
+ * 解释，进而把 `now - date` 的差值算偏（在 UTC 机器上偏 8 小时）——
+ * 表现为「刚刚发布的新闻显示 8 小时前」。
+ *
+ * 修正口径：把两边都当作**同一时区的墙上时间**再相减。
+ * 做法是取字符串里的年月日时分，用 `Date.UTC` 构造（两端偏移一致，差值不受时区影响），
+ * 而不是让 `new Date()` 各自去猜时区。
+ *
+ * @param {string|Date} dateString 后端时间串（无时区后缀）或 Date
+ * @returns {string} 「刚刚 / N 分钟前 / N 小时前 / N 天前」，无法解析返回 'N/A'
+ */
 export function formatDaysAgo(dateString) {
     if (!dateString) return 'N/A';
 
-    const date = new Date(dateString);
-    const now = new Date();
+    const target = parseWallClockMs(dateString);
+    if (target === null) return 'N/A';
 
-    // 检查是否是无效日期
-    if (isNaN(date.getTime())) return 'N/A';
+    // 「现在」也按墙上时间口径取（浏览器本地年月日时分），与 target 同口径
+    const n = new Date();
+    const now = Date.UTC(
+        n.getFullYear(), n.getMonth(), n.getDate(),
+        n.getHours(), n.getMinutes(), n.getSeconds()
+    );
 
-    const timeDiff = now - date; // 毫秒
+    const timeDiff = now - target; // 毫秒
 
     if (timeDiff < 0) return '未来'; // 可选：处理未来时间
 
@@ -356,6 +375,28 @@ export function formatDaysAgo(dateString) {
     } else {
         return `${days} 天前`;
     }
+}
+
+/**
+ * 把「不带时区后缀的墙上时间」转成可比较的毫秒数（UTC 基准，仅用于求差值）。
+ *
+ * 用 `Date.UTC` 构造而非 `new Date(str)`：前者不引入本地时区推断，
+ * 保证「目标时间」与「当前时间」两边偏移一致，差值才是真实间隔。
+ *
+ * @param {string|Date} raw
+ * @returns {number|null} 解析失败返回 null
+ */
+function parseWallClockMs(raw) {
+    if (raw instanceof Date) {
+        return Number.isNaN(raw.getTime()) ? null : raw.getTime();
+    }
+    const s = String(raw).replace(' ', 'T');
+    const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):?(\d{2})?:?(\d{2})?)?/);
+    if (!m) return null;
+    return Date.UTC(
+        Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+        Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)
+    );
 }
 
 export function formatCurrency(value, showPlusSign = false, formateDigits = 2) {

@@ -28,6 +28,7 @@ from service import MarketNewsService, NewsDigestService
 from service.news_digest_service import MAX_HEADLINES
 from utils.common import extract_json_object
 from utils.logger import logger
+from utils.timezone_util import now_naive as tz_now
 
 CURRENT_DIR = Path(__file__).parent
 PROMPT_FILE = CURRENT_DIR / 'prompt_news_digest.md'
@@ -230,7 +231,10 @@ def build_news_digest(trigger_type: str = 'auto', force: bool = False) -> Option
     :param force: True 时忽略「新闻条数不足」的门槛（给手动刷新一个「至少试试」的机会）
     :return: 落库后的 dict；本轮跳过（新闻不足 / 模型没给结果 / 落库失败）返回 None
     """
-    now = datetime.now()
+    # ⚠️ 必须用配置时区的「墙上时间」，不能用 datetime.now()：
+    #    后者取的是**宿主机本地时区**，服务跑在 UTC 容器里时会给 UTC 值，
+    #    落库后卡片显示的时间会比北京时间少 8 小时（曾真实发生过）。
+    now = tz_now()
 
     # 1) 选窗口：从 1 小时开始逐级放宽，取第一个「条数够用」的
     items: List[dict] = []

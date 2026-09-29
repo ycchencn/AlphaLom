@@ -14,6 +14,7 @@ from service.sector_daily_service import SectorDailyService, normalize_sector_ty
 from utils.auth import require_admin
 from utils.redis_obj import redis_obj
 from utils.logger import logger
+from utils.timezone_util import get_timezone_name
 from utils.data_loader import databull
 from fastapi_cache.decorator import cache
 
@@ -241,8 +242,10 @@ def get_news_digest():
     返回体：
     - `digest`          最新一条速览（含 headlines / highlights / news_count / generated_at），
                         从未生成过时为 null —— 页面据此显示「下一轮 xx:xx 生成」而不是报错。
-    - `next_refresh_at` 下一轮自动生成时间（北京时间，由后端算，避免前端自己维护 cron）。
+    - `next_refresh_at` 下一轮自动生成时间（**调度时区**，即 A 股业务时区，由后端算，
+                        避免前端自己维护 cron）。
     - `refresh_rule`    调度口径 {hour_start, hour_end, minute}，仅供页面做文案说明。
+    - `timezone`        当前生效的**展示时区**名（IANA），前端据此渲染时间并标注时区。
     """
     latest = NewsDigestService.get_latest()
     return json_resp({
@@ -253,6 +256,8 @@ def get_news_digest():
             'hour_end': REFRESH_HOUR_END,
             'minute': REFRESH_MINUTE,
         },
+        # 展示时区：卡片上的时间按它解释与显示（库里存的已经是该时区的墙上时间）
+        'timezone': get_timezone_name(),
     })
 
 
@@ -308,4 +313,5 @@ def refresh_news_digest(admin: dict = Depends(require_admin)):
     return json_resp({
         'digest': saved,
         'next_refresh_at': NewsDigestService.next_refresh_at().strftime('%Y-%m-%d %H:%M:%S'),
+        'timezone': get_timezone_name(),
     })
