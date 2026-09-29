@@ -165,6 +165,16 @@ llm_model_setting = {
         'platform': 'volcengine',
         'model': ['doubao-seed-1-6-flash-250828', 'glm-4-7-251222']
     },
+    'news_digest': {                   # 新闻流速览（job_news_digest，每小时一次，走快模型控成本）
+        'platform': 'volcengine',
+        # ⚠️ 2026-09-29 逐个实测（volcengine /models 列表里**存在** ≠ 账号可用）：
+        #     可用：doubao-seed-2-0-mini-260428、doubao-seed-2-1-lite-260915
+        #     不可用（400 InvalidEndpoint.ClosedEndpoint）：
+        #       doubao-seed-1-6-flash-250828、doubao-seed-1-8-251228、glm-4-7-251222
+        # get_model_by_setting 会从列表里**随机**取一个，所以这里只放实测可用的，
+        # 否则会出现「同一任务时好时坏」的诡异现象。
+        'model': ['doubao-seed-2-0-mini-260428', 'doubao-seed-2-1-lite-260915']
+    },
 }
 
 # ===== 外部数据接口 =====

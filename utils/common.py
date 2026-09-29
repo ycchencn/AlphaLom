@@ -898,6 +898,41 @@ def extract_html(llm_response: str, prefer_code_block: bool = True) -> str:
     return llm_response.strip()
 
 
+def extract_json_object(llm_response: str) -> Optional[dict]:
+    """
+    从大模型回复中**容忍地**提取一个 JSON 对象。
+
+    为什么需要「容忍」：即便 prompt 明确要求「只输出 JSON」，模型仍常见两种跑偏：
+    1. 把 JSON 包在 ```json 围栏里；
+    2. 前后加一句「好的，以下是总结：」之类的说明文字。
+
+    处理方式：先剥掉代码围栏，再取**最外层**的 `{...}` 子串解析；解析不出来返回 None，
+    由调用方决定降级（跳过入库 / 换模式重问），**绝不在这里抛异常**——它处在
+    「模型输出不可控」的边界上，抛了就没人能接住。
+
+    :param llm_response: 大模型原始回复文本
+    :return: 解析后的 dict；取不到返回 None
+    """
+    if not llm_response:
+        return None
+
+    s = llm_response.strip()
+    # 去掉开头的 ```json / ``` 与结尾的 ```
+    if s.startswith('```'):
+        s = re.sub(r'^```[a-zA-Z]*\s*', '', s)
+        s = re.sub(r'\s*```$', '', s).strip()
+
+    start = s.find('{')
+    end = s.rfind('}')
+    if start == -1 or end == -1 or end < start:
+        return None
+
+    try:
+        return json.loads(s[start:end + 1])
+    except json.JSONDecodeError:
+        return None
+
+
 # --- 测试示例 ---
 if __name__ == "__main__":
     base_date = "20260309"

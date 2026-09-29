@@ -361,6 +361,55 @@ class MarketNews(Base):
         }
 
 
+class NewsDigest(Base):
+    """新闻流 AI 速览（事件驱动页顶部「AI 推荐」卡片）。
+
+    每小时由 `job_news_digest` 生成一条：把窗口内的新闻批量交给大模型，
+    抽取「前三条头条」（每条 = 主题 + 关键词 + 一句话总结）。
+
+    为什么落库而不是只丢 Redis：
+    1. 页面要显示「覆盖了多少条新闻 / 上一轮什么时候生成的」，需要和正文一起原子读写；
+    2. 保留历史便于回看与排障（get_recent），成本只有一行 JSON；
+    3. 定时任务与 Web 进程是**两个容器**（docker-compose: web / news_server），
+       走 DB 比走进程内状态可靠。
+    """
+
+    __tablename__ = 'news_digest'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='主键 ID')
+    # 生成时间即业务上的「快照时间」，页面按它显示「xx:xx 生成」并判断是否过期
+    generated_at = Column(DateTime, nullable=False, index=True, comment='生成时间')
+    window_start = Column(DateTime, nullable=False, comment='统计窗口起（含）')
+    window_end = Column(DateTime, nullable=False, comment='统计窗口止（含）')
+    news_count = Column(Integer, nullable=False, default=0, comment='参与总结的新闻条数')
+    title = Column(String(120), comment='速览标题，如「新闻流速览」')
+    # [{ "topic": "市场焦点", "keywords": ["网络安全", ...], "summary": "一句话总结" }, ...]
+    headlines = Column(JSON, nullable=False, default=list, comment='前三条头条（最多 3 条）')
+    # 其余要点，每条一句话，供卡片折叠展示
+    highlights = Column(JSON, nullable=False, default=list, comment='次要要点（一句话/条）')
+    model = Column(String(120), comment='生成所用模型标识')
+    trigger_type = Column(String(20), nullable=False, default='auto',
+                          comment='触发方式：auto-定时任务 / manual-页面手动刷新')
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'generated_at': self.generated_at.isoformat() if self.generated_at else None,
+            'window_start': self.window_start.isoformat() if self.window_start else None,
+            'window_end': self.window_end.isoformat() if self.window_end else None,
+            'news_count': self.news_count or 0,
+            'title': self.title,
+            'headlines': self.headlines or [],
+            'highlights': self.highlights or [],
+            'model': self.model,
+            'trigger_type': self.trigger_type,
+        }
+
+
 class FactorValue(Base):
     __tablename__ = 'factor_values'
 

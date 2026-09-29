@@ -11,7 +11,7 @@ from service import StockService, FactorValueService, FactorSelectorService, Res
 from service.factor_desc import factor_descriptions
 from llms import get_model_by_setting
 from utils.logger import logger
-from utils.common import get_date_by_n, get_today
+from utils.common import get_date_by_n, get_today, extract_json_object
 from pathlib import Path
 from string import Template
 from utils.data_loader import databull
@@ -79,25 +79,10 @@ def _trim_dcf_report(dcf_report):
 
 def _extract_json_object(text):
     """
-    容忍地提取 JSON 对象：兼容模型把 JSON 包在 ```json 围栏里、或在前后加了少量说明文字的情况。
-    返回解析后的 dict；取不到返回 None（调用方据此跳过入库）。
+    容忍地提取 JSON 对象。实现已收口到 utils.common.extract_json_object
+    （与 job_news_digest 共用同一份，避免两处各自漂移），这里保留原名做转发。
     """
-    if not text:
-        return None
-    s = text.strip()
-    # 去掉开头的 ```json / ``` 与结尾的 ```
-    if s.startswith('```'):
-        s = re.sub(r'^```[a-zA-Z]*\s*', '', s)
-        s = re.sub(r'\s*```$', '', s).strip()
-    start = s.find('{')
-    end = s.rfind('}')
-    if start == -1 or end == -1 or end < start:
-        return None
-    candidate = s[start:end + 1]
-    try:
-        return json.loads(candidate)
-    except json.JSONDecodeError:
-        return None
+    return extract_json_object(text)
 
 
 def job_check_signal(_stock_code):

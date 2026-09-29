@@ -8,6 +8,7 @@ from service.stock import StockService
 from service.portfolio_assets_service import PortfolioAssetsService
 from service.investment_portfolio import InvestmentPortfolioService
 from service.market_news_service import MarketNewsService
+from service.news_digest_service import NewsDigestService
 from service.factor_service import FactorValueService
 from service.factor_selector_service import FactorSelectorService
 from service.factor_cal_service import FactorCalService

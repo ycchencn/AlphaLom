@@ -5,16 +5,24 @@
 """
 
 from datetime import datetime, timedelta
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from app.fastapi_app import api_prefix, json_resp
-from service import MarketNewsService
+from service import MarketNewsService, NewsDigestService
+from service.news_digest_service import REFRESH_HOUR_END, REFRESH_HOUR_START, REFRESH_MINUTE
 from service.growth_value_service import GrowthValueError, GrowthValueService
 from service.sector_daily_service import SectorDailyService, normalize_sector_type
+from utils.auth import require_admin
+from utils.redis_obj import redis_obj
 from utils.logger import logger
 from utils.data_loader import databull
 from fastapi_cache.decorator import cache
 
 market_router = APIRouter(prefix=api_prefix, tags=['市场数据'])
+
+# 新闻速览手动刷新的冷却时间（秒）：一次刷新要真花 LLM token，
+# 连点会把成本放大成 N 倍，且同一分钟内数据也不会变。
+DIGEST_REFRESH_COOLDOWN_SEC = 120
+DIGEST_REFRESH_LOCK_KEY = 'alphalom:news_digest:refresh_lock'
 
 # ⚠️ 同步 `def` 路由会被 Starlette 自动丢进 anyio 线程池（默认 40 线程）；
 # 写成 `async def` 则跑在唯一的事件循环线程上，Service 层的同步 pymysql / requests
@@ -221,3 +229,83 @@ def search_news(
     except Exception as e:
         logger.error(f"Unexpected error in search_news: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ==================== 新闻流 AI 速览（事件驱动页顶部「AI 推荐」） ====================
+# 数据由 job/job_news_digest.py 每小时生成一批（活跃时段），这里只负责读。
+# 不加 @cache：单行查询，而且卡片要显示「几秒前生成的」，缓存只会让它看起来更旧。
+@market_router.get('/market/news_digest')
+def get_news_digest():
+    """获取最新的新闻流 AI 速览（无数据时 `digest` 为 null，前端渲染空态）
+
+    返回体：
+    - `digest`          最新一条速览（含 headlines / highlights / news_count / generated_at），
+                        从未生成过时为 null —— 页面据此显示「下一轮 xx:xx 生成」而不是报错。
+    - `next_refresh_at` 下一轮自动生成时间（北京时间，由后端算，避免前端自己维护 cron）。
+    - `refresh_rule`    调度口径 {hour_start, hour_end, minute}，仅供页面做文案说明。
+    """
+    latest = NewsDigestService.get_latest()
+    return json_resp({
+        'digest': latest,
+        'next_refresh_at': NewsDigestService.next_refresh_at().strftime('%Y-%m-%d %H:%M:%S'),
+        'refresh_rule': {
+            'hour_start': REFRESH_HOUR_START,
+            'hour_end': REFRESH_HOUR_END,
+            'minute': REFRESH_MINUTE,
+        },
+    })
+
+
+@market_router.get('/market/news_digest/history')
+def get_news_digest_history(
+    limit: int = Query(24, ge=1, le=200, description='返回最近 N 条速览（按时间倒序）'),
+):
+    """历史速览列表（回看/排障用，最多 200 条）"""
+    return json_resp(NewsDigestService.get_recent(limit=limit))
+
+
+@market_router.post('/market/news_digest/refresh')
+def refresh_news_digest(admin: dict = Depends(require_admin)):
+    """手动立即生成一条速览（**仅管理员**）
+
+    为什么限管理员：这一步会真实调用大模型（有 token 成本），不能开放给所有登录用户。
+
+    为什么带冷却：连点会把成本放大成 N 倍，而同一分钟内新闻流几乎没变化。
+    冷却用 Redis 的 SET NX EX 实现 —— 单键原子，多 worker 下天然互斥。
+    超时返回 429 + Retry-After，前端据此提示「请稍后再试」。
+
+    ⚠️ 这里对 job 模块做**函数内延迟导入**：`job/__init__.py` 会连带拉起新闻采集那一串
+    依赖（ES 客户端、embedding 等），放在模块顶层会让 Web 进程启动时就被拖慢/带崩。
+    """
+    acquired = redis_obj.set(DIGEST_REFRESH_LOCK_KEY, '1', nx=True, ex=DIGEST_REFRESH_COOLDOWN_SEC)
+    if not acquired:
+        try:
+            waiting = int(redis_obj.ttl(DIGEST_REFRESH_LOCK_KEY))
+        except Exception:
+            waiting = DIGEST_REFRESH_COOLDOWN_SEC
+        waiting = max(waiting, 1)
+        raise HTTPException(
+            status_code=429,
+            detail=f'刷新过于频繁，请 {waiting} 秒后再试',
+            headers={'Retry-After': str(waiting)},
+        )
+
+    try:
+        from job.job_news_digest import build_news_digest
+        saved = build_news_digest(trigger_type='manual', force=True)
+    except Exception as e:
+        logger.error(f"Unexpected error in refresh_news_digest: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail='生成失败，请查看服务日志')
+
+    if not saved:
+        # 新闻不足或模型没给出可用结果：把冷却键放掉，让用户能立刻换个时机再试
+        try:
+            redis_obj.delete(DIGEST_REFRESH_LOCK_KEY)
+        except Exception:
+            pass
+        raise HTTPException(status_code=503, detail='暂时没有足够的新新闻可供总结，请稍后再试')
+
+    return json_resp({
+        'digest': saved,
+        'next_refresh_at': NewsDigestService.next_refresh_at().strftime('%Y-%m-%d %H:%M:%S'),
+    })

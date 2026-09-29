@@ -50,6 +50,12 @@ LLM_SETTING_SCENES: List[Dict[str, Any]] = [
         'description': '新闻情绪与关联标的抽取（job_news_feed_analysis）',
         'in_use': True,
     },
+    {
+        'name': 'news_digest',
+        'label': '新闻流速览',
+        'description': '事件驱动页顶部「AI 推荐」前三条头条总结（job_news_digest，每小时一次）',
+        'in_use': True,
+    },
 ]
 
 _SCENE_NAMES = [s['name'] for s in LLM_SETTING_SCENES]
