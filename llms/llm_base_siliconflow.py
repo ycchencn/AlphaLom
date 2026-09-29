@@ -5,12 +5,15 @@
 """
 
 from openai import OpenAI
-from config import siliconflow_apikey
 from llms.llm_base import LLMBase
+from llms.llm_platform import get_api_key, get_base_url
 
 
 class LLMBaseSiliconflow(LLMBase):
     """SiliconFlow LLM 实现"""
+
+    # 平台标识：供 llms.llm_platform 解析运行时凭据（key / base_url / 启用开关）
+    platform_name = 'siliconflow'
 
     role_base = (
         '你是一个量化交易金融机构的专家，擅长解答股票、基金、金融市场相关问题。'
@@ -23,9 +26,10 @@ class LLMBaseSiliconflow(LLMBase):
     response_format = 'text'
 
     def __init__(self):
+        # key / base_url 改为运行时解析（system_setting 表覆盖 ← env 默认值）
         client = OpenAI(
-            api_key=siliconflow_apikey,
-            base_url="https://api.siliconflow.cn",
+            api_key=get_api_key(self.platform_name),
+            base_url=get_base_url(self.platform_name),
         )
         super().__init__(client)
 

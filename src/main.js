@@ -73,8 +73,34 @@ axios.interceptors.request.use(config => {
 
 // 401 = 未登录 / 令牌失效（后端 Redis 里查不到或已过期）：
 // 清掉本地令牌并送回登录页，否则用户会停在一个「每个请求都失败」的页面里。
+// ==================== SPA 兜底误伤：把「接口返回 HTML」变成明确错误 ====================
+// 部署形态是「后端同时托管 dist 静态资源」，且 run_fastapi.py 里有一条
+// `GET /{full_path:path}` 的 SPA 兜底：**任何未命中的路径都返回 index.html（HTTP 200）**。
+//
+// 于是「后端还没有这个接口」（例如前端已更新、后端没重新部署）时，浏览器拿到的是
+// 200 + text/html，而不是 404。各页面只检查 `response.data.xxx`，就会静默变成
+// 「列表为空」——表现为「共 0 个 XX」，完全看不出真实原因（我们踩过这个坑）。
+//
+// 这里统一把它转成一个**带路径的明确错误**，让页面 catch 里能显示可读提示。
 axios.interceptors.response.use(
-    response => response,
+    response => {
+        const status = response.status;
+        const ctype = String(response.headers?.['content-type'] || '');
+        const url = String(response.config?.url || '');
+        // 只针对形如接口的路径（/api/...）；静态资源与页面路由本身返回 HTML 是正常的
+        const looksLikeApi = url.includes('/api/');
+        const isHtml = ctype.includes('text/html');
+        if (status === 200 && looksLikeApi && isHtml) {
+            const err = new Error(
+                `接口 ${url} 返回了 HTML 而不是 JSON —— 通常是后端没有这个接口（服务端版本落后于前端）。` +
+                `请重新部署/重启后端服务后重试。`
+            );
+            err.isSpaFallback = true;
+            err.config = response.config;
+            return Promise.reject(err);
+        }
+        return response;
+    },
     error => {
         const status = error?.response?.status;
         if (status === 401) {

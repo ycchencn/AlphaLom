@@ -5,12 +5,15 @@
 """
 
 from zai import ZhipuAiClient
-from config import zhipu_api
 from llms.llm_base import LLMBase
+from llms.llm_platform import get_api_key
 
 
 class LLMBaseZhipu(LLMBase):
     """智谱 LLM 实现"""
+
+    # 平台标识：供 llms.llm_platform 解析运行时凭据（key / 启用开关）
+    platform_name = 'zhipu'
 
     role_base = (
         '你是一个量化交易金融机构的专家，擅长解答股票、基金、金融市场相关问题。'
@@ -24,7 +27,8 @@ class LLMBaseZhipu(LLMBase):
     thinking = "disabled"
 
     def __init__(self):
-        client = ZhipuAiClient(api_key=zhipu_api)
+        # ZhipuAiClient 的 base_url 是 SDK 内置的，不支持覆盖，故只解析 key。
+        client = ZhipuAiClient(api_key=get_api_key(self.platform_name))
         super().__init__(client)
 
     def ask(self, question: str) -> str:

@@ -4,8 +4,9 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 
  系统设置接口。配置持久化在 system_setting 表（通用 KV，见 service/system_setting_service.py），
- 当前开放两组：
+ 当前开放三组：
    - 「大模型路由配置」llm_model_setting：每个业务场景一个平台 + 一个（或几个）模型；
+   - 「大模型平台配置」llm_platform_setting：各平台的启用开关 / API Key（加密存储）/ Base URL；
    - 「图表显示配置」chart_display：详情页各图表区块的开关（目前是 K 线）。
 """
 
@@ -15,7 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.fastapi_app import api_prefix
-from llms import _PLATFORM_REGISTRY, list_scenes as _list_llm_scenes, setting_key
+from llms import (_PLATFORM_REGISTRY, list_platform_models,
+                  list_scenes as _list_llm_scenes, setting_key)
+from llms.llm_platform import (PLATFORM_META, get_platform_setting, list_platforms_view,
+                               platform_label)
 from service.system_setting_service import SystemSettingService
 from utils.auth import require_admin
 from utils.logger import logger
@@ -269,3 +273,232 @@ def reset_chart_display_setting(
 
     deleted = SystemSettingService.delete(_chart_display_key(name))
     return {'code': 0, 'message': 'ok', 'deleted': deleted, 'data': _chart_display_view()}
+
+
+# ==========================================================================
+# 大模型平台配置（llm_platform_setting）
+#
+# 平台级的「启用开关 + API Key + Base URL」。原先这些只在 .env 里配（config.<x>_apikey），
+# 改一次要重启服务；现在迁到后台设置页管理。
+#
+# 存储（每平台一行，setting_value 是对象）：
+#   llm_platform_setting.<平台> = {"enabled": bool, "api_key": "v1:<密文>", "base_url": str}
+# - api_key **加密存储**（utils/secret_box，主密钥在 env: ALPHALOM_SECRET_KEY），
+#   读接口只回掩码，永不回传明文；
+# - 三个字段都可缺省 → 缺省即沿用 env / 代码默认值；
+# - **删行 = 该平台完全回到 env 默认值**（与 chart_display 的「恢复默认」语义一致）；
+# - 平台被禁用时，路由到它的场景会**明确报错**（llms.llm_platform.get_api_key），
+#   不静默回退到别的平台。
+#
+# 读接口需要管理员门禁：返回体里虽然只有掩码，但列表本身暴露了「哪些平台配了 key」，
+# 且这是纯后台页面。写接口同样要求管理员。
+# ==========================================================================
+
+LLM_PLATFORM_GROUP = 'llm_platform_setting'
+
+
+def _platform_setting_key(platform: str) -> str:
+    return f'{LLM_PLATFORM_GROUP}.{platform}'
+
+
+def _get_stored_platform_row(platform: str) -> Optional[dict]:
+    """取表里该平台那一行的原始 dict（不存在返回 None）。"""
+    raw = SystemSettingService.get_value(_platform_setting_key(platform), default=None)
+    return raw if isinstance(raw, dict) else None
+
+
+def _platform_view() -> Dict[str, Any]:
+    """整组视图：平台列表（key 掩码） + 密钥是否已配置（前端据此提示）。"""
+    from utils.secret_box import is_configured as _secret_configured
+    return {
+        'platforms': list_platforms_view(),
+        'secret_key_configured': _secret_configured(),
+        'secret_key_env': 'ALPHALOM_SECRET_KEY',
+    }
+
+
+@settings_router.get('/llm_platforms')
+def get_llm_platforms_setting(_admin: dict = Depends(require_admin)):
+    """
+    读取大模型平台配置（仅管理员）。
+
+    每个平台返回：启用状态、生效 base_url、key 掩码与来源（database / env / 无）、
+    代码默认 base_url、env 里对应的变量名。**不返回任何明文 key**。
+
+    ⚠️ 平台清单来自代码里的 PLATFORM_META（5 个已注册平台），**不是数据库记录** ——
+    页面上的「启用/关闭、key、base_url」是**改**已有平台，没有「新增平台」这回事
+    （新增平台要在 `llms/` 里写一个 LLMBase 子类并注册，属于代码改动）。
+    这里额外兜一层兜底：万一解析层返回空（数据源异常），回退成最少标签列表，
+    避免前端显示「共 0 个平台」这种毫无线索的空态。
+    """
+    import os
+    rows = list_platforms_view()
+    if not rows:
+        # 兜底：至少把已注册的平台按 key 列出来，并标注没有可用 key 来源
+        logger.warning('list_platforms_view() 返回空，回退为最小平台清单（检查 PLATFORM_META 是否可导入）')
+        rows = [{
+            'platform': p,
+            'label': _PLATFORM_LABELS.get(p, p),
+            'docs': None,
+            'enabled': True,
+            'base_url': None,
+            'default_base_url': None,
+            'env_key_name': (PLATFORM_META.get(p) or {}).get('env_key'),
+            'has_env_key': bool((os.getenv((PLATFORM_META.get(p) or {}).get('env_key') or '')) if (PLATFORM_META.get(p) or {}).get('env_key') else False),
+            'api_key_masked': '',
+            'has_api_key': False,
+            'key_source': None,
+            'customized': False,
+        } for p in sorted(_PLATFORM_REGISTRY)]
+
+    from utils.secret_box import is_configured as _secret_configured
+    view = {
+        'platforms': rows,
+        'secret_key_configured': _secret_configured(),
+        'secret_key_env': 'ALPHALOM_SECRET_KEY',
+        # 前端据此说明「平台清单是代码注册的，不可增删」
+        'platforms_are_code_defined': True,
+    }
+    return {'code': 0, 'data': view, **view}
+
+
+class LlmPlatformSettingRequest(BaseModel):
+    """
+    平台配置写入入参（三项都可选，只传要改的）：
+
+    - enabled：启用/禁用开关；
+    - api_key：**明文** key。传空串或 null 表示「不改动现有 key」（前端掩码回显时不会
+      回传明文，所以不能把「没传」当成「清空」）；
+    - base_url：留空则回落代码默认地址。
+    """
+    enabled: Optional[bool] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+@settings_router.put('/llm_platforms/{platform}')
+def update_llm_platform_setting(
+        platform: str,
+        req: LlmPlatformSettingRequest,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    写入某个平台的配置（存在则更新；未传的字段沿用当前值）。改完立即生效，无需重启。
+
+    校验：
+    - platform 必须是 llms 已登记的平台；
+    - base_url 非空时必须是 http(s) 开头（防手滑写成裸域名导致 SDK 报难以定位的错）；
+    - api_key 非空时才覆盖，并在覆盖前做一次加密（密钥未配置则 400，不静默存明文）。
+    """
+    platform = (platform or '').strip()
+    if platform not in PLATFORM_META:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的平台：{platform}，支持：{', '.join(sorted(PLATFORM_META))}",
+        )
+
+    # 以当前生效值 + 表内原始行为基础合并（表里没有行时 stored 为 None）
+    stored = _get_stored_platform_row(platform) or {}
+    merged: Dict[str, Any] = {
+        'enabled': stored.get('enabled', True) if isinstance(stored.get('enabled'), bool)
+        else bool(get_platform_setting(platform).get('enabled', True)),
+        'api_key': stored.get('api_key'),
+        'base_url': stored.get('base_url'),
+    }
+
+    if req.enabled is not None:
+        merged['enabled'] = bool(req.enabled)
+
+    if req.base_url is not None:
+        base_url = (req.base_url or '').strip()
+        if not base_url:
+            merged['base_url'] = None            # 留空 = 回落代码默认地址
+        elif not base_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail='base_url 必须以 http:// 或 https:// 开头')
+        else:
+            merged['base_url'] = base_url.rstrip('/')
+
+    # ---- key：只在显式传了非空明文时覆盖 ----
+    new_key = (req.api_key or '').strip()
+    if new_key:
+        from utils.secret_box import encrypt, is_configured as _secret_configured
+        if not _secret_configured():
+            raise HTTPException(
+                status_code=400,
+                detail=f'未配置加解密主密钥（ALPHALOM_SECRET_KEY），无法安全保存 API Key。'
+                       f'请在 .env 中设置一段随机口令并重启服务。',
+            )
+        try:
+            merged['api_key'] = encrypt(new_key)
+        except Exception as e:
+            logger.error(f'加密平台 key 失败 platform={platform}: {e}')
+            raise HTTPException(status_code=500, detail='API Key 加密失败，请检查 SECRET_KEY 配置')
+
+    # 若三项都为空且表里本来没行，就不必建行（避免「建了行但内容等同默认」）
+    if not merged.get('api_key') and not merged.get('base_url') and merged.get('enabled') is True \
+            and stored == {}:
+        return {'code': 0, 'message': 'ok', 'data': _platform_view()}
+
+    try:
+        SystemSettingService.upsert(
+            key=_platform_setting_key(platform),
+            value=merged,
+            group=LLM_PLATFORM_GROUP,
+            value_type='json',
+            description=f'大模型平台配置（{platform_label(platform)}）：启用开关 / API Key / Base URL',
+            updated_by=_admin.get('username'),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f'保存平台配置失败 platform={platform}: {e}')
+        raise HTTPException(status_code=500, detail=f'保存失败：{e}')
+
+    return {'code': 0, 'message': 'ok', 'data': _platform_view()}
+
+
+@settings_router.delete('/llm_platforms/{platform}')
+def reset_llm_platform_setting(
+        platform: str,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    删除某个平台的表内配置 = 完全恢复 env / 代码默认值（key、base_url、启用状态一起回退）。
+
+    幂等：本来就没有配置行时也返回成功，只是 deleted=False。
+    """
+    platform = (platform or '').strip()
+    if platform not in PLATFORM_META:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的平台：{platform}，支持：{', '.join(sorted(PLATFORM_META))}",
+        )
+
+    deleted = SystemSettingService.delete(_platform_setting_key(platform))
+    return {'code': 0, 'message': 'ok', 'deleted': deleted, 'data': _platform_view()}
+
+
+@settings_router.post('/llm_platforms/{platform}/test')
+def test_llm_platform_setting(
+        platform: str,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    连通性自测：用当前生效配置调一次上游 GET /models，确认 key / base_url 可用。
+
+    失败也返回 200（把错误放进 body），前端好统一展示 —— 这不是「接口本身出错」，
+    而是「被测对象不可用」。异常在服务端已收敛成文本，不会把 traceback 暴露给前端。
+    """
+    platform = (platform or '').strip()
+    if platform not in PLATFORM_META:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的平台：{platform}，支持：{', '.join(sorted(PLATFORM_META))}",
+        )
+    try:
+        models = list_platform_models(platform)
+        return {'code': 0, 'ok': True, 'platform': platform,
+                'message': f'连接成功，可用模型 {len(models)} 个', 'models_count': len(models)}
+    except Exception as e:
+        return {'code': 0, 'ok': False, 'platform': platform, 'message': f'连接失败：{e}',
+                'models_count': 0}

@@ -87,6 +87,8 @@ const model = ref([
                 icon: 'pi pi-fw pi-sliders-h',
                 to: '/system/llm_setting',
                 enable: true,
+                // 平台凭据（API Key）与全站模型路由 → 仅管理员可见（与路由 requiresAdmin 一致）
+                adminOnly: true,
             },
             {
                 label: '图表显示',

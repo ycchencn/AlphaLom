@@ -11,7 +11,8 @@ from openai import OpenAI
 
 # llm_model_setting 仍然从 config 导入并在此 re-export（历史调用方可能直接取它）；
 # 但运行时**生效值**以 llms.llm_setting 的解析结果为准 = config 默认值 ← system_setting 表覆盖
-from config import llm_model_setting, zhipu_api
+from config import llm_model_setting
+from llms.llm_platform import platform_label as _platform_label
 from llms.llm_setting import (LLM_SETTING_GROUP, LLM_SETTING_SCENES, get_llm_model_settings,
                               get_llm_setting, list_scenes, setting_key)
 from llms.llm_base_aliyun import LLMBaseAliyun
@@ -111,7 +112,7 @@ def list_platform_models(platform: str, timeout: float = 15.0) -> List[str]:
     if override:
         # 非 OpenAI SDK 客户端（如智谱 zai）：改用其 OpenAI 兼容端点 + 平台自己的 key
         staff = _PLATFORM_REGISTRY[platform]()
-        api_key = getattr(staff.client, 'api_key', None) or zhipu_api
+        api_key = getattr(staff.client, 'api_key', None)
         client = OpenAI(api_key=api_key, base_url=override['base_url'])
     else:
         # 直接复用生产用的 OpenAI 兼容客户端（同 base_url、同 key，保证列表与实际可调用一致）

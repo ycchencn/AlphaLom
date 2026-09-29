@@ -145,7 +145,11 @@ const router = createRouter({
                     path: '/system/llm_setting/',
                     name: 'llm_setting_view',
                     component: () => import('@/views/system/LlmModelSetting.vue'),
-                    meta: { title: '大模型配置', requiresAuth: true }
+                    // 改的是全站 LLM 路由与平台凭据（含 API Key）→ 管理员专属。
+                    // ⚠️ 后端 /settings/llm_platforms 有 require_admin，这里必须一起加：
+                    //    只加后端不加前端，会让普通用户「进得去页面、读不到数据」，
+                    //    看到的是「共 0 个平台」这种看不出原因的假空态（曾踩过）。
+                    meta: { title: '大模型配置', requiresAuth: true, requiresAdmin: true }
                 },
                 {
                     path: '/system/chart_display',
