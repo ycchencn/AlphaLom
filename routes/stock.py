@@ -5,6 +5,7 @@
 """
 
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
+from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
 from app.fastapi_app import api_prefix
@@ -57,6 +58,27 @@ def _stock_reanalysis(symbol):
     if StockService.get_stock_by_symbol(symbol) is None:
         return
     _dispatch_stock_analysis(symbol)
+
+
+async def _write_latest_quote(symbol: str) -> None:
+    """同步补写一次最新报价（stocks.ohlc_last），best-effort，失败只记日志。
+
+    为什么要在这里同步写一次，而不是只交给异步分析任务：
+    任务队列是 **prefetch=1 串行消费**，而分析链路里的大模型步骤（DCF / 技术面）
+    实测单只就要 6 分钟 —— 只靠队列时，加完自选后列表 / 详情页的价格列会空白很久
+    （多只一起加、或撞上日更批量派发的积压时更久）。报价本身只要一次轻量实时接口，
+    这里直接取一次立刻落库，让价格马上可见；异步任务稍后仍会刷新它（幂等覆盖）。
+
+    走 run_in_threadpool：databull / pymysql 都是阻塞实现，直接在这个 async 路由里调用
+    会占死唯一的事件循环。请求级 db_session 作用域令牌会随 context 复制进工作线程
+    （见 models/database.py），因此在工作线程里读写库是安全的。
+    """
+    try:
+        # 延迟导入：避免 web 启动期把 job 模块（含服务层依赖）一并拖进来
+        from job.job_stock_daily_update import job_fix_ohlc_last
+        await run_in_threadpool(job_fix_ohlc_last, symbol)
+    except Exception as e:
+        logger.warning(f'[{symbol}] 即时补写最新报价失败（异步分析任务稍后会再刷）：{e}')
 
 
 @stock_router.get('/stock/dcf_research_report/{stock_code}')
@@ -166,12 +188,16 @@ async def update_stock(symbol: str, request: Request,
     )
     if just_added:
         _dispatch_stock_analysis(symbol)
+        # 入池瞬间**同步补写一次报价**：异步分析链路耗时长且队列串行，
+        # 只靠它会让 ohlc_last 长时间空白（详见 _write_latest_quote 的说明）。
+        await _write_latest_quote(symbol)
 
     return {
         'code': 0,
         'message': 'Stock updated successfully!',
         # 前端据此提示「分析已提交、稍后刷新」；False = 本次只是改了已有标的的字段
         'analysis_triggered': just_added,
+        'quote_updated': just_added,
     }
 
 
