@@ -280,18 +280,27 @@ const createGroupVisible = ref(false);
 const createGroupName = ref('');
 const createGroupSymbol = ref('');
 
-// 左侧分组面板（NavSidePanel）的数据：全部 / 各分组（带计数 + 重命名·删除操作）/ 未分组
+// 左侧分组面板（NavSidePanel）的数据：全部 / 各分组（带计数 + 涨跌幅 + 重命名·删除）/ 未分组
 const groupItems = computed(() => {
+    // 一次遍历把股票按分组名分桶（'' = 未分组），避免对每个分组都重扫一遍全表
+    const buckets = new Map();
+    for (const s of stock_list.value) {
+        const k = s.group_name || '';
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(s);
+    }
+    const pick = (key) => buckets.get(key) || [];
+
     const items = [{
         key: '__all__',
         label: '全部',
-        count: stock_list.value.length,
+        ...groupStats(stock_list.value),
     }];
     for (const g of groups.value) {
         items.push({
             key: g.group_name,
             label: g.group_name,
-            count: g.count,
+            ...groupStats(pick(g.group_name)),
             actions: [
                 { type: 'rename', iconClass: 'pi pi-pencil', title: '重命名' },
                 { type: 'delete', iconClass: 'pi pi-trash', title: '删除分组' },
@@ -301,15 +310,43 @@ const groupItems = computed(() => {
     items.push({
         key: '',
         label: '未分组',
-        count: ungroupedCount.value,
+        ...groupStats(pick('')),
     });
     return items;
 });
 
-// 未分组数量（基于已加载列表实时算）
-const ungroupedCount = computed(() =>
-    stock_list.value.filter(s => !s.group_name).length
-);
+/**
+ * 分组统计：家数 + 组内等权平均涨跌幅
+ *
+ * 「组内涨跌幅」取**等权平均**（组内每只票权重相同），与组合回测的等权买入口径
+ * 一致。不用市值加权：分组里常混有大盘股与中小盘，加权后少数权重股会盖掉其余
+ * 标的的表现，而自选分组的语义本来就是「我这几只票整体怎么样」。
+ *
+ * ⚠️ 只统计**有报价**的票：chg_pct 缺失（刚入池、日更还没跑到）的票不参与计算，
+ *    也绝不按 0% 计入。否则组里 10 只票有 8 只还没数据时，均值会被稀释到接近 0，
+ *    看起来像「这组没涨没跌」——这是最容易被信以为真的假信号。
+ *    （注意 `Number(null) === 0`，所以必须先显式判空，不能只靠 Number.isFinite。）
+ * ⚠️ 家数与涨跌幅必须同源：都用已加载的 stock_list 实时算，不再用接口返回的
+ *    count，保证同一行上的两个数字说的是同一批票。默认「全部市场」下与后端
+ *    返回的家数一致，只有筛选了市场时才收窄为当前列表口径。
+ *
+ * @param {Array} list - 该分组下的股票（已含 chg_pct）
+ * @returns {{count: number, pct: number|null}} pct 为百分数数值（2.31 = +2.31%）；
+ *          全组均无报价时为 null，由组件侧渲染成不显示，而不是显示 +0.00%
+ */
+function groupStats(list) {
+    let sum = 0;
+    let n = 0;
+    for (const s of list) {
+        const raw = s.chg_pct;
+        if (raw === null || raw === undefined || raw === '') continue;   // 缺失：跳过，不当 0
+        const v = Number(raw);
+        if (!Number.isFinite(v)) continue;
+        sum += v;
+        n += 1;
+    }
+    return { count: list.length, pct: n > 0 ? sum / n : null };
+}
 
 // 按选中分组前端过滤（列表已全量加载，无需服务端分页过滤）
 const filteredStockList = computed(() => {

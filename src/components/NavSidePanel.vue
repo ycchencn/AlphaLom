@@ -7,7 +7,9 @@
 const props = defineProps({
     title: { type: String, default: '分组' },
     subtitle: { type: String, default: '' },
-    // [{ key, label, count?, actions?: [{type, iconClass, title}] }]
+    // [{ key, label, count?, pct?: number|null, actions?: [{type, iconClass, title}] }]
+    // pct 为可选的涨跌幅（**百分数数值**，如 2.31 表示 +2.31%）：传了才显示，
+    // 不传则与改动前完全一致 —— 新闻话题列表复用本组件时不受影响。
     items: { type: Array, required: true },
     activeKey: { type: [String, Number], default: '' },
     // 窄屏（≤1100px）时从左侧栏变为顶部横向滚动条
@@ -20,6 +22,15 @@ function onSelect(item) {
 }
 function onAction(item, action) {
     emit('action', { key: item.key, type: action.type });
+}
+
+// 涨跌幅文本：正数补 "+"（负数自带 "-"，0 不加符号）。
+// ⚠️ 单位是「百分数数值」不是小数，所以直接拼 "%" 即可，不要再乘 100。
+// null / 非数字 → 返回 "--"（调用方用 v-if 挡掉了，这里只是兜底）。
+function formatPct(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return '--';
+    return (n > 0 ? '+' : '') + n.toFixed(2) + '%';
 }
 </script>
 
@@ -37,7 +48,13 @@ function onAction(item, action) {
                 :class="{ active: item.key === activeKey }"
                 @click="onSelect(item)"
             >
-                <span class="nav-side-label">{{ item.label }}</span>
+                <span class="nav-side-label" :title="item.label">{{ item.label }}</span>
+                <span
+                    v-if="item.pct !== undefined && item.pct !== null"
+                    class="nav-side-pct"
+                    :class="{ 'is-up': item.pct > 0, 'is-down': item.pct < 0 }"
+                    :title="'组内等权平均涨跌幅 ' + formatPct(item.pct)"
+                >{{ formatPct(item.pct) }}</span>
                 <span v-if="item.count !== undefined && item.count !== null" class="nav-side-count">{{ item.count }}</span>
                 <span v-if="item.actions && item.actions.length" class="nav-side-actions">
                     <button
@@ -141,6 +158,26 @@ function onAction(item, action) {
     flex: 0 0 auto;
     font-size: 9px;
     opacity: 0.7;
+    font-variant-numeric: tabular-nums;
+}
+
+/* 涨跌幅（可选）：排在 label 与 count 之间，count 仍紧贴右边缘作为视觉锚点。
+   配色遵循 A 股口径（涨红跌绿），与个股监控表格、恐惧贪婪进度条同一套色。
+   tabular-nums 让数字等宽 —— 否则切换分组时数字宽度变化会让整列左右抖动。 */
+.nav-side-pct {
+    flex: 0 0 auto;
+    font-size: 9px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: #6b7280;            /* 中性：涨跌幅为 0 或无数据 */
+}
+
+.nav-side-pct.is-up {
+    color: #ef4444;            /* 涨 - 红 */
+}
+
+.nav-side-pct.is-down {
+    color: #12783c;            /* 跌 - 绿 */
 }
 
 .nav-side-actions {
