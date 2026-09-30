@@ -233,13 +233,14 @@ class StrategyRunner:
 
 def run_daily_strategy_all(overwrite=False):
     # 判断交易日
-    if FactorValueService.is_trading_day() is False:
-        return
+    # if FactorValueService.is_trading_day() is False:
+    #     return
 
     portfolios = InvestmentPortfolioService.get_all()
 
     # 获取交易日
     trading_day = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')
+    # trading_day = '20260929'
 
     for portfolio in portfolios:
         # 剔除禁用的
