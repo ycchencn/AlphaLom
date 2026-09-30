@@ -131,6 +131,33 @@ auth_setting = {
     'token_ttl': int(os.getenv('AUTH_TOKEN_TTL', 7 * 24 * 3600)),   # 秒，默认 7 天
 }
 
+# ===== 登录人机校验（ALTCHA，自托管开源版）=====
+# 登录入口接 ALTCHA proof-of-work 校验，挡脚本撞库。协议细节（字段名 / 签名规范 /
+# 解的判定）均以 altcha 库源码为准，不自行实现序列化。
+#
+# ⚠️ 三条硬约束（详见 utils/altcha.py 顶部说明）：
+#   1. hmac_key 多 worker / 多进程必须一致 —— 用进程内随机值会导致「请求落到别的
+#      worker 就验不过」= 随机登录失败，是最难查的一类故障。
+#   2. 缺 key 且无法派生 → 直接 503 且报出原因，绝不静默降级成「不用校验」。
+#   3. cost 同时是**服务端每次校验**的 CPU 成本（库不写 keySignature，快速路径走不通，
+#      校验端每次都重跑一遍完整 KDF）。所以 cost 不是可以随手调大的旋钮。
+altcha_setting = {
+    # 显式密钥优先；留空则从 DATABASE_CONN_STR 做 sha256 派生（见 utils/altcha.py）——
+    # 这样「运维忘了配」不会把登录打死，同时仍满足多进程一致。
+    'hmac_key': os.getenv('ALTCHA_HMAC_KEY', ''),
+    'algorithm': os.getenv('ALTCHA_ALGORITHM', 'PBKDF2/SHA-256'),
+    # 期望尝试次数 = 16 ** len(key_prefix)；'00' → 256 次，手机端可接受。
+    'key_prefix': os.getenv('ALTCHA_KEY_PREFIX', '00'),
+    # PBKDF2 迭代次数：出题时写入挑战参数并受签名保护，同时是服务端单次校验成本。
+    # 10000 ≈ 服务端单次 200ms 量级、浏览器端几十~一百多毫秒。
+    'cost': int(os.getenv('ALTCHA_COST', 10000)),
+    # 挑战有效期（秒）。也是一次性标记的 Redis TTL —— 题过期后没人能再用它，
+    # 标记无需活得更久。默认 10 分钟。
+    'ttl': int(os.getenv('ALTCHA_TTL', 600)),
+    # 一次性标记的 Redis 键前缀（防重放）。
+    'used_prefix': os.getenv('ALTCHA_USED_PREFIX', 'alphalom:altcha:used:'),
+}
+
 # ===== 对外 API（API Key 鉴权）=====
 # 对外暴露的 portfolio 数据接口用 API Key 鉴权（区别于登录会话 token）。
 # 密钥本身存库（api_key 表），同时把 `sha256(明文) -> {user_id, 每日配额}` 写入 Redis

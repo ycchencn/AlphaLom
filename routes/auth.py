@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 
 from app.fastapi_app import api_prefix
 from service import UserService
+from utils import altcha
 from utils.auth import extract_token, get_current_user, require_admin
 from utils.logger import logger
 
@@ -35,7 +36,7 @@ auth_router = APIRouter(prefix=api_prefix, tags=['认证与用户'])
 USER_WRITABLE_FIELDS = {'nickname', 'email', 'role', 'is_active'}
 
 
-@auth_router.post('/auth/login', summary='登录', description='校验用户名或邮箱 + 密码，成功后签发令牌（存 Redis）')
+@auth_router.post('/auth/login', summary='登录', description='校验用户名或邮箱 + 密码 + 人机校验，成功后签发令牌（存 Redis）')
 async def auth_login(request: Request):
     """
     登录：从数据库校验账号/密码，成功返回 {status:1, token, user}。
@@ -43,6 +44,10 @@ async def auth_login(request: Request):
     ⚠️ 入参字段名是 `username`（前端沿用历史命名），但语义是**用户名或邮箱** ——
     登录页上写的也是「用户名 / 邮箱」。原实现只按 username 精确匹配，导致
     「界面上写着 Email、实际必须填用户名」：填自己的邮箱永远登不上。
+
+    ⚠️ 人机校验（ALTCHA）**在校验密码之前**做：它是用来挡「脚本撞库」的，
+    若放到密码校验之后，攻击者仍能用响应差异（密码错 vs 验证错）来探测账号，
+    而且每次尝试都会真实地压一次密码哈希 + 数据库查询。放最前面才能把成本挡在外面。
 
     保留原有的响应结构（前端 `Login.vue` 直接读 `data.status` / `data.token`）。
     新增一处失败语义：Redis 不可用时签发不出可校验的令牌，返回 503 而不是
@@ -55,6 +60,20 @@ async def auth_login(request: Request):
         data = {}
     identifier = (data.get('username') or '').strip()
     password = data.get('password') or ''
+    # 组件会把 payload 写进隐藏 input（name=altcha），前端原样带上来
+    altcha_payload = data.get('altcha') or ''
+
+    # ---- 人机校验（放在密码校验之前，见 docstring）----
+    try:
+        ok, reason = await run_in_threadpool(altcha.verify, altcha_payload)
+    except altcha.AltchaNotConfigured as e:
+        # 配置缺失必须显式 503，绝不静默放行 —— 否则「搞坏配置」就成了绕过校验的开关
+        logger.error(f'ALTCHA 未正确配置，登录被人机校验拒绝：{e}')
+        return JSONResponse(content={'status': 0, 'message': '人机校验服务未配置，请联系管理员'}, status_code=503)
+    if not ok:
+        # ⚠️ 400 而不是 401：前端据此区别于「账号密码错」，并在业务失败后重新解题
+        #    （每份 payload 只能用一次，见 utils/altcha.py 的一次性标记）。
+        return JSONResponse(content={'status': 0, 'message': reason}, status_code=400)
 
     if not identifier or not password:
         return JSONResponse(content={'status': 0, 'message': '用户名/邮箱和密码不能为空'}, status_code=400)

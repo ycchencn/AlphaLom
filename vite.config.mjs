@@ -27,7 +27,19 @@ export default defineConfig({
         noDiscovery: true
     },
     plugins: [
-        vue(),
+        vue({
+            // ⚠️ 必须显式声明自定义元素，否则 `<altcha-widget>` 会被 Vue 编译器当成
+            // Vue 组件去 resolve，编译成 `createVNode(_resolveComponent("altcha-widget"))`
+            // —— 运行期解析不到就渲染成注释占位（页面上什么都不显示，且**没有任何报错**，
+            // 只有控制台一条 "Failed to resolve component" 的 warning）。
+            // 组件是 index.html 里用 <script type="module"> 注册的 Web Component，
+            // 不属于 Vue 管辖，必须在这里放行。
+            template: {
+                compilerOptions: {
+                    isCustomElement: (tag) => tag.startsWith('altcha-'),
+                },
+            },
+        }),
         Components({
             resolvers: [PrimeVueResolver()]
         }),

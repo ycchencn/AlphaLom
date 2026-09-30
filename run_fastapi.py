@@ -21,6 +21,7 @@ env = os.getenv('ENV', 'dev').lower()
 
 # ==================== 路由注册 ====================
 from routes.auth import auth_router
+from routes.altcha import altcha_router
 from routes.stock import stock_router
 from routes.market import market_router
 from routes.portfolio import portfolio_router
@@ -39,6 +40,8 @@ from routes.factor import factor_router
 from app.external_api import create_external_app
 
 app.include_router(auth_router)
+# 人机校验出题（登录页在拿到令牌前调用，故不鉴权）；校验逻辑在 utils/altcha.py
+app.include_router(altcha_router)
 app.include_router(stock_router)
 app.include_router(market_router)
 app.include_router(portfolio_router)

@@ -8,6 +8,11 @@
       <link rel="apple-touch-icon" href="/images/alphalom-icon-512.png">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>AlphaLom</title>
+      <!-- ALTCHA 人机校验组件（登录页用），自托管不引 CDN。
+           ⚠️ 语言包必须排在主包之后：它靠末尾的 globalThis.$altcha.i18n.set(...)
+           自注册，主包没执行时 $altcha 还不存在，语言包会直接报错失效。 -->
+      <script type="module" src="/altcha/altcha.min.js"></script>
+      <script type="module" src="/altcha/zh-cn.js"></script>
 </head>
 
 <body>
