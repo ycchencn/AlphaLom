@@ -188,36 +188,37 @@ npm run build                  # 构建到 dist/（由 FastAPI SPA 路由直接�
 <tr>
 <td width="50%">
 <img src="public/readme/01-market-overview.png" alt="沪深大盘监控">
-<b>沪深大盘监控</b><br>指数行情卡片 + 大盘恐惧贪婪指数 + 申万三级行业排行
+<b>沪深大盘监控</b><br>指数行情卡片 + 大盘恐惧贪婪指数 + 成长/价值轮动，申万行业涨跌排行（一 / 二 / 三级可切换）
 </td>
 <td width="50%">
 <img src="public/readme/02-event-driven.png" alt="事件驱动">
-<b>事件驱动</b><br>按题材聚合全市场新闻，附关联个股与多空情绪
+<b>事件驱动</b><br>AI 事件驱动速览（按时间展示，跟随时区设置）+ 按题材聚合全市场新闻，附关联个股与多空情绪
 </td>
 </tr>
 <tr>
 <td width="50%">
 <img src="public/readme/03-stock-pool.png" alt="股票池">
-<b>股票池（个股监控）</b><br>主力行为阶段、概念题材、52 周价格区间
+<b>股票池（个股监控）</b><br>左侧分组含<strong>组内等权涨跌幅</strong>；主力行为阶段、概念题材、52 周价格区间
 </td>
 <td width="50%">
 <img src="public/readme/04-stock-detail.png" alt="个股详情">
-<b>个股详情</b><br>K 线 + 技术指标、恐贪指数、技术面深度诊断
+<b>个股详情</b><br>K 线走势（多周期 / 多指标切换）+ 技术面仪表盘：均线排列、超买超卖热度、关键位与 ATR 动态止损
 </td>
 </tr>
 <tr>
 <td width="50%">
 <img src="public/readme/05-etf-insight.png" alt="ETF 洞察">
-<b>ETF 洞察</b><br>监控清单可持久化，支持搜索添加与删除
+<b>ETF 洞察</b><br>监控清单可持久化，支持搜索添加与删除，列表带净值涨跌与 52 周价格区间
 </td>
 <td width="50%">
 <img src="public/readme/06-etf-detail.png" alt="ETF 详情">
-<b>ETF 详情</b><br>历史走势、基本资料、申赎清单（PCF）成分股穿透
+<b>ETF 详情</b><br>基本资料、恐惧贪婪指标、历史走势，申赎清单（PCF）成分股穿透与快捷入池
 </td>
 </tr>
 </table>
 
-> 以上截图取自真实运行的实例（沪深大盘 / 事件驱动 / 股票池 / 个股详情 / ETF 洞察 / ETF 详情），统一 1600×1050 取景。
+> 以上截图取自真实运行的实例（沪深大盘 / 事件驱动 / 股票池 / 个股详情 / ETF 洞察 / ETF 详情），
+> 统一 1600×1050 取景、以普通用户视角抓取（因此侧栏不含管理员专属的「系统管理」分组）。
 
 ## 👤 作者
 
