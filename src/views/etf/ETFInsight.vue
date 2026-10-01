@@ -3,9 +3,10 @@
 import {FilterMatchMode} from '@primevue/core/api';
 import {useNotification} from '@/composables/useNotification';
 import {computed, onBeforeMount, ref} from 'vue';
-import Dialog from 'primevue/dialog';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
+import EtfSearchDialog from '@/components/EtfSearchDialog.vue';
+import EtfRotation from '@/views/etf/EtfRotation.vue';
 import {
     formatStockTradeAmount,
 } from '@/utils/function.js';
@@ -15,20 +16,18 @@ const filters1 = ref(null);
 const loading1 = ref(false);
 const {showSuccess, showError} = useNotification();
 
-// 添加 ETF 弹窗状态
+// 页签：监控列表 / 轮动分析。
+// ⚠️ 轮动分析用 v-if 懒挂载，不用 v-show：它一挂载就会请求轮动接口（池内每只都要拉
+// 3 年日线，是重活），v-show 会让用户只是打开「ETF 洞察」就白跑一次分析。
+const activeTab = ref('list');
+
+// 添加 ETF 弹窗状态（弹窗本体是共用组件 EtfSearchDialog，这里只管提交与刷新列表）
 const modalVisible = ref(false);
-const searchKeyword = ref('');
-const searchResults = ref([]);
-const searching = ref(false);
 const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
-let searchSeq = 0;              // 搜索请求序号，用于丢弃过期响应
+const searchDialog = ref(null);
 
-// 已在监控列表中的代码集合，用于在搜索结果里标记「已添加」
-const watchedSymbols = computed(() => new Set(etfList.value.map(e => String(e.symbol))));
-
-function isWatched(symbol) {
-    return watchedSymbols.value.has(String(symbol));
-}
+// 已在监控列表中的代码列表，用于在搜索结果里标记「已添加」
+const watchedSymbols = computed(() => etfList.value.map(e => String(e.symbol)));
 
 function loadETFList() {
     loading1.value = true;
@@ -43,46 +42,19 @@ function loadETFList() {
 
 function openAddModal() {
     modalVisible.value = true;
-    searchKeyword.value = '';
-    searchResults.value = [];
-    searchSeq++;   // 丢弃上一次打开时可能仍在途的搜索结果
+    searchDialog.value?.reset();
 }
 
-// 输入防抖后调用搜索接口（服务端按关键字过滤，见 EtfService.search_etf）
-let searchTimer = null;
-function onSearchInput() {
-    if (searchTimer) clearTimeout(searchTimer);
-    const kw = searchKeyword.value.trim();
-    if (!kw) {
-        searchResults.value = [];
-        searching.value = false;
-        searchSeq++;   // 让在途请求的结果失效
-        return;
-    }
-    searchTimer = setTimeout(() => doSearch(kw), 300);
-}
+// ⚠️ 搜索联想（300ms 防抖 + 请求序号丢弃过期响应 + 按代码直接添加的兜底）已下沉到
+// 共用组件 EtfSearchDialog —— 轮动池需要完全一样的行为，两处各写一份必然漂移。
 
-async function doSearch(kw) {
-    const seq = ++searchSeq;
-    searching.value = true;
-    try {
-        const r = await axios.get('/api/v1/etf_search', {params: {keyword: kw, limit: 50}});
-        if (seq !== searchSeq) return;   // 已有更新的搜索，丢弃本次结果，避免乱序覆盖
-        searchResults.value = Array.isArray(r.data) ? r.data : [];
-    } catch (e) {
-        if (seq === searchSeq) searchResults.value = [];
-    } finally {
-        if (seq === searchSeq) searching.value = false;
-    }
-}
-
-async function addEtf(row) {
-    const symbol = row.symbol;
+// 提交来自 EtfSearchDialog 的添加请求：{symbol, name, byCode}
+async function addEtf({symbol, name}) {
     addingSymbol.value = symbol;
     try {
-        await axios.post('/api/v1/etf', {symbol, name: row.name || null});
-        showSuccess(`已添加 ${row.name || symbol}`);
-        // 刷新监控列表，该条结果会自动变为「已添加」状态
+        await axios.post('/api/v1/etf', {symbol, name: name || null});
+        showSuccess(`已添加 ${name || symbol}`);
+        // 刷新监控列表，该条目会自动变成「已添加」状态
         await loadETFList();
     } catch (e) {
         let msg = '添加失败，请重试';
@@ -106,27 +78,6 @@ async function deleteEtf(symbol) {
     }
 }
 
-// 按代码直接添加（搜索无结果时的兜底）
-async function addBySymbol(symbol) {
-    const sym = (symbol || '').trim();
-    if (!sym) return;
-    addingSymbol.value = sym;
-    try {
-        await axios.post('/api/v1/etf', {symbol: sym, name: null});
-        showSuccess(`已添加 ${sym}`);
-        searchKeyword.value = '';
-        searchResults.value = [];
-        loadETFList();
-    } catch (e) {
-        let msg = '添加失败，请重试';
-        if (e.response && e.response.data && e.response.data.detail) msg = e.response.data.detail;
-        else if (e.response && e.response.data && e.response.data.message) msg = e.response.data.message;
-        showError(msg);
-    } finally {
-        addingSymbol.value = '';
-    }
-}
-
 function initFilters1() {
     filters1.value = {
         global: {value: null, matchMode: FilterMatchMode.CONTAINS},
@@ -142,71 +93,40 @@ onBeforeMount(() => {
 
 <template>
     <Toast/>
-    <!-- 添加 ETF 弹窗：支持按代码/名称搜索 databull 全市场 ETF 目录 -->
-    <Dialog v-model:visible="modalVisible" modal header="添加 ETF" :style="{ width: '30rem' }">
-        <div class="flex flex-col gap-3">
-            <IconField>
-                <InputIcon>
-                    <i class="pi pi-search"/>
-                </InputIcon>
-                <InputText
-                    v-model="searchKeyword"
-                    @input="onSearchInput"
-                    placeholder="输入代码或名称搜索"
-                    class="w-full"
-                    autocomplete="off"
-                />
-            </IconField>
-
-            <div v-if="searching" class="text-center text-gray-500 py-4">
-                <i class="pi pi-spin pi-spinner"/>
-            </div>
-            <div v-else-if="!searchKeyword.trim()" class="text-center text-gray-400 py-4 text-sm">
-                输入 ETF 代码或名称，从全市场 ETF 目录中搜索
-            </div>
-            <div v-else-if="searchResults.length === 0" class="text-center text-gray-400 py-4 text-sm">
-                未找到匹配的 ETF
-            </div>
-            <div v-else class="flex flex-col gap-2">
-                <div class="text-xs text-gray-400">共 {{ searchResults.length }} 条匹配</div>
-                <div class="flex flex-col gap-2 max-h-80 overflow-auto">
-                    <div v-for="item in searchResults" :key="item.symbol"
-                         class="flex items-center justify-between gap-2 border rounded p-2">
-                        <div class="min-w-0">
-                            <div class="font-semibold truncate">{{ item.symbol }}</div>
-                            <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
-                        </div>
-                        <Tag v-if="isWatched(item.symbol)" value="已添加" severity="secondary" class="shrink-0"/>
-                        <Button
-                            v-else
-                            icon="pi pi-plus"
-                            label="添加"
-                            size="small"
-                            class="shrink-0"
-                            :loading="addingSymbol === item.symbol"
-                            @click="addEtf(item)"
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <!-- 搜索无结果时，支持按代码直接添加（不依赖目录接口可用性） -->
-            <div v-if="searchKeyword.trim() && !searching && searchResults.length === 0" class="pt-1 border-t mt-2">
-                <Button
-                    label="按代码直接添加"
-                    severity="secondary"
-                    size="small"
-                    text
-                    :loading="addingSymbol === searchKeyword.trim()"
-                    @click="addBySymbol(searchKeyword.trim())"
-                />
-                <span class="text-xs text-gray-400 ml-2">未搜到？可直接用代码（如 159901）添加</span>
-            </div>
-        </div>
-    </Dialog>
+    <!-- 添加 ETF 弹窗：共用组件（监控列表与轮动池用同一套搜索联想） -->
+    <EtfSearchDialog
+        ref="searchDialog"
+        v-model:visible="modalVisible"
+        title="添加 ETF"
+        :watched="watchedSymbols"
+        :adding="addingSymbol"
+        @submit="addEtf"
+    />
 
     <div class="card">
+        <!-- 页签：监控列表 / 轮动分析 -->
+        <div class="etf-tabs">
+            <button
+                type="button"
+                class="etf-tab"
+                :class="{ 'etf-tab--active': activeTab === 'list' }"
+                @click="activeTab = 'list'"
+            >
+                <i class="pi pi-list"/>监控列表
+                <span class="etf-tab-count">{{ etfList.length }}</span>
+            </button>
+            <button
+                type="button"
+                class="etf-tab"
+                :class="{ 'etf-tab--active': activeTab === 'rotation' }"
+                @click="activeTab = 'rotation'"
+            >
+                <i class="pi pi-chart-line"/>轮动分析
+            </button>
+        </div>
+
         <DataTable
+            v-show="activeTab === 'list'"
             ref="dt1"
             :value="etfList"
             :paginator="true"
@@ -307,6 +227,9 @@ onBeforeMount(() => {
         </DataTable>
     </div>
 
+    <!-- 轮动分析页签：v-if 懒挂载（接口要拉全池日线，用 v-show 会让打开页面就白跑一次分析） -->
+    <EtfRotation v-if="activeTab === 'rotation'"/>
+
 </template>
 
 <style scoped lang="scss">
@@ -383,5 +306,51 @@ onBeforeMount(() => {
 }
 
 /* 浅灰 - 未知 */
+
+/* 页签：文字 + 下划线。刻意不用 PrimeVue 的 Tabs 组件 —— 本页只需要两个静态页签，
+   引一个组件进来反而要多一层样式覆盖。 */
+.etf-tabs {
+    display: flex;
+    gap: 24px;
+    border-bottom: 1px solid #eef1f6;
+    margin-bottom: 16px;
+}
+
+.etf-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 2px 10px;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: -1px;
+
+    &:hover {
+        color: #1f2937;
+    }
+
+    &.etf-tab--active {
+        color: #1f2937;
+        font-weight: 500;
+        border-bottom-color: #1f2937;
+    }
+}
+
+.etf-tab-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: #f1f5f9;
+    color: #64748b;
+    font-size: 11px;
+}
 
 </style>

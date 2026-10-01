@@ -7,6 +7,7 @@
 import pandas as pd
 from service import FactorValueService, StockService, FactorCalService
 from service.etf_service import EtfService
+from service.etf_rotation_service import EtfRotationService
 from utils.common import get_date_by_n, get_today
 from utils.logger import logger
 from utils.financial_data import INDICATOR_NAME_MAP
@@ -89,9 +90,23 @@ def _send_factor_jobs(symbols, asset_type, save_last=True,
         })
 
 
+def _all_etf_symbols():
+    """全站需要算因子的 ETF = 监控清单 ∪ 轮动池（去重排序）。
+
+    ⚠️ 两个清单必须取**并集**：
+      - 「ETF 洞察」的监控列表（etf_watchlist）—— 列表页 52 周区间、详情页用它；
+      - 轮动池（etf_rotation_pool）—— 轮动页的信号是**现算**的，不读因子库，
+        但轮动池里的标的常与监控清单不重合，而 52 周区间/因子看板等仍读 factor_values，
+        不并进来这些地方会一直是空。
+    本任务没有用户上下文，因子是按标的算的公共数据，所以两张表都取全站去重并集。
+    """
+    symbols = set(EtfService.list_all_symbols()) | set(EtfRotationService.list_all_pool_symbols())
+    return sorted(symbols)
+
+
 def job_update_stock_factor_daily():
     """
-    日更技术面因子：个股池 + ETF 监控清单。
+    日更技术面因子：个股池 + ETF（监控清单 ∪ 轮动池）。
 
     ⚠️ ETF 与个股用的是同一套因子算法（FactorCalService 按 asset_type 选行情接口），
     但这里原先只枚举了 stocks 表里 securities_type='stock' 的标的，ETF 监控清单
@@ -103,8 +118,8 @@ def job_update_stock_factor_daily():
         return
 
     stocks = StockService.search_stocks(securities_type='stock', monitoring=1, per_page=10000)
-    # ⚠️ ETF 取「全部用户自选的去重并集」：本任务没有用户上下文，因子是按标的算的公共数据
-    etf_symbols = EtfService.list_all_symbols()
+    # ⚠️ ETF 取「全部用户选择的并集」：本任务没有用户上下文，因子是按标的算的公共数据
+    etf_symbols = _all_etf_symbols()
 
     # 循环对个股进行每日挖掘
     _send_factor_jobs([stock['symbol'] for stock in stocks], asset_type='stock')
@@ -116,25 +131,25 @@ def job_update_stock_factor_daily():
 
 
 def job_update_stock_factor_daily_all():
-    """同步重算（不投队列）：个股池 + ETF 监控清单。用于手动执行 / 首次回填。"""
+    """同步重算（不投队列）：个股池 + ETF（监控清单 ∪ 轮动池）。用于手动执行 / 首次回填。"""
     stocks = StockService.search_stocks(securities_type='stock', monitoring=1, per_page=10000)
     # 循环对个股进行每日挖掘
     for stock in stocks:
         job_update_stock_factor(stock_code=stock['symbol'], asset_type='stock',
                                 save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
-    for symbol in EtfService.list_all_symbols():
+    for symbol in _all_etf_symbols():
         job_update_stock_factor(stock_code=symbol, asset_type='etf',
                                 save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
 
 def job_update_etf_factor_all():
     """
-    ETF 专用回填：把监控清单里的每只 ETF 的因子按最新交易日重新算一遍（同步执行）。
+    ETF 专用回填：把 ETF（监控清单 ∪ 轮动池）的因子按最新交易日重新算一遍（同步执行）。
 
-    新加入监控的 ETF 在下一个日更任务跑之前是没有因子的，可以先跑这个补上。
+    新加入监控清单或轮动池的 ETF 在下一个日更任务跑之前是没有因子的，可以先跑这个补上。
     """
-    symbols = EtfService.list_all_symbols()
+    symbols = _all_etf_symbols()
     logger.info(f"开始回填 ETF 因子，共 {len(symbols)} 只")
     for symbol in symbols:
         job_update_stock_factor(stock_code=symbol, asset_type='etf',

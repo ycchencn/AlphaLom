@@ -26,6 +26,7 @@ from routes.stock import stock_router
 from routes.market import market_router
 from routes.portfolio import portfolio_router
 from routes.etf import etf_router
+from routes.etf_rotation import etf_rotation_router
 from routes.quant import quant_router
 from routes.index import index_router
 from routes.syslog import syslog_router
@@ -46,6 +47,8 @@ app.include_router(stock_router)
 app.include_router(market_router)
 app.include_router(portfolio_router)
 app.include_router(etf_router)
+# ETF 轮动（池管理 + 动量轮动回测）；与 etf_router 同 prefix/tags，Swagger 里同属 ETF 分组
+app.include_router(etf_rotation_router)
 app.include_router(quant_router)
 app.include_router(index_router)
 app.include_router(syslog_router)

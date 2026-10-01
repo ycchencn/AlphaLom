@@ -172,6 +172,43 @@ class EtfWatchlist(Base):
         }
 
 
+# ETF 轮动池（用户私有，与 etf_watchlist **解耦**）
+class EtfRotationPool(Base):
+    """参与 ETF 轮动分析的标的清单。
+
+    ⚠️ 为什么不复用 `etf_watchlist`：
+    1. 语义不同 —— 监控列表是「我要看行情的票」，轮动池是「参与策略排序与调仓的候选池」，
+       后者是回测/信号计算的**输入参数**，改动会改变策略结果，不该被「看行情」随手带偏；
+    2. 约束不同 —— 混用后 etf_watchlist 的唯一约束、日更枚举、列表接口都要跟着改；
+    3. 轮动池容量要有上限（回测逐只拉日线，上游无批量接口），独立表才好加约束。
+
+    唯一键同样是 **(user_id, symbol) 复合**：同一用户不能重复加，不同用户互不影响。
+    与 `etf_watchlist` 的索引**同名是允许的** —— MySQL 索引名是表级作用域。
+    """
+
+    __tablename__ = 'etf_rotation_pool'
+
+    id = Column(Integer, primary_key=True, autoincrement=True, comment='自增主键')
+    user_id = Column(Integer, nullable=True, index=True, comment='所属用户（users.id）')
+    symbol = Column(String(25), nullable=False, index=True, comment='ETF代码，如 512480')
+    name = Column(String(100), comment='ETF名称（加入时从 databull 取，可空）')
+    created_at = Column(DateTime, default=datetime.now, comment='加入时间')
+
+    __table_args__ = (
+        UniqueConstraint('user_id', 'symbol', name='uniq_user_symbol'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'symbol': self.symbol,
+            'name': self.name,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S') if self.created_at else None,
+        }
+
+
 # 系统配置表（通用 KV）：所有需要在线调整的系统参数都存这里，一张表容纳后续各类设置，
 # 不必每加一类设置就建一张表。行内用 setting_group 分组（如 llm_model_setting），
 # 同组一次读回；setting_key 全局唯一，形如 "<group>.<名称>"。
