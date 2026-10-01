@@ -64,16 +64,20 @@ async def auth_login(request: Request):
     altcha_payload = data.get('altcha') or ''
 
     # ---- 人机校验（放在密码校验之前，见 docstring）----
-    try:
-        ok, reason = await run_in_threadpool(altcha.verify, altcha_payload)
-    except altcha.AltchaNotConfigured as e:
-        # 配置缺失必须显式 503，绝不静默放行 —— 否则「搞坏配置」就成了绕过校验的开关
-        logger.error(f'ALTCHA 未正确配置，登录被人机校验拒绝：{e}')
-        return JSONResponse(content={'status': 0, 'message': '人机校验服务未配置，请联系管理员'}, status_code=503)
-    if not ok:
-        # ⚠️ 400 而不是 401：前端据此区别于「账号密码错」，并在业务失败后重新解题
-        #    （每份 payload 只能用一次，见 utils/altcha.py 的一次性标记）。
-        return JSONResponse(content={'status': 0, 'message': reason}, status_code=400)
+    # dev 环境 / 显式 ALTCHA_ENABLED=false 时整段跳过：不发题、不验 payload，
+    # 也不走 503 分支（禁用是策略选择，不是故障）。生产环境仍 fail-closed：
+    # 启用却配坏 → 503，绝不静默放行。
+    if altcha.is_enabled():
+        try:
+            ok, reason = await run_in_threadpool(altcha.verify, altcha_payload)
+        except altcha.AltchaNotConfigured as e:
+            # 配置缺失必须显式 503，绝不静默放行 —— 否则「搞坏配置」就成了绕过校验的开关
+            logger.error(f'ALTCHA 未正确配置，登录被人机校验拒绝：{e}')
+            return JSONResponse(content={'status': 0, 'message': '人机校验服务未配置，请联系管理员'}, status_code=503)
+        if not ok:
+            # ⚠️ 400 而不是 401：前端据此区别于「账号密码错」，并在业务失败后重新解题
+            #    （每份 payload 只能用一次，见 utils/altcha.py 的一次性标记）。
+            return JSONResponse(content={'status': 0, 'message': reason}, status_code=400)
 
     if not identifier or not password:
         return JSONResponse(content={'status': 0, 'message': '用户名/邮箱和密码不能为空'}, status_code=400)

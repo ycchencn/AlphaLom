@@ -36,6 +36,10 @@ def load_env(env: str = None):
 # 模块导入即自动加载一次环境（如需指定环境可显式调用 load_env('prod')）
 load_env()
 
+# 当前环境名（load_env 已据此选 .env 文件）。多处需要按环境决定行为（如 dev 关闭
+# 人机校验），统一从这里读，避免各模块重复 `os.getenv('ENV', 'dev')`。
+ENV_NAME = os.getenv('ENV', 'dev').lower()
+
 # ===== 调试开关 =====
 # 取环境变量 DEBUG，未设置则 False（非 '0'/'false' 视为开启）
 is_debug = os.getenv('DEBUG', False)
@@ -148,7 +152,20 @@ auth_setting = {
 #   2. 缺 key 且无法派生 → 直接 503 且报出原因，绝不静默降级成「不用校验」。
 #   3. cost 同时是**服务端每次校验**的 CPU 成本（库不写 keySignature，快速路径走不通，
 #      校验端每次都重跑一遍完整 KDF）。所以 cost 不是可以随手调大的旋钮。
+#
+# 开关（enabled）：默认「非 dev 环境开启、dev 环境关闭」——开发期免解题、免 https
+# 限制，省得每次本地调试都卡在人机校验。可用 ALTCHA_ENABLED 显式覆盖（true/false，
+# 接受 1/true/yes/on 或 0/false/no/off）。
+# ⚠️ 生产务必显式设 ENV（!= 'dev'）或 ALTCHA_ENABLED=true，否则会按默认 dev 关闭校验。
+_altcha_enabled_raw = (os.getenv('ALTCHA_ENABLED') or '').strip().lower()
+_altcha_enabled = (
+    _altcha_enabled_raw in ('1', 'true', 'yes', 'on')
+    if _altcha_enabled_raw
+    else (ENV_NAME != 'dev')
+)
 altcha_setting = {
+    # 是否启用登录人机校验（见上方说明）。
+    'enabled': _altcha_enabled,
     # 显式密钥优先；留空则从 DATABASE_CONN_STR 做 sha256 派生（见 utils/altcha.py）——
     # 这样「运维忘了配」不会把登录打死，同时仍满足多进程一致。
     'hmac_key': os.getenv('ALTCHA_HMAC_KEY', ''),

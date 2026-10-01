@@ -44,6 +44,20 @@ COST = altcha_setting['cost']
 TTL = altcha_setting['ttl']
 USED_PREFIX = altcha_setting['used_prefix']
 
+# 是否整体启用登录人机校验。dev 默认关闭（见 config.altcha_setting['enabled']），
+# 可用 ALTCHA_ENABLED 显式覆盖。路由层据此跳过出题与校验。
+ENABLED = bool(altcha_setting.get('enabled', True))
+
+
+def is_enabled() -> bool:
+    """是否启用登录人机校验。
+
+    返回 False（如 dev 环境 / 显式 ALTCHA_ENABLED=false）时，路由层必须**整段跳过**
+    出题与校验——既不要求前端解题，后端也不验 payload。这与「配置缺失 → 503
+    拒绝」是两回事：禁用是明确的策略选择，不是故障。
+    """
+    return ENABLED
+
 
 class AltchaNotConfigured(RuntimeError):
     """HMAC 密钥既没有显式配置、也无法从既有密钥派生 —— 属于致命配置问题。

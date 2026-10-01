@@ -33,7 +33,15 @@ def altcha_challenge():
     ⚠️ 密钥缺失 / 库没装时返回 **503 而不是空题**：给一个没有签名的题，前端解出来的
     payload 在登录接口必然验不过，用户会看到「验证失败」但查不出原因。配置问题必须
     显式暴露在取题这一步（fail-closed，不静默降级成「不校验」）。
+
+    ⚠️ 但「显式禁用」（dev / ALTCHA_ENABLED=false）与「配置故障」是两回事：禁用是
+    策略选择，返回 `{enabled: false}`（200）告诉前端「不必渲染 widget、也别强制
+    解题」，而非 503。只有「启用却配坏」才走 503。
     """
+    if not altcha.is_enabled():
+        # 明确告知前端：人机校验未启用。前端据此隐藏 widget，登录也不带 payload。
+        return JSONResponse(content={'enabled': False}, status_code=200)
+
     try:
         challenge = altcha.create()
     except altcha.AltchaNotConfigured as e:

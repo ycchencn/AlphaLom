@@ -3,7 +3,7 @@
 import { useRouter } from 'vue-router'; // 导入useRouter
 import FloatingConfigurator from '@/components/FloatingConfigurator.vue';
 import { useNotification } from '@/composables/useNotification';
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import axios from 'axios';
 import { store } from '@/store'
 const identifier = ref('');
@@ -25,6 +25,28 @@ const currentIndex = ref(Math.floor(Math.random() * (images.length)))
 // 而不是去问组件内部 state。
 const altchaWidget = ref(null);
 const formEl = ref(null);
+
+// 是否启用人机校验：默认关闭，挂载后探一次 /challenge 由后端给出权威结论。
+// ⚠️ 后端在「禁用（dev / ALTCHA_ENABLED=false）」时返回 {enabled:false}，
+// 前端据此隐藏 widget、登录也不强制 payload；而在「启用却配置坏」时返回 503，
+// 此时兜底开启 widget，让用户在登录阶段看到 503 错误（fail-closed，不被静默绕过）。
+const altchaEnabled = ref(false);
+const altchaChecked = ref(false);
+
+async function checkAltchaEnabled() {
+  try {
+    const resp = await axios.get('/api/v1/altcha/challenge');
+    // 200 + enabled===false → 明确禁用；其余（含真实题、503 等）→ 兜底开启
+    altchaEnabled.value = !(resp.status === 200 && resp.data && resp.data.enabled === false);
+  } catch (e) {
+    // 取题失败（含 503 配置坏）→ 兜底开启 widget，登录阶段暴露配置错误
+    altchaEnabled.value = true;
+  } finally {
+    altchaChecked.value = true;
+  }
+}
+
+onMounted(checkAltchaEnabled);
 
 function readAltchaPayload() {
     const el = formEl.value?.querySelector('input[name="altcha"]');
@@ -86,8 +108,9 @@ function handleLogin() {
     // payload 由组件异步解出，点击过快时可能还没好；此时提示而不是白跑一次请求
     // （后端也会拒，但前端先拦一句的文案更有指向性，也能帮用户区分「组件没加载」
     //  和「正在计算」这两件事）。
-    const altcha = readAltchaPayload();
-    if (!altcha) {
+    // ⚠️ 人机校验被禁用（dev / ALTCHA_ENABLED=false）时不要求 payload，直接放行提交。
+    const altcha = altchaEnabled.value ? readAltchaPayload() : '';
+    if (altchaEnabled.value && !altcha) {
         showError(altchaUnavailableReason());
         return;
     }
@@ -174,9 +197,12 @@ function handleLogin() {
           <!-- 人机校验：challenge 指向自建出题接口；同源相对路径即可。
                ⚠️ 组件依赖 crypto.subtle，必须在 secure context（HTTPS 或 localhost）。
                用 http://<内网IP> 打开时组件会直接失效 —— 部署时要么上 HTTPS，
-               要么把出口限制在 localhost / 反向代理成 https。 -->
-          <div class="mb-6">
+               要么把出口限制在 localhost / 反向代理成 https。
+               ⚠️ 是否渲染由后端 /challenge 的 enabled 决定（dev / ALTCHA_ENABLED=false
+               时禁用，不渲染 widget）；altchaChecked 未探明前先不渲染，避免闪烁。 -->
+          <div class="mb-6" v-if="altchaChecked">
             <altcha-widget
+              v-if="altchaEnabled"
               ref="altchaWidget"
               challenge="/api/v1/altcha/challenge"
               name="altcha"
@@ -184,6 +210,7 @@ function handleLogin() {
               type="checkbox"
               auto="onload"
             ></altcha-widget>
+            <p v-else class="text-muted-color text-sm">（开发环境已关闭人机校验）</p>
           </div>
 
           <div class="flex items-center justify-between mt-2 mb-8 gap-4">
