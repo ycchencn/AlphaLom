@@ -310,6 +310,33 @@ class StockService:
             return {}
 
     @staticmethod
+    def get_user_pool_group(user_id, symbol) -> Dict[str, Any]:
+        """查**单只**票在当前用户池中的分组状态（个股详情页「设置分组」用）。
+
+        返回 `{'in_pool': bool, 'group_name': Optional[str]}`。
+
+        为什么要单独一个方法：`get_user_pool_group_map` 会把该用户**整池**的
+        (symbol, group_name) 全捞回来（池子几百只时是整表扫），详情页只看一只票，
+        没必要为了一个字段把整池拉过来。
+
+        ⚠️ `in_pool` 必须与 `group_name` 一起返回：详情页可以被任何入口打开
+        （搜索、新闻、研报跳转），这只票**未必在用户池里**，而
+        `set_stock_group` 对不在池中的票是直接返回 404 的。前端要据此决定
+        「直接改分组」还是「先加入监控再归类」—— 不区分就会点了没反应。
+        """
+        try:
+            row = db_session.query(UserStockPool.group_name).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol == symbol,
+            ).first()
+        except Exception as e:
+            logger.error(f"get_user_pool_group failed (user_id={user_id}, {symbol}): {e}")
+            return {'in_pool': False, 'group_name': None}
+        if not row:
+            return {'in_pool': False, 'group_name': None}
+        return {'in_pool': True, 'group_name': row[0] or None}
+
+    @staticmethod
     def get_user_pool_groups(user_id) -> List[Dict[str, Any]]:
         """返回当前用户的分组列表（含每组股票数），按名称排序。
 

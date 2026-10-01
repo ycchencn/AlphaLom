@@ -31,6 +31,24 @@ stock_router = APIRouter(prefix=api_prefix, tags=['个股'])
 # 监控股票列表的缓存命名空间：装饰器与失效处共用，避免字符串写不一致导致失效落空
 MONITORED_STOCKS_NS = 'stocks_monitored'
 
+# `user_stock_pool.group_name` 的列宽（String(50)）。所有写分组的入口共用它做校验，
+# 避免「一处校验、一处不校验」—— 不校验的那个会在严格模式下抛 1406 Data too long（500）。
+GROUP_NAME_MAX_LEN = 50
+
+
+def _clean_group_name(raw) -> 'str | None':
+    """规范化分组名：去首尾空白；空串/None 统一成 None（= 未分组）。
+
+    ⚠️ 必须去空白：分组是「字符串标签」而不是独立实体，`'金融'` 与 `'金融 '` 会被当成
+    两个不同的分组，监控页左侧面板就会多出一个肉眼分不出差别的条目。
+    ⚠️ 长度必须挡在入库前：超长在严格模式下是 1406（500），不是自动截断。
+    """
+    name = (raw or '').strip() or None
+    if name and len(name) > GROUP_NAME_MAX_LEN:
+        raise HTTPException(status_code=400,
+                            detail=f"分组名称不能超过 {GROUP_NAME_MAX_LEN} 个字符")
+    return name
+
 
 def _dispatch_stock_analysis(symbol: str) -> None:
     """把「个股分析」任务投递到任务队列（异步执行，实现见 job/job_stock_analysis.py）。
@@ -149,11 +167,7 @@ async def update_stock(symbol: str, request: Request,
     monitoring = data.get('monitoring', 1)
     # 目标分组（可选）：前端在某个分组下点「添加个股」时带上，让新票直接落到该分组。
     # 非空才生效，空/缺省 = 不动既有分组（详见 StockService.add_to_user_pool）。
-    # ⚠️ 长度必须挡在入库前：user_stock_pool.group_name 是 String(50)，严格模式下
-    #    超长会直接抛 1406 Data too long（500），而不是截断。
-    group_name = (data.get('group_name') or '').strip() or None
-    if group_name and len(group_name) > 50:
-        raise HTTPException(status_code=400, detail="分组名称不能超过 50 个字符")
+    group_name = _clean_group_name(data.get('group_name'))
     # 一次查询同时拿到「是否存在」与更新前的监控状态，省掉原先的 exists() 往返
     before = StockService.get_stock_by_symbol(symbol, fields=['monitoring', 'securities_type'])
 
@@ -301,6 +315,26 @@ def get_stock_groups(user_id: int = Depends(get_current_user_id)):
     return StockService.get_user_pool_groups(user_id)
 
 
+# 与 `/stock/groups`（列表）不冲突：段数不同（2 段 vs 3 段），路由不会互相抢。
+@stock_router.get('/stock/group/{symbol}')
+def get_stock_group(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """查询**单只**票在当前用户池中的分组状态。
+
+    返回 `{symbol, in_pool, group_name}`：
+      - `in_pool=False` 表示这只票还没被当前用户加入监控，此时 `group_name` 恒为 None，
+        前端「设置分组」必须先走加监控（`PUT /stocks/{symbol}`）而不是改分组
+        （后者对不在池中的票返回 404）。
+      - `in_pool=True` 时 `group_name` 为空表示「在池中但未分组」。
+
+    读库实时返回，不做缓存：请求量小（一次详情页一次），且写入侧是清
+    MONITORED_STOCKS_NS 的，这里若挂缓存反而要多维护一个失效点。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+    state = StockService.get_user_pool_group(user_id, symbol)
+    return {'symbol': symbol, **state}
+
+
 @stock_router.put('/stock/group')
 async def set_stock_group(
     payload: dict = Body(...),
@@ -312,7 +346,7 @@ async def set_stock_group(
     只改用户私有层标签，不会把票移出池子。
     """
     symbol = (payload or {}).get('symbol')
-    group_name = (payload or {}).get('group_name')
+    group_name = _clean_group_name((payload or {}).get('group_name'))
     if not symbol:
         raise HTTPException(status_code=400, detail="symbol is required")
     ok = StockService.set_stock_group(user_id, symbol, group_name)
@@ -327,9 +361,13 @@ async def rename_stock_group(
     payload: dict = Body(...),
     user_id: int = Depends(get_current_user_id),
 ):
-    """重命名分组。body: {old_name: str, new_name: str}。"""
-    old_name = (payload or {}).get('old_name')
-    new_name = (payload or {}).get('new_name')
+    """重命名分组。body: {old_name: str, new_name: str}。
+
+    重命名到**已存在的名字**等于合并两组（该用户下 old_name 的行整批改成 new_name），
+    这是标签语义下的自然结果，不做拦截。
+    """
+    old_name = _clean_group_name((payload or {}).get('old_name'))
+    new_name = _clean_group_name((payload or {}).get('new_name'))
     if not old_name or not new_name:
         raise HTTPException(status_code=400, detail="old_name and new_name are required")
     if old_name == new_name:
@@ -345,7 +383,7 @@ async def delete_stock_group(
     user_id: int = Depends(get_current_user_id),
 ):
     """删除分组：组内股票移回「未分组」，不删除票本身。body: {group_name: str}。"""
-    group_name = (payload or {}).get('group_name')
+    group_name = _clean_group_name((payload or {}).get('group_name'))
     if not group_name:
         raise HTTPException(status_code=400, detail="group_name is required")
     StockService.delete_user_group(user_id, group_name)

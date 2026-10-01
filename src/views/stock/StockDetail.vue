@@ -25,7 +25,6 @@ import {
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue';
 import {useChartDisplay} from '@/composables/useChartDisplay.js';
 import axios from 'axios';
-import {useToast} from 'primevue/usetoast';
 import {useNotification} from '@/composables/useNotification';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import FactorPanel from '@/components/FactorPanel.vue';
@@ -38,7 +37,6 @@ import {
 } from '@/utils/echartsTheme'
 
 let chart = ref(null)
-const toast = useToast();
 const route = useRoute();
 const news = ref([]);
 const greed_data = ref([]);
@@ -527,85 +525,228 @@ const reAnalyze = () => {
         .finally(() => { reAnalyzing.value = false })
 }
 
-const items = [
-    {
-        label: '重新分析',
-        command: () => {
-            try {
-                axios.put(`/api/v1/stock/re_analysis/${stock_code}`, {});
-                showSuccess('已提交重新分析任务');
-            } catch (error) {
-                let message = '操作失败，请重试';
-                if (axios.isAxiosError(error)) {
-                    if (error.response) {
-                        const {status, data} = error.response;
-                        console.error('HTTP 错误:', status, data);
+// ==================== 股票池分组（标签式 group_name）====================
+// 与「个股监控」页共用同一套后端接口，分组就是 user_stock_pool.group_name 标签：
+//   GET /stock/group/{symbol}  本票「在不在我的池中 + 当前分组」
+//   GET /stock/groups          可选分组（含每组股票数）
+//   PUT /stock/group           已在池中 → 只改标签（轻量，不动监控状态、不触发分析）
+//   PUT /stocks/{symbol}       不在池中 → 「加入监控 + 归类」一步到位
+//
+// ⚠️ 详情页可由任意入口打开（搜索 / 新闻 / 研报跳转），这只票**未必在用户池里**，
+//    而 PUT /stock/group 对不在池中的票直接 404（见 StockService.set_stock_group）。
+//    所以必须先探明 in_pool 再决定走哪条链路，否则用户点「确定」只会看到一句报错。
+const groups = ref([]);              // [{group_name, count}]
+const inPool = ref(null);            // null = 尚未探明（不据此做任何结论性判定）
+const currentGroup = ref('');        // 当前分组名，'' = 在池中但未分组
+const groupDialogVisible = ref(false);
+const groupSaving = ref(false);
+const creatingGroup = ref(false);
+const newGroupName = ref('');
+const pendingGroup = ref('');        // 弹窗中选中的分组
+const groupListRef = ref(null);      // 分组列表容器（用于把当前分组滚进可视区）
 
-                        if (status === 404) {
-                            message = '股票代码不存在';
-                        } else if (status === 409) {
-                            message = '该股票已在监控列表中';
-                        }
-                        // 可继续扩展其他业务状态码
-                    } else if (error.request) {
-                        message = '网络连接失败，请检查网络后重试';
-                    } else {
-                        console.error('请求配置错误:', error.message);
-                        message = '请求出错，请联系管理员';
-                    }
-                } else {
-                    console.error('未知错误:', error);
-                    message = '发生未知错误';
-                }
-                showError(message);
-            }
-        }
-    },
-    {
-        label: '设置分组',
-        command: () => {
-            toast.add({severity: 'success', summary: 'Updated', detail: 'Data Updated', life: 3000});
-        }
-    },
-    {
-        label: '关闭监控',
-        command: () => {
-            // === 2. 发起请求 ===
-            try {
-                axios.put(`/api/v1/stocks/${encodeURIComponent(stock_code)}?is_update_history=0`, {
-                    monitoring: 0,
-                    monitor_by: 'user',
-                });
-                router.push({path: '/quant/stock_monitor'});
-                showSuccess('操作成功，个股监控已关闭');
-            } catch (error) {
-                let message = '操作失败，请重试';
-                if (axios.isAxiosError(error)) {
-                    if (error.response) {
-                        const {status, data} = error.response;
-                        console.error('HTTP 错误:', status, data);
-
-                        if (status === 404) {
-                            message = '股票代码不存在';
-                        } else if (status === 409) {
-                            message = '该股票已在监控列表中';
-                        }
-                        // 可继续扩展其他业务状态码
-                    } else if (error.request) {
-                        message = '网络连接失败，请检查网络后重试';
-                    } else {
-                        console.error('请求配置错误:', error.message);
-                        message = '请求出错，请联系管理员';
-                    }
-                } else {
-                    console.error('未知错误:', error);
-                    message = '发生未知错误';
-                }
-                showError(message);
-            }
-        }
+// 分组选项 = 未分组 + 已有分组。当前分组即使已经空掉（组内最后一只票被移走）也要列出来，
+// 否则用户想「保持原样」却选不到它 —— 用 names 集合兜这一下。
+const groupOptions = computed(() => {
+    const opts = [{name: '', label: '未分组', count: null}];
+    const names = new Set(['']);
+    for (const g of groups.value) {
+        if (!g.group_name || names.has(g.group_name)) continue;
+        names.add(g.group_name);
+        opts.push({name: g.group_name, label: g.group_name, count: g.count});
     }
-];
+    if (currentGroup.value && !names.has(currentGroup.value)) {
+        opts.push({name: currentGroup.value, label: currentGroup.value, count: null});
+    }
+    return opts;
+});
+
+function handleOpErr(error) {
+    let message = '操作失败，请重试';
+    if (axios.isAxiosError(error) && error.response) {
+        const d = error.response.data;
+        message = (d && (d.message || d.detail)) || message;
+    } else if (error instanceof Error) {
+        message = error.message;
+    }
+    showError(message);
+}
+
+/** 探明「本票分组状态 + 分组清单」。两个请求互不依赖，并行发。 */
+async function loadGroupState() {
+    const [stateRes, listRes] = await Promise.allSettled([
+        axios.get(`/api/v1/stock/group/${encodeURIComponent(stock_code)}`),
+        axios.get('/api/v1/stock/groups'),
+    ]);
+    if (stateRes.status === 'fulfilled' && stateRes.value.data) {
+        const d = stateRes.value.data;
+        inPool.value = !!d.in_pool;
+        currentGroup.value = d.group_name || '';
+    } else {
+        inPool.value = null;   // 探明失败就不据它下结论，交给写接口自己兜（见 applyGroup）
+    }
+    if (listRes.status === 'fulfilled') {
+        groups.value = Array.isArray(listRes.value.data) ? listRes.value.data : [];
+    }
+}
+
+/**
+ * 把「当前分组」滚进可视区。
+ *
+ * 分组一多（本项目实测 11 组）列表就会滚动，而当前分组往往排在可视区之外 ——
+ * 用户打开弹窗看到的是满满一屏**别的**分组，会以为一个都没选中。
+ *
+ * 用 offsetTop 而不是 getBoundingClientRect：offsetTop 是相对 offsetParent 的静态
+ * 位置，既不受容器自身滚动影响，也不受弹窗入场缩放动画影响（rect 在动画期间是被
+ * 缩放过的，算出来的偏移会偏小）。
+ * 两者 offsetParent 不同则说明中间还有别的定位祖先，差值不再等于容器内偏移 —— 这时
+ * 宁可不动，也不要滚到一个错误的位置。
+ */
+function revealActiveGroup() {
+    const host = groupListRef.value;
+    const active = host && host.querySelector('.gp-item.is-active');
+    if (!host || !active || active.offsetParent !== host.offsetParent) return;
+    const top = active.offsetTop - host.offsetTop;   // 调用时 scrollTop 恒为 0，差值即内容偏移
+    host.scrollTop = Math.max(
+        0, top - (host.clientHeight - active.offsetHeight) / 2);
+}
+
+async function openGroupDialog() {
+    creatingGroup.value = false;
+    newGroupName.value = '';
+    groupDialogVisible.value = true;
+    await loadGroupState();      // 状态回来后再对齐选中项，避免默认选中的是过期分组
+    pendingGroup.value = currentGroup.value;
+    await nextTick();
+    revealActiveGroup();
+}
+
+function startCreateGroup() {
+    newGroupName.value = '';
+    creatingGroup.value = true;
+}
+
+/** 已在池中：只改标签，不碰监控状态。 */
+function putStockGroup(name) {
+    return axios.put('/api/v1/stock/group', {symbol: stock_code, group_name: name || null});
+}
+
+/** 不在池中：一次调用完成「加入监控 + 归类」，后端会给票补行情并投递一次异步分析。 */
+function addAndGroup(name) {
+    return axios.put(`/api/v1/stocks/${encodeURIComponent(stock_code)}`, {
+        monitoring: 1,
+        monitor_by: 'user',
+        group_name: name || null,
+    });
+}
+
+async function applyGroup(groupName) {
+    if (groupSaving.value) return;
+    const name = (groupName || '').trim();
+    // 与后端 String(50) 对齐提前拦住：严格模式下超长是 1406，会以 500 冒出来
+    if (name.length > 50) {
+        showError('分组名称不能超过 50 个字符');
+        return;
+    }
+    groupSaving.value = true;
+    let added = false;                  // 本次是不是走了「先加入监控」那条链路
+    try {
+        if (inPool.value === true) {
+            await putStockGroup(name);
+        } else if (inPool.value === false) {
+            await addAndGroup(name);
+            added = true;
+        } else {
+            // 状态没探明：先按「已在池」试轻量接口；404 说明其实不在池，再走加入。
+            // 这样即使状态接口挂了，功能仍然可用（不会变成「点了没反应」）。
+            try {
+                await putStockGroup(name);
+            } catch (e) {
+                if (axios.isAxiosError(e) && e.response && e.response.status === 404) {
+                    await addAndGroup(name);
+                    added = true;
+                } else {
+                    throw e;
+                }
+            }
+        }
+        showSuccess(added
+            ? (name ? `已加入监控并归入「${name}」` : '已加入监控（未分组）')
+            : (name ? `已移入分组「${name}」` : '已取消分组'));
+        groupDialogVisible.value = false;
+        await loadGroupState();
+    } catch (error) {
+        handleOpErr(error);
+    } finally {
+        groupSaving.value = false;
+    }
+}
+
+function confirmGroup() {
+    applyGroup(pendingGroup.value);
+}
+
+async function confirmCreateGroup() {
+    const name = newGroupName.value.trim();
+    if (!name) {
+        showError('请输入分组名称');
+        return;
+    }
+    await applyGroup(name);
+}
+
+/** 关闭监控：把票移出当前用户的池子（公共字段与分析数据保留）。 */
+async function closeMonitor() {
+    try {
+        await axios.put(`/api/v1/stocks/${encodeURIComponent(stock_code)}?is_update_history=0`, {
+            monitoring: 0,
+            monitor_by: 'user',
+        });
+        showSuccess('操作成功，个股监控已关闭');
+        router.push({path: '/quant/stock_monitor'});
+    } catch (error) {
+        handleOpErr(error);
+    }
+}
+
+/**
+ * 「操作」下拉菜单。
+ *
+ * ⚠️ 必须是 computed：改完分组菜单上要立刻反映新分组，静态数组只在 setup 时求值一次，
+ *    会出现「弹窗里已经改了、菜单还显示旧分组」的矛盾。
+ * 当前分组直接带进 label，不开弹窗也能看到这只票归在哪组。
+ *
+ * ⚠️ 原实现里「重新分析」和「关闭监控」都是 `try { axios.put(...) } catch {}` ——
+ *    没有 await，Promise 的 rejection 落不到同步 catch 里，错误提示是**永远不会触发**的
+ *    死代码；「关闭监控」还会在请求发出后立刻跳页并报「操作成功」，失败了也照跳。
+ *    这里统一改成 await + 统一错误提取。
+ */
+const items = computed(() => {
+    const menu = [
+        {
+            label: '重新分析',
+            icon: 'pi pi-refresh',
+            disabled: reAnalyzing.value,
+            command: reAnalyze,
+        },
+        {
+            label: currentGroup.value ? `设置分组 · ${currentGroup.value}` : '设置分组',
+            icon: 'pi pi-folder',
+            command: () => openGroupDialog(),
+        },
+    ];
+    if (currentGroup.value) {
+        menu.push({label: '取消分组', icon: 'pi pi-times', command: () => applyGroup('')});
+    }
+    // 只有「明确探明不在池中」才切换成「加入监控」；未探明时保持原来的「关闭监控」，
+    // 不做基于猜测的菜单切换。加入监控也走分组弹窗，让用户顺手选个分组。
+    if (inPool.value === false) {
+        menu.push({label: '加入监控', icon: 'pi pi-plus', command: () => openGroupDialog()});
+    } else {
+        menu.push({label: '关闭监控', icon: 'pi pi-ban', command: () => closeMonitor()});
+    }
+    return menu;
+});
 
 /**
  * 快速回测：把当前标的带到组合回测页并自动执行一次。
@@ -681,6 +822,12 @@ onMounted(async () => {
 
     window.addEventListener('resize', resizeFgChart);
     window.addEventListener('resize', resizeFinChart);
+    // ⚠️ 必须在这里就拉分组状态：菜单项要显示「设置分组 · 当前分组」、并在未入池时
+    //    换成「加入监控」，这些判定全依赖它。只在打开弹窗时拉的话，首次进入页面
+    //    菜单永远是默认态（不显示当前分组、未入池的票还挂着「关闭监控」），
+    //    用户要先点一次弹窗才「变成对的」。
+    // 不 await：与首屏取数并行，不拖慢标题/行情渲染。
+    loadGroupState();
     stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
     // 获取日K
@@ -1048,6 +1195,69 @@ onUnmounted(() => {
             </div>
         </div>
     </Drawer>
+
+    <!-- 设置分组：分组是 user_stock_pool.group_name 标签，与个股监控页共用同一套接口 -->
+    <Dialog v-model:visible="groupDialogVisible" modal header="设置分组" :style="{ width: '26rem' }">
+        <div class="gp-body">
+            <!-- 未入池：先说清楚「确定」会顺带把票加入监控，避免用户以为只是打个标签 -->
+            <div v-if="inPool === false" class="gp-notice">
+                <i class="pi pi-info-circle"/>
+                <span>该股票尚未加入监控。确定后将<strong>同时把它加入监控</strong>并归入所选分组，后台会补一次行情与数据分析。</span>
+            </div>
+
+            <div class="gp-current">
+                当前分组：<b>{{ currentGroup || '未分组' }}</b>
+                <span v-if="inPool === false" class="gp-current__hint">（未加入监控）</span>
+            </div>
+
+            <div ref="groupListRef" class="gp-list" role="radiogroup" aria-label="选择分组">
+                <button
+                    v-for="opt in groupOptions"
+                    :key="opt.name || '__ungrouped__'"
+                    type="button"
+                    role="radio"
+                    :aria-checked="pendingGroup === opt.name"
+                    class="gp-item"
+                    :class="{'is-active': pendingGroup === opt.name}"
+                    @click="pendingGroup = opt.name"
+                >
+                    <i class="pi" :class="pendingGroup === opt.name ? 'pi-check-circle' : 'pi-circle'"/>
+                    <span class="gp-item__name">{{ opt.label }}</span>
+                    <span v-if="opt.count !== null" class="gp-item__count">{{ opt.count }} 只</span>
+                </button>
+            </div>
+
+            <!-- 新建分组：与监控页一致 —— 建组即把当前这只票归入该组 -->
+            <div v-if="creatingGroup" class="gp-create">
+                <InputText
+                    v-model="newGroupName"
+                    placeholder="输入新分组名称"
+                    maxlength="50"
+                    class="w-full"
+                    @keyup.enter="confirmCreateGroup"
+                />
+                <div class="gp-create__actions">
+                    <Button label="取消" severity="secondary" size="small" text
+                            @click="creatingGroup = false"/>
+                    <Button label="创建并归入" size="small" :loading="groupSaving"
+                            @click="confirmCreateGroup"/>
+                </div>
+            </div>
+            <Button v-else label="新建分组" icon="pi pi-plus" severity="secondary" size="small" text
+                    class="gp-new" @click="startCreateGroup"/>
+
+            <div v-if="!currentGroup && inPool === true" class="gp-tip">
+                加入分组后，个股监控页左侧面板会多出这个分组，可整组一起看。
+            </div>
+        </div>
+
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button label="取消" severity="secondary" @click="groupDialogVisible = false"/>
+                <Button label="确定" :loading="groupSaving" :disabled="creatingGroup" @click="confirmGroup"/>
+            </div>
+        </template>
+    </Dialog>
 
     <div class="card relative mb-0 pb-0 stock-info-top">
 
@@ -1945,6 +2155,126 @@ onUnmounted(() => {
 .stock-info-top {
     padding: 20px 15px;
     border-bottom: 1px solid #dedede;
+}
+
+/* ===== 设置分组弹窗 ===== */
+.gp-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.gp-notice {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border-radius: 6px;
+    background-color: #fef7e6;
+    border: 1px solid #f5d99a;
+    color: #8a6116;
+    font-size: 12px;
+    line-height: 1.6;
+    /* 长文案可能把弹窗撑宽：允许在任意位置折行，且不参与父级的最小宽度计算 */
+    min-width: 0;
+    overflow-wrap: anywhere;
+
+    .pi {
+        flex-shrink: 0;
+        margin-top: 2px;
+    }
+}
+
+.gp-current {
+    font-size: 12px;
+    color: #6b7280;
+    min-width: 0;
+    overflow-wrap: anywhere;
+
+    b {
+        color: #374151;
+    }
+
+    &__hint {
+        color: #9ca3af;
+    }
+}
+
+.gp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 232px;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.gp-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background-color: #fff;
+    color: #374151;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s, border-color 0.15s;
+
+    &:hover {
+        background-color: #f9fafb;
+    }
+
+    &.is-active {
+        border-color: #3b82f6;
+        background-color: #eff6ff;
+        color: #1d4ed8;
+        font-weight: 600;
+    }
+
+    .pi {
+        flex-shrink: 0;
+    }
+
+    &__name {
+        min-width: 0;
+        flex: 1 1 auto;
+        overflow-wrap: anywhere;
+    }
+
+    &__count {
+        flex-shrink: 0;
+        font-size: 11px;
+        font-weight: 400;
+        color: #9ca3af;
+    }
+}
+
+.gp-create {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+
+    &__actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+    }
+}
+
+.gp-new {
+    align-self: flex-start;
+}
+
+.gp-tip {
+    font-size: 11px;
+    color: #9ca3af;
+    line-height: 1.6;
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 </style>

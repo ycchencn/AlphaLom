@@ -847,7 +847,7 @@ async function deleteGroup(groupName) {
     <Dialog v-model:visible="renameVisible" modal header="重命名分组" :style="{ width: '24rem' }">
       <div class="flex flex-col gap-3">
         <label class="font-semibold">原名称：{{ renamingGroup }}</label>
-        <InputText v-model="renameNewName" placeholder="输入新分组名称" class="w-full" @keyup.enter="confirmRename" />
+        <InputText v-model="renameNewName" placeholder="输入新分组名称" maxlength="50" class="w-full" @keyup.enter="confirmRename" />
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
@@ -861,7 +861,8 @@ async function deleteGroup(groupName) {
     <Dialog v-model:visible="createGroupVisible" modal header="新建分组" :style="{ width: '24rem' }">
       <div class="flex flex-col gap-3">
         <label class="font-semibold">为 {{ createGroupSymbol }} 创建并分配到新分组</label>
-        <InputText v-model="createGroupName" placeholder="输入分组名称" class="w-full" @keyup.enter="confirmCreateGroup" />
+        <!-- maxlength 与后端 String(50) 对齐：不加的话打超 50 字提交会拿到 500（严格模式 1406） -->
+        <InputText v-model="createGroupName" placeholder="输入分组名称" maxlength="50" class="w-full" @keyup.enter="confirmCreateGroup" />
       </div>
       <template #footer>
         <div class="flex justify-end gap-2">
