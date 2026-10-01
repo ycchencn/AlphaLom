@@ -57,18 +57,22 @@ class ScanRedisBackend(RedisBackend):
     """
 
     async def clear(self, namespace=None, key=None):
+        # ⚠️ 这里的 `namespace` 是 **FastAPICache.clear() 传进来的，已经带上了全局 prefix**：
+        #    `FastAPICache.clear` 内部会先做 `namespace = cls._prefix + (':' + namespace)`，
+        #    于是实际收到的是 `alphalom:stocks_monitored` 这种完整前缀。
+        #    所以这里**只能**用 `{namespace}:*` —— 再手动拼一次 CACHE_PREFIX 的话，
+        #    匹配模式会变成 `alphalom:alphalom:stocks_monitored:*`，永远扫不到任何键、
+        #    返回 0，于是所有 `FastAPICache.clear(namespace=...)` **静默失效**：
+        #    写完库清缓存看似成功，列表/图表却一直吐旧值（直到 TTL 过期才自愈）。
+        #    基类 RedisBackend 的 Lua 也是 `KEYS '{namespace}:*'`，语义与此一致。
+        if namespace:
+            removed = 0
+            async for k in self.redis.scan_iter(match=f'{namespace}:*', count=500):
+                removed += await self.redis.delete(k)
+            return removed
         if key:
             return await self.redis.delete(key)
-        if not namespace:
-            return 0
-
-        removed = 0
-        # ⚠️ 真实 key = `{CACHE_PREFIX}:{namespace}:{hash}`（见 FastAPICache.init 的 prefix）。
-        # 若只按 `namespace:*` 扫描会永远匹配不到，导致所有 `FastAPICache.clear(namespace=...)` 静默失效，
-        # 表现为「改完代码 / 写完库，缓存却一直返回旧值」。必须拼上前缀。
-        async for k in self.redis.scan_iter(match=f'{CACHE_PREFIX}:{namespace}:*', count=500):
-            removed += await self.redis.delete(k)
-        return removed
+        return 0
 
 
 # 供业务代码复用（需要自己 set/get 时）；RedisBackend 要求 bytes 模式，

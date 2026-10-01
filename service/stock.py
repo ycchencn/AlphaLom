@@ -222,15 +222,25 @@ class StockService:
             return False
 
     @staticmethod
-    def add_to_user_pool(user_id, symbol, market='cn', monitor_by=None) -> bool:
+    def add_to_user_pool(user_id, symbol, market='cn', monitor_by=None,
+                         group_name=None) -> bool:
         """
         把某只票加入指定用户的池子（幂等：已存在则只补齐 market/来源标签）。
 
         只写 `user_stock_pool`；`stocks.monitoring` 由 `sync_monitoring_flag` 统一重算
         —— 两处都手写标记迟早会漂移（一个用户移除后把公共标记清掉）。
+
+        `group_name`：在某个分组下「添加个股」时带上，让新票直接落到该分组，
+        不必「先加进未分组、再手动归类」。也用于把已在池中但归在别组的票移到目标分组。
+
+        ⚠️ 语义是**非空才生效**：传 None/空串表示**不改动**现有分组，而不是清空。
+        要清空分组请走 `set_stock_group(user_id, symbol, None)` —— 添加接口的职责是
+        把票放进池子，不该顺手抹掉用户已有的归类（否则任何一次「补一下 market」的
+        幂等调用都会把分组标签洗掉）。
         """
         if not user_id or not symbol:
             return False
+        group_name = (group_name or '').strip() or None
         try:
             item = db_session.query(UserStockPool).filter(
                 UserStockPool.user_id == int(user_id),
@@ -241,10 +251,13 @@ class StockService:
                     item.market = market
                 if monitor_by:
                     item.monitor_by = monitor_by
+                if group_name:
+                    item.group_name = group_name
             else:
                 db_session.add(UserStockPool(
                     user_id=int(user_id), symbol=symbol,
                     market=market or 'cn', monitor_by=monitor_by,
+                    group_name=group_name,
                 ))
             db_session.commit()
             StockService.sync_monitoring_flag(symbol)

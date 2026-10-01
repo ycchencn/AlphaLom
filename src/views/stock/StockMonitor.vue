@@ -27,11 +27,54 @@ const searching = ref(false);
 const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
 let searchSeq = 0;              // 搜索请求序号，用于丢弃过期响应
 
-// 已在股票池中的代码集合，用于在搜索结果里标记「已添加」
-const watchedSymbols = computed(() => new Set(stock_list.value.map(s => String(s.symbol))));
+// 添加个股弹窗：目标分组（'' = 未分组）。
+// 打开弹窗时把左侧当前选中的分组快照进来 —— 在「半导体」分组下点添加，
+// 新票就直接落在「半导体」，不用「先加进未分组、再手动归类」。
+// 快照而不是实时跟随：弹窗是 modal，遮罩期间左侧切不了，快照可保证连加多只票时目标稳定。
+const targetGroup = ref('');
+
+// 「加入分组」下拉的选项：未分组 + 已有分组。
+const groupSelectOptions = computed(() => {
+    const opts = [{ label: '未分组', value: '' }];
+    const names = new Set();
+    for (const g of groups.value) {
+        opts.push({ label: g.group_name, value: g.group_name });
+        names.add(g.group_name);
+    }
+    // 兜底：目标分组一定出现在选项里。打开弹窗的瞬间 groups 可能尚未刷新完
+    // （或该分组刚被改名），缺失时 PrimeVue 会退化成占位符，看起来像「没选中任何分组」。
+    if (targetGroup.value && !names.has(targetGroup.value)) {
+        opts.push({ label: targetGroup.value, value: targetGroup.value });
+    }
+    return opts;
+});
+
+// 已在股票池中的代码 → 其分组名（'' = 未分组）。
+// 既用于标记「已添加」，也用于识别「已添加但不在目标分组」——那种票可以一键移入本组。
+const watchedGroupMap = computed(() => {
+    const m = new Map();
+    for (const s of stock_list.value) m.set(String(s.symbol), s.group_name || '');
+    return m;
+});
 
 function isWatched(symbol) {
-    return watchedSymbols.value.has(String(symbol));
+    return watchedGroupMap.value.has(String(symbol));
+}
+
+/**
+ * 已在池中、但当前不在目标分组的票 —— 提供「移入本组」而不是只显示「已添加」。
+ * 否则在某个分组下搜一只归在别处的票时只能看到灰色的「已添加」，想归类还得切到
+ * 「全部」视图用行内菜单逐个设置，这正是本功能要消掉的绕路。
+ *
+ * ⚠️ 只在**目标分组非空**时成立：添加接口对 group_name 的语义是「非空才生效」
+ *   （空 = 不动既有分组，避免幂等调用把用户的归类洗掉），所以目标为空时如果还放一个
+ *   「移出分组」按钮，点下去不会有任何变化 —— 与其放个假按钮，不如老实显示「已添加」。
+ *   移出分组走行内菜单的「取消分组」。
+ */
+function canMoveToTarget(symbol) {
+    if (!targetGroup.value) return false;
+    const cur = watchedGroupMap.value.get(String(symbol));
+    return cur !== undefined && cur !== targetGroup.value;
 }
 
 function loadStockList(){
@@ -75,6 +118,11 @@ function openAddModal() {
     searchKeyword.value = '';
     searchResults.value = [];
     searchSeq++;   // 丢弃上一次打开时可能仍在途的搜索结果
+    // 目标分组默认跟随左侧当前选中的分组；「全部」/「未分组」下视为未分组（与改动前一致）
+    targetGroup.value = (selectedGroup.value === '__all__' || selectedGroup.value === '')
+        ? '' : selectedGroup.value;
+    // 分组可能刚在别处被新建/改名，打开时刷一次，保证下拉选项是最新的
+    loadGroups();
 }
 
 // 输入防抖后调用搜索接口（服务端按关键字过滤，见 StockService.search_stock_catalog）
@@ -125,24 +173,39 @@ function getFearGreedClass(greedValue) {
 /**
  * 把股票加入股票池（PUT /stocks/{symbol}，记录不存在时后端会自动拉取名称并入库）
  * @param {string} symbol - 股票代码（如 '600519'）
- * @returns {Promise<boolean>} 是否添加成功
+ * @param {string} [groupName] - 目标分组；非空时后端把票落到该分组，空/省略则不改动分组
+ * @param {boolean} [isMove] - 是否是对「已在池中的票」改分组（仅影响提示文案）
+ * @returns {Promise<boolean>} 是否成功
  */
-async function putStockMonitoring(symbol) {
+async function putStockMonitoring(symbol, groupName, isMove = false) {
     try {
-        const res = await axios.put(`/api/v1/stocks/${encodeURIComponent(symbol)}`, {
+        const payload = {
             monitoring: 1,
             monitor_by: 'guest',
             securities_type: 'stock'
-        });
+        };
+        // 只在目标分组非空时带该字段：后端的语义是「非空才生效」，
+        // 传空串并不会把票移出分组（想移出分组走行内菜单的「取消分组」）。
+        if (groupName) payload.group_name = groupName;
+        const res = await axios.put(`/api/v1/stocks/${encodeURIComponent(symbol)}`, payload);
         // 后端对「刚入池」的票会顺带投递一次个股分析（恐惧贪婪 / 因子 / DCF / 报价）。
         // 任务队列串行消费，跑完需要一段时间，所以提示里要说清「稍后刷新」——
         // 刚加完就来查列表只会看到名称和代码，其余列是空的。
-        if (res.data && res.data.analysis_triggered) {
-            showSuccess(`已添加监控：${symbol}，正在后台分析数据，稍后点「刷新」查看`);
+        if (isMove) {
+            // 已在池中，这次只是换分组：不会触发分析，也不必提「稍后刷新」
+            showSuccess(`已移入分组「${groupName || '未分组'}」：${symbol}`);
+        } else if (res.data && res.data.analysis_triggered) {
+            const inGroup = groupName ? `，已加入「${groupName}」` : '';
+            showSuccess(`已添加监控：${symbol}${inGroup}，正在后台分析数据，稍后点「刷新」查看`);
         } else {
-            showSuccess(`已添加监控：${symbol}`);
+            const inGroup = groupName ? `，已加入「${groupName}」` : '';
+            showSuccess(`已添加监控：${symbol}${inGroup}`);
         }
         await loadStockList();
+        // 分组家数（左侧面板）与分组列表都可能变，一并刷新
+        await loadGroups();
+        // 加完却看不见是最糟的体验：若当前视图恰好筛掉了目标分组，切过去
+        revealTargetGroup();
         return true;
     } catch (error) {
         let message = '操作失败，请重试';
@@ -166,13 +229,25 @@ async function putStockMonitoring(symbol) {
 }
 
 /**
+ * 保证刚添加的票能被看见。
+ * 「全部」视图本来就能看到所有分组，不用切；已经在目标分组上也无需切。
+ * 只有「正看着未分组，却把票加进了某个分组」这类情况才需要主动切过去。
+ */
+function revealTargetGroup() {
+    if (selectedGroup.value === '__all__') return;
+    if (selectedGroup.value === targetGroup.value) return;
+    selectedGroup.value = targetGroup.value;
+}
+
+/**
  * 从搜索结果添加（保持弹窗打开，该条结果会自动变为「已添加」状态）
  */
 async function addFromSearch(row) {
     const symbol = row.symbol;
+    const isMove = isWatched(symbol);   // 已在池中 → 本次是「换分组」而不是「新增」
     addingSymbol.value = symbol;
     try {
-        await putStockMonitoring(symbol);
+        await putStockMonitoring(symbol, targetGroup.value, isMove);
     } finally {
         addingSymbol.value = '';
     }
@@ -198,7 +273,7 @@ async function addByCode(stockCode) {
     }
     addingSymbol.value = trimmedCode;
     try {
-        const ok = await putStockMonitoring(trimmedCode);
+        const ok = await putStockMonitoring(trimmedCode, targetGroup.value);
         if (ok) {
             searchKeyword.value = '';
             searchResults.value = [];
@@ -487,6 +562,27 @@ async function deleteGroup(groupName) {
     <!-- 添加个股弹窗：支持按代码/名称搜索 databull 全市场股票目录 -->
     <Dialog v-model:visible="modal_visible" modal header="添加个股监控" :style="{ width: '30rem' }">
       <div class="flex flex-col gap-3">
+        <!-- 目标分组：默认跟随左侧选中的分组，新加的票直接归入该组 -->
+        <div class="flex flex-col gap-1">
+          <label for="target_group" class="text-xs text-gray-500">加入分组</label>
+          <Dropdown
+            v-model="targetGroup"
+            inputId="target_group"
+            :options="groupSelectOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="未分组"
+            class="w-full"
+            size="small"
+          />
+          <span v-if="targetGroup" class="text-xs text-blue-500">
+            新添加的股票将自动归入「{{ targetGroup }}」
+          </span>
+          <span v-else class="text-xs text-gray-400">
+            未选择分组，新添加的股票将进入「未分组」
+          </span>
+        </div>
+
         <IconField>
           <InputIcon>
             <i class="pi pi-search" />
@@ -518,7 +614,19 @@ async function deleteGroup(groupName) {
                 <div class="font-semibold truncate">{{ item.symbol }}</div>
                 <div class="text-xs text-gray-500 truncate">{{ item.name }}</div>
               </div>
-              <Tag v-if="isWatched(item.symbol)" value="已添加" severity="secondary" class="shrink-0" />
+              <!-- 已在池中且不在目标分组 → 一键移入本组（省掉「切到全部视图再逐个归类」的绕路） -->
+              <Button
+                v-if="canMoveToTarget(item.symbol)"
+                icon="pi pi-folder-plus"
+                label="移入本组"
+                :title="`把 ${item.symbol} 移到分组「${targetGroup}」`"
+                severity="secondary"
+                size="small"
+                class="shrink-0"
+                :loading="addingSymbol === item.symbol"
+                @click="addFromSearch(item)"
+              />
+              <Tag v-else-if="isWatched(item.symbol)" value="已添加" severity="secondary" class="shrink-0" />
               <Button
                 v-else
                 icon="pi pi-plus"

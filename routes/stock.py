@@ -147,6 +147,13 @@ async def update_stock(symbol: str, request: Request,
         data = {}
 
     monitoring = data.get('monitoring', 1)
+    # 目标分组（可选）：前端在某个分组下点「添加个股」时带上，让新票直接落到该分组。
+    # 非空才生效，空/缺省 = 不动既有分组（详见 StockService.add_to_user_pool）。
+    # ⚠️ 长度必须挡在入库前：user_stock_pool.group_name 是 String(50)，严格模式下
+    #    超长会直接抛 1406 Data too long（500），而不是截断。
+    group_name = (data.get('group_name') or '').strip() or None
+    if group_name and len(group_name) > 50:
+        raise HTTPException(status_code=400, detail="分组名称不能超过 50 个字符")
     # 一次查询同时拿到「是否存在」与更新前的监控状态，省掉原先的 exists() 往返
     before = StockService.get_stock_by_symbol(symbol, fields=['monitoring', 'securities_type'])
 
@@ -169,7 +176,8 @@ async def update_stock(symbol: str, request: Request,
     # 用户私有层：加入 / 移出自己的池子（内部会同步 stocks.monitoring 并集标记）
     if monitoring:
         StockService.add_to_user_pool(user_id, symbol, market=market,
-                                      monitor_by=data.get('monitor_by') or 'user')
+                                      monitor_by=data.get('monitor_by') or 'user',
+                                      group_name=group_name)
     else:
         StockService.remove_from_user_pool(user_id, symbol)
 
