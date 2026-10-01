@@ -416,6 +416,126 @@ const QUADRANTS = [
     {name: '持续走弱', color: '#16a34a', test: (x, y) => x < 0 && y < 0}
 ]
 
+// 标签层（独立 scatter series）的锚点常量：
+//   气泡符号尺寸 / 文字与符号的水平间距 —— 'right' 标签自带 SYM/2 + DIST 的固定偏移，
+//   所以锚点要反向减回去，文字左边缘才能精确落在算好的位置。
+const QUAD_SYM = 4
+const QUAD_DIST = 2
+const QUAD_RIGHT_OFF = QUAD_SYM / 2 + QUAD_DIST
+const QUAD_GAP = 5                                  // 标签边缘离气泡的水平间距
+
+// 只给「最有信息量」的点打名字：区间两端各 5 个 + 成交额占比前 3 ——
+// 全部打名字会糊成一片（20 个点大多挤在 0 附近）。
+// 极窄容器里连这几个名字也放不下（点本身就挤），一律不打，交给 tooltip。
+const quadNamedSet = (pts) => new Set(rotNarrowState ? [] : [
+    ...pts.slice(0, 5).map((s) => s.sector_name),
+    ...pts.slice(-5).map((s) => s.sector_name),
+    ...[...pts].sort((a, b) => (b.amount_share_latest ?? 0) - (a.amount_share_latest ?? 0))
+        .slice(0, 3).map((s) => s.sector_name)
+])
+
+// 象限图标签的像素级避让，返回 [[xData, yData, 0, name]]。
+// 为什么不用 ECharts 内置的 labelLayout：
+//   · hideOverlap = true   → 标签重叠时**直接隐藏**（实测 11 个该打标签的板块只剩 9 个，
+//     用户报的"有些文字不显示"就是它）；
+//   · moveOverlap = 'shiftY' → 在 scatter 上几乎不动，只错开几像素。
+// ⚠️ 坐标一律问 chart 要（convertToPixel/convertFromPixel），**不许按 grid 配置自己推算**：
+//    `grid.left: 40` 只是"下限"——轴名/刻度文字过宽时 ECharts 会把绘图区往里推，
+//    实测 left:40 时真实绘图区左边界是 53（刻度变成 "-1000" 时到 68，去掉轴名才回到 40）。
+//    按 grid.left 算会让标签整体偏移，靠左边界的那条（"纺织服饰"）锚点落到 53 之外，
+//    被 series 的 clip 整个裁掉 —— 看着就是"这条标签没画"。
+const layoutQuadLabels = (chart, pts, named) => {
+    const gridComp = chart.getModel().getComponent('grid')
+    const cs = gridComp && gridComp.coordinateSystem
+    if (!cs) return []
+    const rect = cs.getRect()
+    const right = rect.x + rect.width
+    const bottom = rect.y + rect.height
+    const toPx = (v) => chart.convertToPixel({xAxisIndex: 0}, v)
+    const toPy = (v) => chart.convertToPixel({yAxisIndex: 0}, v)
+    const LH = FONT.label + 8                           // 标签行距（留足呼吸位，否则两行字挨着像叠字）
+    const labelW = (n) => n.length * FONT.label + 2     // 中文按 1 字宽 ≈ 字号估
+    const radiusOf = (s) => (5 + Math.min(20, Math.sqrt(s.amount_share_latest ?? 0) * 4.2)) / 2
+    const midPx = rect.x + rect.width / 2
+
+    // 气泡包围盒：标签不能压在气泡上（否则字糊在色块上读不出来）
+    const bubbleBoxes = pts.map((s) => {
+        const cx = toPx(s.latest_pct)
+        const cy = toPy(s.cum_pct)
+        const r = radiusOf(s)
+        return {x0: cx - r, x1: cx + r, top: cy - r, bottom: cy + r}
+    })
+
+    const anchors = []
+    const placed = []
+    const rows = []
+    pts.filter((s) => named.has(s.sector_name))
+        .sort((a, b) => toPy(a.cum_pct) - toPy(b.cum_pct))
+        .forEach((s) => {
+            const cx = toPx(s.latest_pct)
+            const cy = toPy(s.cum_pct)
+            const r = radiusOf(s)
+            const w = labelW(s.sector_name)
+            // 两个候选边：靠左的点默认挂右边、靠右的挂左边（都往图中间靠，避免撞出画布）；
+            // 再夹回绘图区内 —— 越界的标签会被 series 的 clip 吃掉
+            const cand = (toRight) => {
+                const raw = toRight ? cx + r + QUAD_GAP : cx - r - QUAD_GAP - w
+                const left = Math.max(rect.x, Math.min(raw, right - w))
+                return {toRight, left, x0: left, x1: left + w}
+            }
+            const pref = cand(cx <= midPx)
+            const alt = cand(cx > midPx)
+            // 从气泡中线的位置出发，朝 dir（+1 下 / -1 上）推进，只跟**真正相交**的
+            // 障碍（已放置标签、气泡）消解；不相交就不动，否则会被远处同列的障碍一路顶跑。
+            const push = (c, dir) => {
+                let t = cy - LH / 2
+                for (let g = 0; g < 50; g++) {
+                    let next = t
+                    const eat = (b) => {
+                        if (c.x1 <= b.x0 || c.x0 >= b.x1) return
+                        if (t >= b.bottom || t + LH <= b.top) return
+                        next = dir > 0 ? Math.max(next, b.bottom) : Math.min(next, b.top - LH)
+                    }
+                    placed.forEach(eat)
+                    // 气泡两侧各让 2px，免得文字贴在色块边上
+                    bubbleBoxes.forEach((q) => eat({x0: q.x0, x1: q.x1, top: q.top - 2, bottom: q.bottom + 2}))
+                    if (Math.abs(next - t) < 0.01) break
+                    t = next
+                }
+                return {top: t, off: Math.abs(t + LH / 2 - cy)}
+            }
+            // 左右两边 × 上下两个方向共四种排法，取**离气泡最近**的那种
+            // （只往下推过的话，'食品饮料' 会被顶到气泡下方 46px，跟气泡失去对应关系）；
+            // 位移相同则优先首选边、再优先向下（向下更符合阅读顺序）。
+            const best = (c) => {
+                const down = push(c, 1)
+                const up = push(c, -1)
+                return up.off < down.off ? {c, top: up.top, off: up.off}
+                    : {c, top: down.top, off: down.off}
+            }
+            const a = best(pref)
+            const b = best(alt)
+            // 换边要有明显收益（6px 死区），否则标签会在两条边之间无谓跳动
+            const chosen = b.off + 6 < a.off ? b : a
+            const top = Math.max(rect.y, Math.min(chosen.top, bottom - LH))
+            placed.push({x0: chosen.c.x0, x1: chosen.c.x1, top, bottom: top + LH})
+            rows.push({left: chosen.c.left, top, name: s.sector_name})
+        })
+    // 整体越过绘图区下沿 → 统一上抬（保持相对间距）
+    const spill = rows.length
+        ? Math.max(0, Math.max(...rows.map((t) => t.top + LH)) - bottom) : 0
+    rows.forEach((t) => {
+        const anchorPy = t.top - spill + LH / 2            // 期望的标签垂直居中线
+        const anchorPx = t.left - QUAD_RIGHT_OFF           // 补偿 'right' 的固定偏移
+        anchors.push([
+            chart.convertFromPixel({xAxisIndex: 0}, anchorPx),
+            chart.convertFromPixel({yAxisIndex: 0}, anchorPy),
+            0, t.name
+        ])
+    })
+    return anchors
+}
+
 const rotQuadRef = ref(null)
 let rotQuadChart = null
 
@@ -441,17 +561,66 @@ const renderRotationQuad = async (rows) => {
     const yMin = Math.min(...ys, 0) - yPad
     const yMax = Math.max(...ys, 0) + yPad
 
-    // 只给「最有信息量」的点打名字：区间两端各 5 个 + 成交额占比前 3 ——
-    // 全部打名字会糊成一片（20 个点大多挤在 0 附近）。
-    // 极窄容器里连这几个名字也放不下（点本身就挤），一律不打，交给 tooltip。
-    const named = new Set(rotNarrowState ? [] : [
-        ...pts.slice(0, 5).map((s) => s.sector_name),
-        ...pts.slice(-5).map((s) => s.sector_name),
-        ...[...pts].sort((a, b) => (b.amount_share_latest ?? 0) - (a.amount_share_latest ?? 0))
-            .slice(0, 3).map((s) => s.sector_name)
-    ])
+    const named = quadNamedSet(pts)
 
-    chart.setOption({
+    // 标签层：只画文字，位置由 layoutQuadLabels 算好。
+    // ⚠️ 必须留一个 symbol：symbol:'none' 或 symbolSize:0 会让 ECharts 把整个元素跳过，
+    //    label 一起没；所以留 4px 的符号、填成透明色（看不见但仍参与布局）。
+    //    position 只能用 'right' 这类合法值 —— 'inside'/'center' 对 scatter 不渲染。
+    // ⚠️ data 第 3 维必须是**数值**（这里用 0）：放字符串会让该点解析失败、整点被丢弃。
+    const labelSeries = (data) => ({
+        type: 'scatter',
+        name: '__labels',
+        silent: true,
+        z: 10,
+        clip: false,
+        symbolSize: QUAD_SYM,
+        itemStyle: {color: 'transparent'},
+        data,
+        tooltip: {show: false},
+        label: {
+            show: true,
+            position: 'right',
+            distance: QUAD_DIST,
+            fontSize: FONT.label,
+            color: COLORS.text,
+            formatter: (p) => p.data[3]
+        }
+    })
+
+    const bubbleSeries = {
+        type: 'scatter',
+        // [当日涨跌, 区间累计, 占比, 原始对象]
+        data: pts.map((s) => [s.latest_pct, s.cum_pct, s.amount_share_latest ?? 0, s]),
+        // 气泡大小 = 成交额占比（用 sqrt 压缩，否则电子 25% 会把别的点压成米粒）
+        symbolSize: (d) => 5 + Math.min(20, Math.sqrt(d[2] ?? 0) * 4.2),
+        itemStyle: {
+            opacity: 0.85,
+            borderColor: '#fff',
+            borderWidth: 1,
+            color: (p) => {
+                const [x, y] = p.data
+                return (QUADRANTS.find((q) => q.test(x, y)) || QUADRANTS[3]).color
+            }
+        },
+        // 气泡本身不带标签 —— 文字全部由独立标签 series 画（见 layoutQuadLabels）
+        label: {show: false},
+        // 四象限底纹 + 名称
+        markArea: {
+            silent: true,
+            itemStyle: {opacity: 0.05},
+            label: {fontSize: FONT.label, color: COLORS.axisLabel, position: 'insideTopLeft', distance: 8},
+            data: [
+                [{name: '高位回落', xAxis: xMin, yAxis: 0, itemStyle: {color: '#3b82f6'}}, {xAxis: 0, yAxis: yMax}],
+                [{name: '强势延续', xAxis: 0, yAxis: 0, itemStyle: {color: '#dc2626'}}, {xAxis: xMax, yAxis: yMax}],
+                [{name: '持续走弱', xAxis: xMin, yAxis: yMin, itemStyle: {color: '#16a34a'}}, {xAxis: 0, yAxis: 0}],
+                [{name: '超跌反弹', xAxis: 0, yAxis: yMin, itemStyle: {color: '#f97316'}}, {xAxis: xMax, yAxis: 0}]
+            ]
+        },
+        markLine: markLevels([0], {color: COLORS.guideStrong})
+    }
+
+    const frameOpt = {
         grid: {left: 40, right: 24, top: 14, bottom: 34},
         tooltip: tooltipBase({
             formatter: (p) => {
@@ -480,44 +649,12 @@ const renderRotationQuad = async (rows) => {
             splitLine: splitLine(),
             axisLine: {show: false}
         },
-        series: [{
-            type: 'scatter',
-            // [当日涨跌, 区间累计, 占比, 原始对象]
-            data: pts.map((s) => [s.latest_pct, s.cum_pct, s.amount_share_latest ?? 0, s]),
-            // 气泡大小 = 成交额占比（用 sqrt 压缩，否则电子 25% 会把别的点压成米粒）
-            symbolSize: (d) => 5 + Math.min(20, Math.sqrt(d[2] ?? 0) * 4.2),
-            itemStyle: {
-                opacity: 0.85,
-                borderColor: '#fff',
-                borderWidth: 1,
-                color: (p) => {
-                    const [x, y] = p.data
-                    return (QUADRANTS.find((q) => q.test(x, y)) || QUADRANTS[3]).color
-                }
-            },
-            label: {
-                show: true,
-                position: 'right',
-                fontSize: FONT.label,
-                color: COLORS.secondary,
-                formatter: (p) => (named.has(p.data[3].sector_name) ? p.data[3].sector_name : '')
-            },
-            labelLayout: {hideOverlap: true},
-            // 四象限底纹 + 名称
-            markArea: {
-                silent: true,
-                itemStyle: {opacity: 0.05},
-                label: {fontSize: FONT.label, color: COLORS.axisLabel, position: 'insideTopLeft', distance: 8},
-                data: [
-                    [{name: '高位回落', xAxis: xMin, yAxis: 0, itemStyle: {color: '#3b82f6'}}, {xAxis: 0, yAxis: yMax}],
-                    [{name: '强势延续', xAxis: 0, yAxis: 0, itemStyle: {color: '#dc2626'}}, {xAxis: xMax, yAxis: yMax}],
-                    [{name: '持续走弱', xAxis: xMin, yAxis: yMin, itemStyle: {color: '#16a34a'}}, {xAxis: 0, yAxis: 0}],
-                    [{name: '超跌反弹', xAxis: 0, yAxis: yMin, itemStyle: {color: '#f97316'}}, {xAxis: xMax, yAxis: 0}]
-                ]
-            },
-            markLine: markLevels([0], {color: COLORS.guideStrong})
-        }]
-    })
+    }
+
+    // ① 先只落「气泡 + 坐标轴」：让 ECharts 按自己的规则把真实绘图区几何定下来
+    chart.setOption({...frameOpt, series: [bubbleSeries, labelSeries([])]})
+    // ② 再按真实几何排标签（grid.left ≠ 绘图区左边界，见 layoutQuadLabels 注释）
+    chart.setOption({series: [bubbleSeries, labelSeries(layoutQuadLabels(chart, pts, named))]})
 }
 
 const renderRotationCharts = async () => {
