@@ -97,6 +97,9 @@ const getPctColorClass = (value) => {
     return 'text-flat'
 }
 
+// 涨跌比 = 100（上游约定：down_count=0 满盘上涨）时视为「全行业火」，用于加粗 + 火图标强调
+const isHotRatio = (v) => v != null && Math.abs(Number(v) - 100) < 1e-6
+
 // 恐惧贪婪 0~100 的情绪分档。阈值参考主流 Fear & Greed 口径：
 // 0-25 极度恐惧 / 25-45 恐惧 / 45-55 中性 / 55-75 贪婪 / 75-100 极度贪婪
 const fearGreedLabel = (val) => {
@@ -1368,8 +1371,11 @@ onUnmounted(() => {
                     </Column>
                     <Column field="up_down_ratio" header="涨跌比" sortable style="min-width: 80px">
                         <template #body="{ data }">
-                            <span :class="getPctColorClass((data.up_down_ratio ?? 1) - 1)">
-                              {{ data.up_down_ratio?.toFixed(2) ?? '--' }}
+                            <span class="ratio-cell" :class="{ 'hot-ratio': isHotRatio(data.up_down_ratio) }">
+                                <span v-if="isHotRatio(data.up_down_ratio)" class="hot-fire" title="满盘上涨">🔥</span>
+                                <span :class="getPctColorClass((data.up_down_ratio ?? 1) - 1)">
+                                  {{ data.up_down_ratio?.toFixed(2) ?? '--' }}
+                                </span>
                             </span>
                         </template>
                     </Column>
@@ -1593,6 +1599,22 @@ onUnmounted(() => {
     padding: 2rem;
     background: #f5f7fb;
     min-height: 100vh;
+}
+
+// 涨跌比：满盘上涨（up_down_ratio=100）时加粗 + 火图标强调
+.ratio-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+
+    &.hot-ratio {
+        font-weight: 700;
+    }
+
+    .hot-fire {
+        font-size: 0.95rem;
+        line-height: 1;
+    }
 }
 
 // 头部
