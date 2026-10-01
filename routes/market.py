@@ -11,6 +11,7 @@ from service import MarketNewsService, NewsDigestService
 from service.news_digest_service import REFRESH_HOUR_END, REFRESH_HOUR_START, REFRESH_MINUTE
 from service.growth_value_service import GrowthValueError, GrowthValueService
 from service.sector_daily_service import SectorDailyService, normalize_sector_type
+from service.sector_rotation_service import SectorRotationService
 from utils.auth import require_admin
 from utils.redis_obj import redis_obj
 from utils.logger import logger
@@ -82,6 +83,47 @@ def get_market_sectors_history(
     if mode == 'rotation':
         return json_resp(SectorDailyService.get_rotation_ranks(st, limit_days=limit_days))
     return json_resp(SectorDailyService.get_history(st, limit_days=limit_days, sector_names=names))
+
+
+@market_router.get('/market/sector_rotation')
+@cache(expire=1800)
+def get_market_sector_rotation(
+    sector_type: str = Query('sw1', description="板块类型：sw1-申万一级, sw2-申万二级, sw3-申万三级"),
+    days: int = Query(20, ge=1, le=250, description='窗口长度，单位是**交易日个数**（库里不足则取全部）'),
+):
+    """板块轮动分析（沪深大盘监控页）
+
+    **只能读本地库**：上游 `/cn/market/sector_data/{sw}` 只返回最新一个交易日，
+    没有历史接口，算不了轮动。历史靠日更任务 `job_update_sector_daily`
+    （mon-fri 20:35）逐日累积，因此**能回溯多久取决于任务跑了多少天**。
+
+    ⚠️ 不要把入参 `days` 当成实际样本长度：库里只有 5 个交易日时，请求 `days=20`
+    也只会返回 5 天。真实样本长度看 `meta.trade_days`，`meta.is_short_sample`
+    为 true 时前端应提示"样本过短、仅供参考"。
+
+    返回三块：
+    - `meta`   窗口/样本口径（含 `sample_hint` / `partial_hint` 现成文案）
+    - `series` 各板块指标（区间累计、日均、最新涨跌、排名与排名变化、跑赢中位数
+               天数与**当前连续跑赢天数**、成交额占比及其变化、领涨/领跌股），
+               **完整样本**按区间累计涨幅降序，之后接样本不完整的板块。
+               注意 `cum_pct` 是展示值，**排序要用 `sort_cum`** —— 表格组件会按
+               `sortField` 重排，服务端顺序单独存在等于没排。
+    - `daily`  每个交易日的市场宽度（上涨/下跌板块家数、中位涨跌幅、分化度、
+               最强/最弱板块、涨跌家数合计、成交额合计）
+
+    ⚠️ 没有 Top N 参数：`series` 返回完整榜单（明细表要全量才找得到弱势板块），
+    "热力图/象限图画前 N 个"由前端裁剪。
+
+    ⚠️ `series` 里 `is_partial=true` 的板块没有覆盖窗口内全部交易日 —— sw3 实测
+    170 个板块里有 41 个是这种（12 个只有 1 天）。它们的"区间累计涨幅"其实是单日
+    涨幅，所以统一沉底，前端不要把它们画进象限图。
+
+    缓存 30 分钟：日更数据，一天只变一次。
+    """
+    result = SectorRotationService.get_rotation(sector_type=sector_type, days=days)
+    if result is None:
+        raise HTTPException(status_code=400, detail=f'非法 sector_type: {sector_type}')
+    return json_resp(result)
 
 
 @market_router.get('/market/fear_greed')

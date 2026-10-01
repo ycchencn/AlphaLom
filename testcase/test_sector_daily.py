@@ -246,5 +246,164 @@ class TestReadGuards(unittest.TestCase):
         self.assertEqual(SectorDailyService.get_history('bogus'), [])
 
 
+class TestSectorRotationService(unittest.TestCase):
+    """板块轮动分析：指标口径 + 两类样本问题。
+
+    这里钉的是「不报错但算错」的口径问题：
+      1. 区间累计必须**复利**（连涨三天各 10% 是 33.1% 不是 30%）；
+      2. 排名分母是"当日参与的板块数"，不是窗口并集（上游每天只给部分三级板块）；
+      3. 样本不完整的板块不能被当成区间最强（它的 cum_pct 其实只是单日涨幅），
+         而且必须带一个沉底的排序键 —— 前端表格会按 sortField 重排，
+         只把服务端顺序排对是没用的；
+      4. 涨跌家数比要自算，不能透传上游 up_down_ratio（down=0 时上游直接给 100）。
+    """
+
+    def _row(self, d, name, pct, up=0, down=0, flat=0, amount=100.0, ratio=1.0):
+        return {'stat_date': d.isoformat(), 'sector_type': 'SW1', 'sector_name': name,
+                'change_pct': pct, 'stock_count': up + down + flat,
+                'up_count': up, 'down_count': down, 'flat_count': flat,
+                'up_down_ratio': ratio, 'top_stock': f'{name}龙头', 'top_stock_pct': 9.9,
+                'bottom_stock': f'{name}垫底', 'bottom_stock_pct': -9.9,
+                'total_trade_amount': amount}
+
+    D1, D2, D3 = date(2026, 9, 22), date(2026, 9, 23), date(2026, 9, 24)
+
+    def _fixture(self):
+        """三天三板块的轮动样本：甲先强后弱再强、乙反向、丙全程中庸。"""
+        return [
+            self._row(self.D1, '甲', 1.0, up=10, down=0, ratio=100.0, amount=200),
+            self._row(self.D1, '乙', 0.0, up=1, down=1, amount=100),
+            self._row(self.D1, '丙', -1.0, up=0, down=4, flat=1, amount=0),
+            self._row(self.D2, '甲', -1.0), self._row(self.D2, '乙', 3.0), self._row(self.D2, '丙', 1.0),
+            self._row(self.D3, '甲', 2.0), self._row(self.D3, '乙', -2.0), self._row(self.D3, '丙', 0.5),
+        ]
+
+    def _run(self, rows, **kw):
+        from service.sector_rotation_service import SectorRotationService
+        with patch.object(SectorDailyService, 'get_history', return_value=rows):
+            return SectorRotationService.get_rotation('sw1', **kw)
+
+    def test_invalid_type_returns_none(self):
+        from service.sector_rotation_service import SectorRotationService
+        self.assertIsNone(SectorRotationService.get_rotation('sw9'))
+
+    def test_empty_history_is_normal_structure(self):
+        """空表要返回 trade_days=0 的正常结构（不是 None、不抛），前端据此渲染空态。"""
+        out = self._run([])
+        self.assertEqual(out['meta']['trade_days'], 0)
+        self.assertEqual(out['series'], [])
+        self.assertEqual(out['daily'], [])
+        self.assertTrue(out['meta']['sample_hint'])
+
+    def test_cum_pct_is_compounded_not_summed(self):
+        rows = [self._row(self.D1, '甲', 10.0), self._row(self.D2, '甲', 10.0),
+                self._row(self.D3, '甲', 10.0)]
+        s = self._run(rows)['series'][0]
+        self.assertAlmostEqual(s['cum_pct'], 33.1, places=2,
+                               msg='1.1^3-1=33.1%，算术和是 30% —— 用加法会在涨跌幅大时高估')
+
+    def test_per_sector_metrics(self):
+        out = self._run(self._fixture())
+        by = {s['sector_name']: s for s in out['series']}
+        jia = by['甲']
+        # 1.01 * 0.99 * 1.02 - 1 = 1.9898%
+        self.assertAlmostEqual(jia['cum_pct'], 1.99, places=2)
+        self.assertEqual(jia['win_days'], 2)          # +1.0 / +2.0
+        self.assertEqual(jia['ranks'], [1, 3, 1])
+        self.assertEqual(jia['first_rank'], 1)
+        self.assertEqual(jia['latest_rank'], 1)
+        self.assertEqual(jia['rank_change'], 0)
+        self.assertEqual(jia['sample_days'], 3)
+        self.assertFalse(jia['is_partial'])
+        # 跑赢中位数：d1 1.0>0.0 ✓；d2 -1.0>1.0 ✗；d3 2.0>0.5 ✓
+        self.assertEqual(jia['beat_days'], 2)
+        self.assertEqual(jia['streak'], 1, '最新一日跑赢 → 连续 1 日')
+        yi = by['乙']
+        self.assertEqual(yi['win_days'], 1, '0.0 既不算涨也不算跌，只有 +3.0 那天算上涨')
+        self.assertEqual(yi['beat_days'], 1)
+        self.assertEqual(yi['streak'], 0, '最新一日没跑赢 → 连续性断开')
+        self.assertEqual(yi['rank_change'], -1, '2 名 → 3 名 = 下滑 1')
+
+    def test_series_sorted_by_cum_desc(self):
+        out = self._run(self._fixture())
+        cums = [s['cum_pct'] for s in out['series']]
+        self.assertEqual(cums, sorted(cums, reverse=True))
+        self.assertEqual([s['sector_name'] for s in out['series']], ['甲', '乙', '丙'])
+
+    def test_partial_sample_sinks_and_gets_sort_key(self):
+        """只有 1 天数据的板块：不能因为"累计涨幅最高"排到第一。"""
+        rows = self._fixture() + [self._row(self.D3, '丁', 5.0)]
+        out = self._run(rows)
+        by = {s['sector_name']: s for s in out['series']}
+        ding = by['丁']
+        self.assertEqual(ding['cum_pct'], 5.0)
+        self.assertTrue(ding['is_partial'])
+        self.assertEqual(ding['sample_days'], 1)
+        self.assertEqual(ding['ranks'], [None, None, 1])
+        self.assertEqual(out['series'][-1]['sector_name'], '丁', '不完整样本必须沉底')
+        # 表格排序键：完整行 = 真实累计，不完整行沉到地板之下
+        self.assertLess(ding['sort_cum'], -1e5)
+        self.assertAlmostEqual(by['甲']['sort_cum'], by['甲']['cum_pct'], places=6)
+        order = sorted(out['series'], key=lambda s: -s['sort_cum'])
+        self.assertEqual(order[-1]['sector_name'], '丁', '按 sort_cum 降序排也不会把丁顶上来')
+        self.assertEqual(out['meta']['partial_count'], 1)
+        self.assertEqual(out['meta']['complete_count'], 3)
+        self.assertTrue(out['meta']['partial_hint'])
+
+    def test_rank_denominator_is_daily_participants(self):
+        """排名分母 = 当日参与的板块数，不是窗口并集（上游每天只给部分三级板块）。"""
+        out = self._run(self._fixture() + [self._row(self.D3, '丁', 5.0)])
+        self.assertEqual([d['sector_count'] for d in out['daily']], [3, 3, 4])
+        self.assertEqual([d['sector_count'] for d in out['daily']][-1], 4)
+        # 丁当天 5.0 最强 → 第 1 名；旧写法会拿并集 4 当分母之外还会把丁算进历史排名
+        self.assertEqual({s['sector_name']: s for s in out['series']}['丁']['latest_rank'], 1)
+
+    def test_daily_breadth(self):
+        out = self._run(self._fixture())
+        d1 = out['daily'][0]
+        self.assertEqual(d1['trade_date'], '2026-09-22')
+        self.assertEqual(d1['median_pct'], 0.0)
+        self.assertEqual(d1['up_sector_count'], 1)
+        self.assertEqual(d1['down_sector_count'], 1)
+        self.assertEqual(d1['flat_sector_count'], 1)
+        self.assertEqual(d1['strongest']['sector_name'], '甲')
+        self.assertEqual(d1['weakest']['sector_name'], '丙')
+        self.assertAlmostEqual(d1['dispersion'], 0.816, places=3)
+        self.assertEqual(d1['amount_total'], 300.0)
+
+    def test_adv_ratio_recomputed_not_upstream(self):
+        """上游在 down_count=0 时会给 up_down_ratio=100，不能拿它当宽度指标。"""
+        out = self._run(self._fixture())
+        d1 = out['daily'][0]
+        # 当日 up 合计 11、down 合计 5 → 11/16
+        self.assertAlmostEqual(d1['adv_ratio'], 0.6875, places=4)
+        self.assertLess(d1['adv_ratio'], 1, '必须落在 0~1，不能透传出 100 那套')
+        self.assertEqual(d1['up_stock_total'], 11)
+        self.assertEqual(d1['down_stock_total'], 5)
+        self.assertEqual(d1['flat_stock_total'], 1)
+
+    def test_amount_share_and_change(self):
+        out = self._run(self._fixture())
+        jia = {s['sector_name']: s for s in out['series']}['甲']
+        # d1 甲 200 / (200+100+0) = 66.67%；d2/d3 都是 100/(100+100+100) = 33.33%
+        self.assertAlmostEqual(jia['amount_share_series'][0], 66.67, places=2)
+        self.assertAlmostEqual(jia['amount_share_series'][-1], 33.33, places=2)
+        # change 是「末日 - 首日」，不是末日相对值
+        self.assertAlmostEqual(jia['amount_share_change'], -33.34, places=2)
+
+    def test_short_sample_flag(self):
+        out = self._run(self._fixture())
+        self.assertTrue(out['meta']['is_short_sample'], '3 个交易日属于短样本')
+        self.assertIn('3 个交易日', out['meta']['sample_hint'])
+
+    def test_days_passed_through_to_history(self):
+        """days 是**交易日个数**，必须原样交给 get_history（不在服务层自己换算日历）。"""
+        from service.sector_rotation_service import SectorRotationService
+        with patch.object(SectorDailyService, 'get_history', return_value=[]) as m:
+            SectorRotationService.get_rotation('sw2', days=17)
+        self.assertEqual(m.call_args.kwargs.get('limit_days', m.call_args[1].get('limit_days')), 17)
+        self.assertEqual(m.call_args[0][0], 'SW2', '传给 get_history 的必须是归一化后的大写级别')
+
+
 if __name__ == '__main__':
     unittest.main()

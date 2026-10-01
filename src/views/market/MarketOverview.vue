@@ -175,6 +175,370 @@ const fetchSectors = async () => {
 watch(sector_type, fetchSectors)
 
 // ========================
+// 板块轮动分析（读库：sector_daily_stats）
+// ========================
+/**
+ * 与上面的「申万行业涨跌排行」是**两张独立卡片、两套独立控件**：
+ * 上面那张是「最新一个交易日的截面排行」，这张是「时序上的轮动」。
+ * 刻意不复用同一个 sector_type —— 用户常常想看一级的排行、同时看二级的轮动，
+ * 共用一个 ref 会让切一个动两处，很难理解。
+ *
+ * ⚠️ 数据只能读本地库（上游 `/cn/market/sector_data/{sw}` 只返回最新一个交易日，
+ * 没有历史接口）。库里能回溯多久取决于日更任务 `job_update_sector_daily`
+ * （mon-fri 20:35）跑了多少天，所以**请求 20 天可能只返回 5 天** ——
+ * 真实样本长度一律以 `meta.trade_days` 为准，不要拿 rot_days 当样本长度。
+ */
+const ROT_WINDOWS = [
+    {label: '近 5 日', value: 5},
+    {label: '近 10 日', value: 10},
+    {label: '近 20 日', value: 20},
+    {label: '近 60 日', value: 60}
+]
+// 热力图/象限图的行数上限直接由这个控件决定（库里的 31/131/150 个板块全画出来不可读）
+const ROT_TOP_N = [
+    {label: '最强 10', value: 10},
+    {label: '最强 20', value: 20},
+    {label: '最强 30', value: 30}
+]
+const ROT_REFRESH_MS = 30 * 60 * 1000   // 日更数据，半小时刷一次足够
+
+const rotation = ref(null)
+const rotation_loading = ref(false)
+const rot_type = ref('sw1')
+const rot_days = ref(20)
+const rot_top_n = ref(20)
+
+const rotSectors = computed(() => rotation.value?.series || [])
+const rotDates = computed(() => rotation.value?.dates || [])
+const rotMeta = computed(() => rotation.value?.meta || null)
+
+/**
+ * 图表用的行（明细表用的是**全量** rotSectors）。
+ *
+ * 两层裁剪：
+ *  1. 只取完整样本 —— `is_partial` 的板块没覆盖窗口内全部交易日，它的"区间累计"
+ *     其实是单日涨幅（sw3 实测有 12 个板块只有 1 天），画进象限图会被误读成极端强势；
+ *  2. 再截到「最强 N」—— 170 行热力图完全不可读。
+ * 后端有意不做这个裁剪（明细表要全量），所以裁剪放在这里。
+ */
+const rotChartRows = computed(() =>
+    rotSectors.value.filter((s) => !s.is_partial).slice(0, rot_top_n.value)
+)
+
+const rotMetaText = computed(() => {
+    const m = rotMeta.value
+    if (!m || !m.trade_days) return ''
+    // 请求窗口 > 实际样本时要说清楚，否则用户会以为「近 20 日」真的看了 20 天
+    const sample = m.requested_days > m.trade_days
+        ? `实际样本 ${m.trade_days}/${m.requested_days} 个交易日（库里只有这些）`
+        : `${m.trade_days} 个交易日`
+    return `${m.start_date} ~ ${m.end_date}　${sample}　`
+        + `完整样本板块 ${m.complete_count} / 全部 ${m.sector_count} 个`
+})
+
+/**
+ * 排名的分母：**最新交易日的实际参与板块数**，不是 `meta.sector_count`（窗口并集）。
+ * sw3 每天上游只给 150 行而并集有 170 个，用并集当分母会把"第 3/150"显示成"第 3/170"。
+ */
+const rotRankBase = computed(() => {
+    const daily = rotation.value?.daily || []
+    return daily.length ? (daily[daily.length - 1].sector_count || rotMeta.value?.sector_count) : null
+})
+
+const fetchRotation = async () => {
+    rotation_loading.value = true
+    try {
+        const res = await axios.get('/api/v1/market/sector_rotation', {
+            params: {sector_type: rot_type.value, days: rot_days.value}
+        })
+        rotation.value = res.data || null
+    } catch (e) {
+        // 接口挂了保持空态，不要留着上一个级别的图（会让人以为切了级别没反应）
+        rotation.value = null
+    } finally {
+        rotation_loading.value = false
+    }
+    renderRotationCharts()
+}
+
+// 级别/窗口变了要重新取数；"最强 N"只影响两张图画几行（后端返回的是完整榜单），
+// 所以只重画、不重新请求 —— 切 N 不该打一次接口。
+watch([rot_type, rot_days], fetchRotation)
+watch(rot_top_n, () => renderRotationCharts())
+
+const signedPct = (v, digits = 2) => (v == null ? '--' : `${v > 0 ? '+' : ''}${Number(v).toFixed(digits)}%`)
+
+/**
+ * 懒初始化 ECharts 实例（本页三张图共用）。
+ *
+ * ⚠️ 两个必须处理的坑，都在本页踩过：
+ *  1. 图表容器在 `v-if` 内部时，首屏数据没到 → 容器不在 DOM → ref 是 null，
+ *     `echarts.init(null)` 会抛 `Cannot read properties of null (reading 'getAttribute')`，
+ *     且异常发生在渲染阶段，会把整个组件挂载链打断 —— 表现是**全页数据都不渲染**，
+ *     但接口一个都没发出去（极易误判成后端问题）。
+ *  2. `v-if` 为 false 会把容器从文档里摘掉，但实例仍持有**已被移除的** DOM 引用，
+ *     之后复用这个"孤儿实例"调 setOption，图会画在脱离文档的 canvas 上 ——
+ *     表现是**左侧数值正常、右边图表空白**。
+ * 所以这里既校验 null，也校验宿主容器是否还是同一个。
+ */
+const lazyInitChart = (el, existing) => {
+    if (!el) return null
+    const host = existing?.getDom?.()
+    if (existing && host !== el) {
+        existing.dispose()
+        existing = null
+    }
+    if (existing) return existing
+    // 容器宽高为 0 时 init 会得到 0×0 的画布，echarts 会告警且画不出来
+    if (!el.clientWidth || !el.clientHeight) return null
+    return echarts.init(el)
+}
+
+// ── 热力图 ──
+// 涨跌幅 → 红涨绿跌的分歧色带。上下限对称（min=-maxAbs, max=+maxAbs），
+// 这样 0 一定落在色带正中间（近白），不会因为数据整体偏红/偏绿而误导。
+const HEAT_COLORS = ['#12783c', '#6fbf8f', '#eef2f6', '#e88989', '#c0392b']
+
+const rotHeatRef = ref(null)
+let rotHeatChart = null
+
+// 最近的"窄容器降级"状态（只有它变了才需要重画，纯尺寸变化 resize 就够）
+let rotNarrowState = null
+// 全页图表共用一个 ResizeObserver 实例（见 observeCharts）
+let chartResizeObserver = null
+
+const heatColorFor = (row) => {
+    // 气泡/格子里的数字要能看清：深色底用白字，浅色底用深字。
+    // 阈值取色带的一半，超过就认为是"饱和色"。
+    return Math.abs(row) > 0.55 ? '#ffffff' : '#1f2937'
+}
+
+const renderRotationHeat = async (maxAbs, rows) => {
+    await nextTick()
+    rotHeatChart = lazyInitChart(rotHeatRef.value, rotHeatChart)
+    const chart = rotHeatChart
+    if (!chart) return
+    if (!rows.length || !rotDates.value.length) {
+        chart.clear()
+        return
+    }
+    const dates = rotDates.value
+    const width = rotHeatRef.value.clientWidth
+    // 极窄容器（<320px）降级：板块名占的左侧留白会吃掉大半宽度，格子只剩十几个像素，
+    // 格内数字会和轴标签叠在一起糊成一团。此时退化成"纯色块矩阵"——颜色形态照样能看出
+    // 轮动，具体数值交给下方的明细表与 tooltip。
+    const narrow = width < 320
+    rotNarrowState = narrow
+    // 数据项：{value:[dateIdx, rowIdx, pct], label:{color}} —— 逐格设置字色
+    const data = []
+    rows.forEach((s, y) => {
+        s.values.forEach((v, x) => {
+            if (v == null) return
+            data.push({value: [x, y, v], label: {color: heatColorFor(v / maxAbs)}})
+        })
+    })
+
+    chart.setOption({
+        // ⚠️ bottom 要同时容纳 x 轴日期与底部色带：留 34px 时日期和 visualMap 会重叠
+        // （实测色带正好压在中间那条日期上）。64px = 日期 ~14px + 色带 ~14px + 间距。
+        grid: {left: narrow ? 50 : 76, right: 12, top: 8, bottom: 64},
+        tooltip: tooltipBase({
+            formatter: (p) => {
+                const [x, y] = p.data.value
+                const s = rows[y]
+                const rank = s.ranks?.[x]
+                const share = s.amount_share_series?.[x]
+                // 分母用**当天**实际参与排名的板块数（窗口并集会把 sw3 的分母放大）
+                const total = rotation.value?.daily?.[x]?.sector_count
+                return `<b>${s.sector_name}</b> · ${dates[x]}<br/>`
+                    + `涨跌幅 <b>${signedPct(s.values[x])}</b>`
+                    + (rank && total ? `（当日第 ${rank}/${total}）` : '') + '<br/>'
+                    + `上涨 ${s.up_count ?? '--'} / 下跌 ${s.down_count ?? '--'} 家<br/>`
+                    + (share != null ? `成交额占比 ${share}%<br/>` : '')
+                    + (s.top_stock ? `领涨 ${s.top_stock} ${signedPct(s.top_stock_pct)}` : '')
+            }
+        }),
+        xAxis: {
+            type: 'category',
+            data: dates,
+            splitArea: {show: false},
+            axisLabel: axisLabel({formatter: (v) => String(v).slice(5)}),
+            axisTick: {show: false},
+            axisLine: {lineStyle: {color: COLORS.axisLine}}
+        },
+        yAxis: {
+            type: 'category',
+            // inverse：区间最强的排最上面（数组已按累计涨幅降序）
+            inverse: true,
+            data: rows.map((s) => s.sector_name),
+            axisLabel: narrow
+                ? axisLabel({fontSize: FONT.label, color: COLORS.text, margin: 4,
+                             width: 44, overflow: 'truncate'})
+                : axisLabel({fontSize: FONT.label, color: COLORS.text, margin: 6}),
+            axisTick: {show: false},
+            axisLine: {show: false}
+        },
+        visualMap: {
+            type: 'continuous',
+            min: -maxAbs,
+            max: maxAbs,
+            calculable: false,
+            orient: 'horizontal',
+            left: 'center',
+            bottom: 4,
+            itemWidth: 12,
+            itemHeight: 150,
+            text: [`+${maxAbs}%`, `-${maxAbs}%`],
+            textStyle: {fontSize: FONT.axis, color: COLORS.axisLabel},
+            inRange: {color: HEAT_COLORS}
+        },
+        series: [{
+            type: 'heatmap',
+            data,
+            // 格子里的数字是这张图的主要信息（否则只能靠 hover），
+            // 但格子太扁（行数很多）或太窄（窄屏）时叠字反而糊，两种情况都关掉
+            label: {show: !narrow && rows.length <= 24,
+                    fontSize: FONT.axis,
+                    formatter: (p) => p.data.value[2].toFixed(1)},
+            itemStyle: {borderColor: '#fff', borderWidth: 1},
+            emphasis: {itemStyle: {shadowBlur: 6, shadowColor: 'rgba(15,23,42,0.25)'}}
+        }]
+    })
+}
+
+// ── 强弱象限散点 ──
+// x = 最新一个交易日涨跌幅（当日动量），y = 窗口累计涨幅（区间动量）。
+// 四象限解读：右上「强势延续」/ 右下「超跌反弹」/ 左上「高位回落」/ 左下「持续走弱」。
+const QUADRANTS = [
+    {name: '强势延续', color: '#dc2626', test: (x, y) => x >= 0 && y >= 0},
+    {name: '超跌反弹', color: '#f97316', test: (x, y) => x >= 0 && y < 0},
+    {name: '高位回落', color: '#3b82f6', test: (x, y) => x < 0 && y >= 0},
+    {name: '持续走弱', color: '#16a34a', test: (x, y) => x < 0 && y < 0}
+]
+
+const rotQuadRef = ref(null)
+let rotQuadChart = null
+
+const renderRotationQuad = async (rows) => {
+    await nextTick()
+    rotQuadChart = lazyInitChart(rotQuadRef.value, rotQuadChart)
+    const chart = rotQuadChart
+    if (!chart) return
+    // rows 已经是"完整样本 + 最强 N"（见 rotChartRows），这里再兜一层空值保护
+    const pts = rows.filter((s) => s.latest_pct != null && s.cum_pct != null)
+    if (!pts.length) {
+        chart.clear()
+        return
+    }
+
+    const xs = pts.map((s) => s.latest_pct)
+    const ys = pts.map((s) => s.cum_pct)
+    // 显式给坐标轴范围，markArea 的象限底纹才能精确落在 0 轴上
+    const xPad = Math.max(0.3, (Math.max(...xs) - Math.min(...xs)) * 0.18)
+    const yPad = Math.max(0.5, (Math.max(...ys) - Math.min(...ys)) * 0.18)
+    const xMin = Math.min(...xs, 0) - xPad
+    const xMax = Math.max(...xs, 0) + xPad
+    const yMin = Math.min(...ys, 0) - yPad
+    const yMax = Math.max(...ys, 0) + yPad
+
+    // 只给「最有信息量」的点打名字：区间两端各 5 个 + 成交额占比前 3 ——
+    // 全部打名字会糊成一片（20 个点大多挤在 0 附近）。
+    // 极窄容器里连这几个名字也放不下（点本身就挤），一律不打，交给 tooltip。
+    const named = new Set(rotNarrowState ? [] : [
+        ...pts.slice(0, 5).map((s) => s.sector_name),
+        ...pts.slice(-5).map((s) => s.sector_name),
+        ...[...pts].sort((a, b) => (b.amount_share_latest ?? 0) - (a.amount_share_latest ?? 0))
+            .slice(0, 3).map((s) => s.sector_name)
+    ])
+
+    chart.setOption({
+        grid: {left: 40, right: 24, top: 14, bottom: 34},
+        tooltip: tooltipBase({
+            formatter: (p) => {
+                const s = p.data[3]
+                return `<b>${s.sector_name}</b><br/>`
+                    + `最新一日 ${signedPct(s.latest_pct)}（第 ${s.latest_rank}/${rotRankBase.value ?? '--'}）<br/>`
+                    + `区间累计 ${signedPct(s.cum_pct)}（日均 ${signedPct(s.avg_pct)}）<br/>`
+                    + `跑赢中位 ${s.beat_days}/${s.trade_days} 日`
+                    + (s.streak ? `，当前连续 ${s.streak} 日` : '') + '<br/>'
+                    + `成交额占比 ${s.amount_share_latest ?? '--'}%`
+            }
+        }),
+        xAxis: {
+            type: 'value', min: xMin, max: xMax,
+            name: '最新一日', nameLocation: 'middle', nameGap: 22,
+            nameTextStyle: {fontSize: FONT.axis, color: COLORS.axisLabel},
+            axisLabel: axisLabel({formatter: (v) => v.toFixed(1)}),
+            splitLine: splitLine(),
+            axisLine: {show: false}
+        },
+        yAxis: {
+            type: 'value', min: yMin, max: yMax,
+            name: '区间累计', nameLocation: 'middle', nameGap: 30,
+            nameTextStyle: {fontSize: FONT.axis, color: COLORS.axisLabel},
+            axisLabel: axisLabel({formatter: (v) => v.toFixed(1)}),
+            splitLine: splitLine(),
+            axisLine: {show: false}
+        },
+        series: [{
+            type: 'scatter',
+            // [当日涨跌, 区间累计, 占比, 原始对象]
+            data: pts.map((s) => [s.latest_pct, s.cum_pct, s.amount_share_latest ?? 0, s]),
+            // 气泡大小 = 成交额占比（用 sqrt 压缩，否则电子 25% 会把别的点压成米粒）
+            symbolSize: (d) => 5 + Math.min(20, Math.sqrt(d[2] ?? 0) * 4.2),
+            itemStyle: {
+                opacity: 0.85,
+                borderColor: '#fff',
+                borderWidth: 1,
+                color: (p) => {
+                    const [x, y] = p.data
+                    return (QUADRANTS.find((q) => q.test(x, y)) || QUADRANTS[3]).color
+                }
+            },
+            label: {
+                show: true,
+                position: 'right',
+                fontSize: FONT.label,
+                color: COLORS.secondary,
+                formatter: (p) => (named.has(p.data[3].sector_name) ? p.data[3].sector_name : '')
+            },
+            labelLayout: {hideOverlap: true},
+            // 四象限底纹 + 名称
+            markArea: {
+                silent: true,
+                itemStyle: {opacity: 0.05},
+                label: {fontSize: FONT.label, color: COLORS.axisLabel, position: 'insideTopLeft', distance: 8},
+                data: [
+                    [{name: '高位回落', xAxis: xMin, yAxis: 0, itemStyle: {color: '#3b82f6'}}, {xAxis: 0, yAxis: yMax}],
+                    [{name: '强势延续', xAxis: 0, yAxis: 0, itemStyle: {color: '#dc2626'}}, {xAxis: xMax, yAxis: yMax}],
+                    [{name: '持续走弱', xAxis: xMin, yAxis: yMin, itemStyle: {color: '#16a34a'}}, {xAxis: 0, yAxis: 0}],
+                    [{name: '超跌反弹', xAxis: 0, yAxis: yMin, itemStyle: {color: '#f97316'}}, {xAxis: xMax, yAxis: 0}]
+                ]
+            },
+            markLine: markLevels([0], {color: COLORS.guideStrong})
+        }]
+    })
+}
+
+const renderRotationCharts = async () => {
+    // 两张图都只用 rotChartRows（完整样本 + 最强 N），明细表才用全量
+    const rows = rotChartRows.value
+    if (!rows.length) {
+        rotHeatChart?.clear()
+        rotQuadChart?.clear()
+        return
+    }
+    // 容器在 `v-if="rotMeta.trade_days"` 里 —— 第一次拿到数据时 DOM 还不存在，
+    // 必须等这一拍渲染完再 observe/init（fetchRotation 里不 await，允许悬挂）
+    await nextTick()
+    observeCharts()
+    // 色带上限取所有格子里绝对值最大者（保底 1%，避免全都在 0 附近时颜色被放大成极端）
+    const maxAbs = Math.max(1, Math.ceil(Math.max(...rows.flatMap((s) => s.values.filter((v) => v != null).map(Math.abs))) * 10) / 10)
+    renderRotationHeat(maxAbs, rows)
+    renderRotationQuad(rows)
+}
+
+// ========================
 // 恐惧贪婪（F4）
 // ========================
 const fearGreedLatest = computed(() => fear_greed_list.value[fear_greed_list.value.length - 1] || null)
@@ -229,6 +593,7 @@ let fgChart = null
  * @see https://echarts.apache.org/zh/api.html#echarts.getInstanceByDom
  */
 const ensureChart = () => {
+    observeCharts()
     if (!fgChartRef.value) return null
     // 已有实例，但宿主容器已被 v-if 换掉（或已脱离文档）→ 必须先 dispose
     const host = fgChart && fgChart.getDom && fgChart.getDom()
@@ -300,10 +665,50 @@ const renderFearGreedChart = async () => {
     })
 }
 
-const resizeCharts = () => {
-    fgChart?.resize()
-    gvChart?.resize()
+/**
+ * 全页图表的尺寸跟随：**只用 ResizeObserver，不用 `window.resize`**。
+ *
+ * ⚠️ 踩过的坑（1420→430→1440 走一遍必现）：
+ *  `window.resize` 回调**早于最终布局生效**。本页两侧都有会改变内容宽度的东西
+ *  （≤1200px 的媒体查询把两列栅格改一列、窄屏时侧栏让位），resize 那一刻量到的
+ *  还是过渡中的宽度 —— 实测切回 1440 后容器已经是 840px，ECharts 内部却写死了
+ *  1044px。更糟的是 ECharts 的根 div 是**带显式 px 宽度**的普通块元素，
+ *  而 `.fg-chart` 的 `overflow-x` 默认 `visible` → 多出的 200px 直接漏到盒外，
+ *  把 `documentElement.scrollWidth` 撑到 1581，页面凭空多出一条横向滚动条。
+ *  ResizeObserver 在元素尺寸真正变化后回调，量到的才是最终宽度；
+ *  再配 CSS 的 `overflow-x: clip`（见样式里 .fg-chart / .rot-chart）兜底，
+ *  就算哪次量歪了也只是裁掉，不会污染页面级滚动。
+ *
+ * 轮动图另有一条：容器窄到 <320px 时格内数字要关掉、轴留白要收窄，
+ * 这类配置**只能靠重画生效**（纯 resize 只改画布尺寸），所以降级状态翻转时
+ * 走 renderRotationCharts 重画。
+ */
+const observeCharts = () => {
+    if (typeof ResizeObserver === 'undefined') return
+    if (!chartResizeObserver) {
+        chartResizeObserver = new ResizeObserver(() => {
+            const charts = [fgChart, gvChart, rotHeatChart, rotQuadChart]
+            if (!charts.some(Boolean)) return
+            const narrow = (rotHeatRef.value?.clientWidth ?? 0) < 320
+            if (rotHeatChart && narrow !== rotNarrowState) {
+                renderRotationCharts()
+                return
+            }
+            charts.forEach((c) => c?.resize())
+        })
+    }
+    // 四个容器都在 v-if 里，早期调用时 ref 还是 null → **每次都尝试 observe**
+    // （重复 observe 同一元素是幂等的；只 observe 一次会永久漏掉后来出现的容器）
+    ;[fgChartRef, gvChartRef, rotHeatRef, rotQuadRef].forEach((r) => {
+        if (r.value) chartResizeObserver.observe(r.value)
+    })
 }
+
+const disconnectCharts = () => {
+    chartResizeObserver?.disconnect()
+    chartResizeObserver = null
+}
+
 // ========================
 // 成长 vs 价值（比值走势）
 // ========================
@@ -370,6 +775,7 @@ const gvLegColor = (norm) => {
 
 // 与恐惧贪婪图同样的坑：容器在 v-if 内，数据到位后 DOM 才存在，必须懒初始化
 const ensureGvChart = () => {
+    observeCharts()
     if (gvChart || !gvChartRef.value) return gvChart
     gvChart = echarts.init(gvChartRef.value)
     return gvChart
@@ -494,21 +900,26 @@ const renderGrowthValueChart = async () => {
 let tickTimer = null
 let fgTimer = null
 let gvTimer = null
+let rotTimer = null
 
 const startTimers = () => {
     stopTimers()
     tickTimer = setInterval(fetchIndexTick, TICK_REFRESH_MS)
     fgTimer = setInterval(fetchFearGreed, FEAR_GREED_REFRESH_MS)
     gvTimer = setInterval(fetchGrowthValue, FEAR_GREED_REFRESH_MS)
+    // 板块轮动是日更数据（job_update_sector_daily mon-fri 20:35），涨了也不会盘中变化
+    rotTimer = setInterval(fetchRotation, ROT_REFRESH_MS)
 }
 
 const stopTimers = () => {
     if (tickTimer) clearInterval(tickTimer)
     if (fgTimer) clearInterval(fgTimer)
     if (gvTimer) clearInterval(gvTimer)
+    if (rotTimer) clearInterval(rotTimer)
     tickTimer = null
     fgTimer = null
     gvTimer = null
+    rotTimer = null
 }
 
 watch(auto_refresh, (on) => (on ? startTimers() : stopTimers()))
@@ -528,23 +939,29 @@ onMounted(async () => {
     // ⚠️ 这里**不能**直接 echarts.init(fgChartRef.value)：图表容器在 v-if 里，
     // 首屏此刻还没渲染，ref 是 null（详见 ensureChart 注释）。真正的 init
     // 放在 fetchFearGreed -> renderFearGreedChart -> ensureChart 里。
-    window.addEventListener('resize', resizeCharts)
+    // 图表尺寸跟随也不挂 window.resize —— 改用 observeCharts 的 ResizeObserver，原因见其注释。
     document.addEventListener('visibilitychange', onVisibilityChange)
 
-    // 首屏并发拉取：四个接口互不依赖，串行等待会让首屏白屏时间翻倍。
-    // 用 allSettled：任一接口挂掉不应该让另外三个也不显示。
-    await Promise.allSettled([fetchIndexTick(), fetchSectors(), fetchFearGreed(), fetchGrowthValue()])
+    // 首屏并发拉取：五个接口互不依赖，串行等待会让首屏白屏时间翻倍。
+    // 用 allSettled：任一接口挂掉不应该让另外几个也不显示。
+    await Promise.allSettled([
+        fetchIndexTick(), fetchSectors(), fetchFearGreed(), fetchGrowthValue(), fetchRotation()
+    ])
     startTimers()
 })
 
 onUnmounted(() => {
     stopTimers()
-    window.removeEventListener('resize', resizeCharts)
     document.removeEventListener('visibilitychange', onVisibilityChange)
+    disconnectCharts()
     fgChart?.dispose()
     fgChart = null
     gvChart?.dispose()
     gvChart = null
+    rotHeatChart?.dispose()
+    rotHeatChart = null
+    rotQuadChart?.dispose()
+    rotQuadChart = null
 })
 </script>
 
@@ -826,6 +1243,208 @@ onUnmounted(() => {
             </template>
         </Card>
 
+        <!-- 板块轮动分析（读库 sector_daily_stats，样本长度见 meta.trade_days） -->
+        <Card class="chart-card rotation-card mt-5">
+            <template #title>
+                <div class="card-title-row">
+                    <span>板块轮动分析</span>
+                    <div class="rot-controls">
+                        <SelectButton
+                            v-model="rot_type"
+                            :options="SECTOR_TYPES"
+                            optionLabel="label"
+                            optionValue="value"
+                            :allowEmpty="false"
+                            size="small"
+                        />
+                        <SelectButton
+                            v-model="rot_days"
+                            :options="ROT_WINDOWS"
+                            optionLabel="label"
+                            optionValue="value"
+                            :allowEmpty="false"
+                            size="small"
+                        />
+                        <SelectButton
+                            v-model="rot_top_n"
+                            :options="ROT_TOP_N"
+                            optionLabel="label"
+                            optionValue="value"
+                            :allowEmpty="false"
+                            size="small"
+                        />
+                    </div>
+                </div>
+            </template>
+            <template #content>
+                <div v-if="rotMeta && rotMeta.trade_days" class="rot-body" :class="{'is-loading': rotation_loading}">
+                    <!-- 样本口径：请求 20 天只有 5 天时必须说清楚，否则会被当成"近 20 日" -->
+                    <div class="rot-meta">
+                        <span class="rot-meta-text">{{ rotMetaText }}</span>
+                        <span v-if="rotMeta.sample_hint" class="rot-hint">{{ rotMeta.sample_hint }}</span>
+                        <span v-if="rotMeta.partial_hint" class="rot-hint">{{ rotMeta.partial_hint }}</span>
+                    </div>
+
+                    <!-- 每日市场宽度（板块层面） -->
+                    <div class="rot-section-title">
+                        每日市场宽度（板块层面，涨跌板块家数 / 中位涨跌幅 / 分化度）
+                    </div>
+                    <div class="rot-days">
+                        <div v-for="d in rotation.daily" :key="d.trade_date" class="rot-day">
+                            <div class="rd-date">
+                                {{ d.trade_date.slice(5) }}
+                                <span class="rd-amt">{{ (Number(d.amount_total) / 10000).toFixed(2) }} 万亿</span>
+                            </div>
+                            <div class="rd-mid">
+                                中位 <b :class="getPctColorClass(d.median_pct)">{{ signedPct(d.median_pct) }}</b>
+                                <span class="rd-disp">分化 {{ Number(d.dispersion ?? 0).toFixed(2) }}</span>
+                            </div>
+                            <div class="rd-breadth">
+                                <span class="text-up">{{ d.up_sector_count }}</span> 涨 /
+                                <span class="text-down">{{ d.down_sector_count }}</span> 跌
+                                <span class="rd-ratio">涨跌家数比 {{ Number(d.adv_ratio ?? 0).toFixed(2) }}</span>
+                            </div>
+                            <div class="rd-leader">
+                                最强 <span class="rd-name">{{ d.strongest?.sector_name || '--' }}</span>
+                                <b :class="getPctColorClass(d.strongest?.change_pct)">
+                                    {{ signedPct(d.strongest?.change_pct) }}
+                                </b>
+                            </div>
+                            <div class="rd-leader">
+                                最弱 <span class="rd-name">{{ d.weakest?.sector_name || '--' }}</span>
+                                <b :class="getPctColorClass(d.weakest?.change_pct)">
+                                    {{ signedPct(d.weakest?.change_pct) }}
+                                </b>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 热力图 + 强弱象限 -->
+                    <div class="rot-charts">
+                        <div class="rot-chart-box">
+                            <div class="rot-chart-title">
+                                轮动热力图（按区间累计涨幅排序，红涨绿跌；格内为当日涨跌幅 %）
+                            </div>
+                            <div ref="rotHeatRef" class="rot-chart rot-heat"
+                                 :class="{'is-loading': rotation_loading}"></div>
+                        </div>
+                        <div class="rot-chart-box">
+                            <div class="rot-chart-title">
+                                强弱象限（气泡大小 = 最新日成交额占比）
+                            </div>
+                            <div ref="rotQuadRef" class="rot-chart rot-quad"
+                                 :class="{'is-loading': rotation_loading}"></div>
+                            <div class="rot-legend">
+                                <span v-for="q in QUADRANTS" :key="q.name" class="rot-legend-item">
+                                    <i class="rot-dot" :style="{background: q.color}"></i>{{ q.name }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 轮动明细 -->
+                    <div class="rot-section-title">
+                        轮动明细（按区间累计涨幅降序，样本不完整的板块沉底并标注「样本 n/N」）
+                    </div>
+                    <DataTable
+                        :value="rotation.series"
+                        :loading="rotation_loading"
+                        stripedRows
+                        size="small"
+                        class="rot-table"
+                        :sortField="'sort_cum'"
+                        :sortOrder="-1"
+                        sortMode="single"
+                        removableSort
+                        :rowHover="true"
+                        scrollable
+                        scrollHeight="420px"
+                    >
+                        <Column field="sector_name" header="板块" :filter="true" filterPlaceholder="搜索板块"
+                                style="min-width: 128px">
+                            <template #body="{ data }">
+                                {{ data.sector_name }}
+                                <!-- 样本不满窗口 → 明确标出来，"区间累计"对它是单日涨幅 -->
+                                <span v-if="data.is_partial" class="rot-partial"
+                                      :title="`该板块只覆盖 ${data.sample_days}/${rotMeta.trade_days} 个交易日`">
+                                    样本 {{ data.sample_days }}/{{ rotMeta.trade_days }}
+                                </span>
+                            </template>
+                        </Column>
+                        <!-- ⚠️ 排序字段用 sort_cum 而不是 cum_pct：样本不完整的板块
+                             cum_pct 其实只是单日涨幅，直接按它排会被顶到最前面（实测
+                             sw3 的「视频媒体 +6.06%」只有 1 天数据）。sort_cum 把它们
+                             压到地板之下，展示的仍是真实 cum_pct。 -->
+                        <Column field="sort_cum" header="区间累计" sortable style="min-width: 88px">
+                            <template #body="{ data }">
+                                <b :class="getPctColorClass(data.cum_pct)">{{ signedPct(data.cum_pct) }}</b>
+                            </template>
+                        </Column>
+                        <Column field="latest_pct" header="最新日" sortable style="min-width: 80px">
+                            <template #body="{ data }">
+                                <span :class="getPctColorClass(data.latest_pct)">{{ signedPct(data.latest_pct) }}</span>
+                            </template>
+                        </Column>
+                        <Column field="win_days" header="上涨天数" sortable style="min-width: 84px">
+                            <template #body="{ data }">
+                                <span class="text-up">{{ data.win_days }}</span>
+                                <span class="text-muted"> / {{ data.sample_days }}</span>
+                            </template>
+                        </Column>
+                        <Column field="beat_days" header="跑赢中位" sortable style="min-width: 84px">
+                            <template #body="{ data }">
+                                {{ data.beat_days }}<span class="text-muted"> / {{ data.sample_days }}</span>
+                            </template>
+                        </Column>
+                        <Column field="streak" header="连续跑赢" sortable style="min-width: 84px">
+                            <template #body="{ data }">
+                                <span v-if="data.streak" class="rot-streak">{{ data.streak }} 日</span>
+                                <span v-else class="text-muted">—</span>
+                            </template>
+                        </Column>
+                        <Column field="latest_rank" header="最新排名" sortable style="min-width: 84px">
+                            <template #body="{ data }">
+                                {{ data.latest_rank ?? '--' }}
+                                <span class="text-muted">/{{ rotRankBase ?? '--' }}</span>
+                            </template>
+                        </Column>
+                        <Column field="rank_change" header="排名变化" sortable style="min-width: 84px">
+                            <template #body="{ data }">
+                                <!-- rank_change > 0 = 排名数字变小 = 名次上升 -->
+                                <span v-if="data.rank_change > 0" class="text-up">▲{{ data.rank_change }}</span>
+                                <span v-else-if="data.rank_change < 0" class="text-down">▼{{ -data.rank_change }}</span>
+                                <span v-else class="text-muted">—</span>
+                            </template>
+                        </Column>
+                        <Column field="amount_share_latest" header="成交额占比" sortable style="min-width: 104px">
+                            <template #body="{ data }">
+                                {{ data.amount_share_latest == null ? '--' : data.amount_share_latest + '%' }}
+                                <div v-if="data.amount_share_change != null" class="rot-share-chg"
+                                     :class="getPctColorClass(data.amount_share_change)">
+                                    {{ data.amount_share_change > 0 ? '+' : '' }}{{ Number(data.amount_share_change).toFixed(2) }}pp
+                                </div>
+                            </template>
+                        </Column>
+                        <Column header="领涨股" style="min-width: 130px">
+                            <template #body="{ data }">
+                                <span v-if="data.top_stock" class="text-up">
+                                    {{ data.top_stock }}
+                                    <span class="text-xxs">({{ Number(data.top_stock_pct ?? 0).toFixed(2) }}%)</span>
+                                </span>
+                                <span v-else class="text-muted">--</span>
+                            </template>
+                        </Column>
+                        <template #empty>
+                            <div class="empty-tip">暂无轮动数据</div>
+                        </template>
+                    </DataTable>
+                </div>
+                <div v-else class="empty-tip">
+                    {{ rotation_loading ? '加载中…' : '暂无板块历史数据（日更任务 job_update_sector_daily 每天 20:35 落库，需累积几天才能算轮动）' }}
+                </div>
+            </template>
+        </Card>
+
     </div>
 </template>
 
@@ -1053,6 +1672,11 @@ onUnmounted(() => {
             min-height: 200px;
             width: 100%;
             transition: opacity 0.2s ease;
+            // ECharts 的根 div 是**带显式 px 宽度**的普通块元素（不是 absolute），
+            // 一旦实例尺寸没跟上容器（窗口缩放过程中量歪），多出的宽度在
+            // overflow-x: visible 下会"画"到盒外并撑开页面级滚动条 —— 实测把
+            // scrollWidth 从 1440 撑到 1581。这里裁掉，最坏情况只是图被裁一点。
+            overflow-x: clip;
 
             // 项目未引入 element-plus，没有 v-loading 指令，用透明度表达加载态
             &.is-loading {
@@ -1124,6 +1748,226 @@ onUnmounted(() => {
     color: var(--color-flat);
 }
 
+.text-muted {
+    color: #94a3b8;
+}
+
+// ========================
+// 板块轮动分析
+// ========================
+.rotation-card {
+    margin-bottom: 1.5rem;
+}
+
+.rot-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.rot-body {
+    transition: opacity 0.2s ease;
+
+    &.is-loading {
+        opacity: 0.5;
+    }
+}
+
+// 样本口径 + 短样本提示
+.rot-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.9rem;
+    font-size: 0.9rem;
+
+    .rot-meta-text {
+        color: #64748b;
+    }
+
+    // ⚠️ 长中文文案必须给 min-width: 0 + 允许换行：否则 flex 子项的最小内容宽度
+    // 会把整行撑开（overflow-x 默认 visible 时表现为卡片多出横向滚动条）
+    .rot-hint {
+        min-width: 0;
+        padding: 0.2rem 0.6rem;
+        border-radius: 4px;
+        background: #fef6e0;
+        border: 1px solid #f5dfa6;
+        color: #8a6100;
+        overflow-wrap: anywhere;
+    }
+}
+
+.rot-section-title {
+    font-size: 0.9rem;
+    color: #94a3b8;
+    margin: 1rem 0 0.5rem;
+}
+
+// 每日市场宽度
+.rot-days {
+    display: flex;
+    gap: 0.6rem;
+    // 数据攒到几十天时横向滚动，不要把它挤扁
+    overflow-x: auto;
+    padding-bottom: 0.3rem;
+
+    .rot-day {
+        flex: 0 0 auto;
+        min-width: 168px;
+        padding: 0.55rem 0.7rem;
+        border: 1px solid var(--border-color);
+        border-radius: 6px;
+        background: #fbfcfe;
+        font-size: 0.85rem;
+        line-height: 1.7;
+        color: #475569;
+
+        .rd-date {
+            font-weight: 600;
+            color: #1e293b;
+
+            .rd-amt {
+                margin-left: 0.4rem;
+                font-weight: 400;
+                color: #94a3b8;
+                font-size: 0.9em;
+            }
+        }
+
+        .rd-mid .rd-disp {
+            margin-left: 0.5rem;
+            color: #94a3b8;
+            font-size: 0.9em;
+        }
+
+        .rd-breadth .rd-ratio {
+            margin-left: 0.5rem;
+            color: #94a3b8;
+            font-size: 0.9em;
+        }
+
+        .rd-leader {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+
+            .rd-name {
+                color: #1e293b;
+                font-weight: 600;
+            }
+
+            // ⚠️ Vue 模板默认 whitespace: 'condense' —— 元素之间只含换行的空白会被删掉，
+            // 所以「电子」和「+0.80%」会贴在一起，得用 CSS 补间距
+            b {
+                margin-left: 0.15rem;
+            }
+        }
+    }
+}
+
+// 两张图：热力图为宽图、象限为方图
+.rot-charts {
+    display: grid;
+    grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+    gap: 1.2rem;
+    margin-top: 0.4rem;
+
+    .rot-chart-box {
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+
+        .rot-chart-title {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 0.3rem;
+        }
+
+        .rot-chart {
+            width: 100%;
+            transition: opacity 0.2s ease;
+            // 同 .fg-chart：挡住 ECharts 根 div 的显式宽度漏到页面级滚动
+            overflow-x: clip;
+        }
+
+        .rot-heat {
+            height: 440px;
+        }
+
+        .rot-quad {
+            height: 400px;
+        }
+    }
+}
+
+// 象限配色说明（用 HTML 图例而不是 ECharts legend：四象限是"底纹"不是 series）
+.rot-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.8rem;
+    justify-content: center;
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-top: 0.2rem;
+
+    .rot-legend-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .rot-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+    }
+}
+
+// 轮动明细表（与上方的申万排行表同款，只是列更多）
+.rot-table {
+    td, th {
+        padding: 0.4rem 0.5rem;
+        font-size: 0.9rem;
+    }
+
+    :deep(.p-column-header) {
+        text-align: left;
+        padding: 10px 8px;
+        background: var(--header-bg);
+        font-weight: 600;
+    }
+
+    :deep(.p-datatable-tbody > tr > td) {
+        padding: 10px 8px;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    // "连续跑赢"是这张表里最像"当前主线"的字段，给个轻量高亮
+    .rot-streak {
+        color: #b45309;
+        font-weight: 600;
+    }
+
+    // 样本不满窗口的板块标记
+    .rot-partial {
+        margin-left: 0.3rem;
+        padding: 0 0.3rem;
+        border-radius: 3px;
+        background: #eef2f6;
+        color: #94a3b8;
+        font-size: 0.9em;
+        white-space: nowrap;
+        cursor: help;
+    }
+
+    .rot-share-chg {
+        font-size: 0.9em;
+    }
+}
+
 // 根字号 12px，text-xs 名义 9px —— 这里用 10.5px（sm 档）
 .text-xxs {
     font-size: 0.875rem;
@@ -1148,6 +1992,11 @@ onUnmounted(() => {
         .fg-chart {
             min-height: 180px;
         }
+    }
+
+    // 两张轮动图并排会让每张都太窄（热力图还要放板块名），窄屏改为上下堆叠
+    .rot-charts {
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 

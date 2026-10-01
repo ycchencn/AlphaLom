@@ -21,4 +21,5 @@ from service.portfolio_transaction_service import PortfolioTransactionService
 from service.api_key import ApiKeyService
 from service.research_report_service import ResearchReportService
 from service.sector_daily_service import SectorDailyService
+from service.sector_rotation_service import SectorRotationService
 from service.user import UserService
