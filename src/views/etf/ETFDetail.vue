@@ -18,6 +18,7 @@ import Tag from 'primevue/tag';
 import ProgressSpinner from 'primevue/progressspinner';
 import SelectButton from 'primevue/selectbutton';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
+import FactorPanel from '@/components/FactorPanel.vue';
 import {
     formatCurrency,
     formatPercentage,
@@ -851,6 +852,20 @@ onUnmounted(() => {
                             暂无历史行情数据
                         </div>
                     </div>
+                </template>
+            </Card>
+
+            <!-- 技术分析：与个股详情页共用 FactorPanel（因子看板 / 技术面仪表盘 / 因子雷达 / 横向对比）。
+                 ⚠️ 必须传 asset-type="etf" —— ETF 与个股走**不同的行情接口**，
+                 传错不会报错，而是拿到半年前的日线，均线/关键位/ATR 会全按旧价算出来。
+                 ETF 侧的两处天然降级：无「主力行为阶段」因子（该卡片不渲染）、无行业
+                 （横向对比改比全站 ETF 池）。 -->
+            <Card class="mb-6">
+                <template #title>
+                    <i class="pi pi-chart-line text-blue-500 mr-1"></i> 技术分析
+                </template>
+                <template #content>
+                    <FactorPanel :symbol="symbol" asset-type="etf"/>
                 </template>
             </Card>
 

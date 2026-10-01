@@ -1,16 +1,21 @@
 <script setup>
 /**
- * 个股技术面「专业分析」面板（因子看板 / 仪表盘 / 雷达 / 行业对比）
+ * 个股 / ETF 技术面「专业分析」面板（因子看板 / 仪表盘 / 雷达 / 横向对比）
  *
  * 数据来源（routes/factor.py + service/factor_analysis_service.py）：
  *   GET /api/v1/factor/stock/{symbol}                 因子看板（全部技术因子 + 历史分位）
  *   GET /api/v1/factor/stock/{symbol}/dashboard       仪表盘（均线/关键位/象限/阶段/热度）
  *   GET /api/v1/factor/stock/{symbol}/radar           因子雷达
- *   GET /api/v1/factor/stock/{symbol}/industry_rank   行业内排名
+ *   GET /api/v1/factor/stock/{symbol}/industry_rank   横向对比（个股=行业内 / ETF=全站 ETF）
  *   GET /api/v1/factor/stock/{symbol}/series          因子序列（画曲线）
  *
- * 设计：本组件**自带取数**，父页面只需传 `symbol`。取数失败静默降级（卡片不渲染），
- * 不让一个专业面板的失败拖垮整个个股详情页。
+ * 设计：本组件**自带取数**，父页面只需传 `symbol` 与 `assetType`。取数失败静默降级
+ * （卡片不渲染），不让一个专业面板的失败拖垮整个详情页。
+ *
+ * ⚠️ ETF 与个股的差异（都会让卡片「静默变空」，不是报错）：
+ *   1. 行情接口不同 → 必须传 assetType='etf'，否则仪表盘拿的是半年前的日线（见后端注释）；
+ *   2. ETF 没有 `main_force_behavior_phase`（主力行为阶段）→ 该卡片本就不渲染；
+ *   3. ETF 没有行业 → 横向对比改比「全站 ETF 池」，标题按响应里的 scope 自适应。
  */
 import {computed, onMounted, onUnmounted, ref, watch, nextTick} from 'vue';
 import axios from 'axios';
@@ -43,6 +48,9 @@ function phaseColor(code) {
 
 const props = defineProps({
     symbol: {type: String, required: true},
+    // 'stock'（默认）/ 'etf'。**ETF 必须显式传**：仪表盘的行情接口按它分流，
+    // 传错不会报错，而是拿到半年前的日线，均线/关键位/ATR 全按旧价算出（静默错误）。
+    assetType: {type: String, default: 'stock'},
 });
 
 // ==================== 状态 ====================
@@ -50,7 +58,7 @@ const loading = ref(false);
 const board = ref(null);         // L0 因子看板
 const dashboard = ref(null);     // L1 仪表盘
 const radar = ref(null);         // L2 雷达
-const industryRank = ref(null);  // L2 行业对比
+const peerRank = ref(null);      // L2 横向对比（个股=行业内 / ETF=全站 ETF）
 const activeGroup = ref(null);   // 当前选中的因子分组（画曲线用）
 const seriesData = ref(null);    // 选中分组的因子曲线数据
 
@@ -71,17 +79,20 @@ async function loadAll() {
     if (!props.symbol) return;
     loading.value = true;
     const base = `/api/v1/factor/stock/${props.symbol}`;
-    // ⚠️ 用 allSettled：单个接口失败（如无行业归属导致 industry_rank 404）不应影响其它卡片。
+    const at = props.assetType;
+    // ⚠️ 用 allSettled：单个接口失败（如 ETF 无行业样本导致横向对比 404）不应影响其它卡片。
+    // asset_type 只传给**真的按它分流**的两个接口（dashboard / industry_rank），
+    // 看板与雷达按 ticker 直接查因子表，个股 ETF 同一套口径，多传反而像是有差别。
     const [b, d, r, ir] = await Promise.allSettled([
         axios.get(base),
-        axios.get(`${base}/dashboard`),
+        axios.get(`${base}/dashboard`, {params: {asset_type: at}}),
         axios.get(`${base}/radar`),
-        axios.get(`${base}/industry_rank`),
+        axios.get(`${base}/industry_rank`, {params: {asset_type: at}}),
     ]);
     board.value = b.status === 'fulfilled' ? (b.value.data?.data ?? b.value.data) : null;
     dashboard.value = d.status === 'fulfilled' ? (d.value.data?.data ?? d.value.data) : null;
     radar.value = r.status === 'fulfilled' ? (r.value.data?.data ?? r.value.data) : null;
-    industryRank.value = ir.status === 'fulfilled' ? (ir.value.data?.data ?? ir.value.data) : null;
+    peerRank.value = ir.status === 'fulfilled' ? (ir.value.data?.data ?? ir.value.data) : null;
     loading.value = false;
 
     // 默认展开第一个分组并画曲线
@@ -294,6 +305,25 @@ const levels = computed(() => dashboard.value?.key_levels || null);
 const phase = computed(() => dashboard.value?.phase_series || null);
 const range52 = computed(() => board.value?.range_52week || null);
 
+// 横向对比卡片：标题与脚注按后端返回的 scope 走，前端不再自己判「什么类型写什么文案」。
+const peerTitle = computed(() => {
+    const ir = peerRank.value;
+    if (!ir) return '';
+    // 兼容旧响应（无 scope 字段时按行业处理）
+    const label = ir.peer_label ?? ir.industry ?? '';
+    return (ir.scope === 'etf' ? '同类排名' : '行业内排名') + (label ? ` · ${label}` : '');
+});
+const peerNote = computed(() => (peerRank.value?.scope === 'etf'
+    ? '同类样本来自监控清单与轮动池中的全部 ETF，样本较少时仅供参考。'
+    : '同业样本来自监控池中同行业标的，样本较少时仅供参考。'));
+
+// 因子历史过短时（新纳入日更的标的常常只落了一两天），历史分位没有参考价值，
+// 显式提示而不是让用户对着一堆「100% / 0%」猜。阈值取 5 个交易日。
+const historyShort = computed(() => {
+    const n = board.value?.history_days;
+    return typeof n === 'number' && n > 0 && n < 5;
+});
+
 const MA_STATE_STYLE = {
     bull: {text: '多头排列', color: '#d64545'},
     bear: {text: '空头排列', color: '#1f9d55'},
@@ -312,7 +342,8 @@ onUnmounted(() => {
     window.removeEventListener('resize', onResize);
     disposeAll();
 });
-watch(() => props.symbol, () => { disposeAll(); loadAll(); });
+// symbol 或 assetType 变化都要重取：同一代码在个股/ETF 下走的是不同行情接口。
+watch(() => [props.symbol, props.assetType], () => { disposeAll(); loadAll(); });
 </script>
 
 <template>
@@ -428,6 +459,14 @@ watch(() => props.symbol, () => { disposeAll(); loadAll(); });
                         截至 {{ board.asof }}</span>
                 </div>
 
+                <!-- 历史分位要有足够样本才有意义：新纳入日更的标的往往只落了一两天，
+                     此时「历史分位」是 1 个点里的 100%，看着正常其实无效。 -->
+                <div class="fp-note" v-if="historyShort">
+                    <i class="pi pi-info-circle"></i>
+                    该标的的因子历史仅 {{ board.history_days }} 个交易日，历史分位与因子走势曲线的参考价值有限
+                    （因子按日累积，新纳入监控的标的从纳入日起逐日补齐）。
+                </div>
+
                 <div class="fp-groups">
                     <div v-for="g in board.groups" :key="g.key"
                          class="fp-group" :class="{active: activeGroup && activeGroup.key === g.key}"
@@ -481,31 +520,31 @@ watch(() => props.symbol, () => { disposeAll(); loadAll(); });
                 </div>
             </div>
 
-            <!-- ============ L2 · 雷达 + 行业对比 ============ -->
-            <div class="fp-block" v-if="radar || industryRank">
-                <div class="fp-title"><i class="pi pi-chart-pie text-blue-500"></i> 因子雷达与行业对比</div>
+            <!-- ============ L2 · 雷达 + 横向对比（个股=行业 / ETF=全站 ETF） ============ -->
+            <div class="fp-block" v-if="radar || peerRank">
+                <div class="fp-title"><i class="pi pi-chart-pie text-blue-500"></i> 因子雷达与横向对比</div>
                 <div class="fp-row2">
                     <div class="fp-card" v-if="radar && radar.axes.length">
                         <div class="fp-card-h">核心因子雷达（0~100 分位，反向因子已翻转）</div>
                         <div ref="radarRef" class="fp-radar-chart"></div>
                     </div>
-                    <div class="fp-card" v-if="industryRank && industryRank.rows.length">
+                    <div class="fp-card" v-if="peerRank && peerRank.rows.length">
                         <div class="fp-card-h">
-                            行业内排名 · {{ industryRank.industry }}
-                            <span class="fp-sub">（样本 {{ industryRank.peer_count }} 只）</span>
+                            {{ peerTitle }}
+                            <span class="fp-sub">（样本 {{ peerRank.peer_count }} 只）</span>
                         </div>
                         <div class="fp-rank-list">
-                            <div v-for="r in industryRank.rows" :key="r.field" class="fp-rank-row">
+                            <div v-for="r in peerRank.rows" :key="r.field" class="fp-rank-row">
                                 <span class="fp-rank-name">{{ r.name }}</span>
                                 <span class="fp-rank-val">{{ fmtValue(r.field, r.value) }}</span>
                                 <span class="fp-rank-pct"
                                       :style="{color: betterPct(r) >= 70 ? '#d64545' : (betterPct(r) <= 30 ? '#1f9d55' : '#8a8a8a')}">
-                                    优于同业 {{ betterPct(r).toFixed(0) }}%
+                                    优于同类 {{ betterPct(r).toFixed(0) }}%
                                 </span>
                             </div>
                         </div>
                         <div class="fp-sub" style="margin-top:8px">
-                            同业样本来自监控池中同行业标的，样本较少时仅供参考。
+                            {{ peerNote }}
                         </div>
                     </div>
                 </div>
@@ -531,13 +570,20 @@ watch(() => props.symbol, () => { disposeAll(); loadAll(); });
 .fp-factor, .fp-factor-top, .fp-factor-name, .fp-factor-val, .fp-factor-pct,
 .fp-ma-state, .fp-ma-list, .fp-ma-item, .fp-lv, .fp-lv-k, .fp-lv-v,
 .fp-range-k, .fp-range-v, .fp-phase-cur, .fp-phase-legend, .fp-pl-item,
-.fp-rank-row, .fp-rank-name, .fp-rank-val, .fp-rank-pct {
+.fp-rank-row, .fp-rank-name, .fp-rank-val, .fp-rank-pct, .fp-note {
     min-width: 0;
     overflow-wrap: anywhere;
     overflow: hidden;
 }
 .fp-loading { padding: 1rem 0; color: #8a8a8a; font-size: 13px; }
 .fp-empty { padding: 1.5rem 0; color: #8a8a8a; font-size: 13px; text-align: center; }
+/* 提示条（因子历史不足等）：淡底 + 左侧图标，窄屏不撑宽（已并入上方防溢出选择器） */
+.fp-note {
+    display: flex; align-items: baseline; gap: 6px;
+    font-size: 12px; color: #8a6d3b;
+    background: #fdf6e3; border: 0.5px solid #f0e0b8;
+    border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px;
+}
 .fp-block { margin-bottom: 1.5rem; }
 .fp-title { font-size: 15px; font-weight: 500; margin-bottom: 4px; display: flex; align-items: baseline; gap: 8px; }
 .fp-sub { font-size: 11px; font-weight: 400; color: #9a9a9a; }
@@ -571,6 +617,12 @@ watch(() => props.symbol, () => { disposeAll(); loadAll(); });
 .fp-lv-v.down { color: #1f9d55; }
 
 .fp-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+/* 两列行里只剩一张卡时让它铺满整行。
+   ⚠️ 真实场景有两个：ETF 没有 `main_force_behavior_phase` 因子 → 「主力行为阶段」不渲染，
+   于是「动量-波动象限」右侧空掉半行；标的没有同行业样本时「行业内排名」不渲染，
+   雷达图同理。用 :only-child 一次覆盖，比在模板里给每个卡片各挂一个条件类更不容易漏。
+   注意 :only-child 只看**元素**子节点，两处 .fp-row2 里除卡片外没有别的元素，成立。 */
+.fp-row2 > .fp-card:only-child { grid-column: 1 / -1; }
 .fp-quad-chart { width: 100%; height: 200px; }
 .fp-quad-hint { font-size: 10px; color: #a0a0a0; margin-top: 4px; }
 

@@ -167,10 +167,17 @@ class FactorAnalysisService:
         # 52 周区间（供前端画位置条）
         range_info = cls._build_52week_range(series_map)
 
+        # 该标的在窗口内**实际**有数据的交易日数（取覆盖最广的因子）。
+        # ⚠️ 前端需要它来判断「历史分位是否可信」：日更按监控池分批落库、且新纳入的标的
+        # 只写了一两天，此时 percentile 是「1 个点里的 100%」，看着正常其实毫无意义。
+        # 把它显式暴露出去，比让前端从 items[].count 里猜要可靠。
+        history_days = max((len(s) for s in series_map.values()), default=0)
+
         return {
             'ticker': ticker,
             'asof': series_map.get('rsi_14', [{}])[-1].get('date') if series_map.get('rsi_14') else None,
             'lookback_days': lookback_days,
+            'history_days': history_days,
             'groups': groups_out,
             'range_52week': range_info,
         }
@@ -200,11 +207,16 @@ class FactorAnalysisService:
 
     # ==================== L1：关键位 / 量价健康度 / 均线 / 阶段 ====================
     @classmethod
-    def get_dashboard(cls, ticker: str) -> Dict[str, Any]:
+    def get_dashboard(cls, ticker: str, asset_type: str = 'stock') -> Dict[str, Any]:
         """
         技术面仪表盘：把 L1 需要的派生信息一次性算好。
         包含：动量-波动象限落点、量价健康度、均线排列、关键支撑压力位、ATR 动态止损、
         超买超卖热度、主力行为阶段序列。
+
+        :param asset_type: 'stock' / 'etf'。**必须显式传**，它决定走哪个行情接口 ——
+            ETF 用 get_stock_history 不会报错，而是返回**陈旧且残缺**的日线
+            （实测 510300 只回 2 根、末根停在 2026-04-24），均线/关键位/ATR 会全部
+            基于半年前的价格算出来，页面上看不出任何异常。是最难发现的一类错。
         """
         import pandas as pd
         from utils.data_loader import databull
@@ -217,7 +229,13 @@ class FactorAnalysisService:
             # 想用默认区间也必须显式传日期（与 routes/stock.py 的调用保持一致）。
             start = get_date_by_n(-400, _format='%Y-%m-%d')
             end = get_today()
-            raw = databull.get_stock_history(symbol=ticker, start_date=start, end_date=end)
+            if asset_type == 'etf':
+                # ⚠️ ETF 走 ETF 专用行情接口；用股票接口会静默拿到过期数据（见 docstring）。
+                # get_etf_history 的返回**已是「索引=日期」**的 DataFrame（与股票接口一致），
+                # 下面统一的 reset_index 兼容处理照旧适用。
+                raw = databull.get_etf_history(ticker, start, end)
+            else:
+                raw = databull.get_stock_history(symbol=ticker, start_date=start, end_date=end)
             df = raw.reset_index()
             # 兼容不同返回：日期可能落在 index 或 'date' 列
             if 'date' not in df.columns:
@@ -225,7 +243,7 @@ class FactorAnalysisService:
                 df = df.rename(columns={first: 'date'})
             df.columns = [str(c).lower() for c in df.columns]
         except Exception as e:
-            logger.warning(f"[FactorAnalysis] 行情获取失败 ticker={ticker}: {e}")
+            logger.warning(f"[FactorAnalysis] 行情获取失败 ticker={ticker} asset_type={asset_type}: {e}")
 
         quotes = cls._quotes_summary(df, ticker)
         ma = cls._ma_status(df)
@@ -492,25 +510,46 @@ class FactorAnalysisService:
         return {'ticker': ticker, 'axes': axes}
 
     @classmethod
-    def get_industry_rank(cls, ticker: str, factor_names: Optional[List[str]] = None) -> Optional[Dict[str, Any]]:
+    def get_peer_rank(cls, ticker: str, factor_names: Optional[List[str]] = None,
+                      asset_type: str = 'stock') -> Optional[Dict[str, Any]]:
         """
-        行业内因子排名：该股各因子在所属行业个股中的分位。
-        依赖 `stocks.industry` 做行业成分股映射（同行业个股列表）。
+        横向对比排名：该标的各因子在「同类样本」中的分位。
+
+        同类样本按 asset_type 分派：
+        - 'stock'：同**行业**个股（依赖 `stocks.industry` 做成分股映射）；
+        - 'etf'：全站 ETF 池（`etf_watchlist` ∪ `etf_rotation_pool`）。
+          ⚠️ ETF 没有行业归属，沿用行业口径会恒返回 None、卡片永远是空的；
+          而「这只 ETF 的动量在所有 ETF 里排第几」本身是有意义的。
+
+        返回体带 `scope`（'industry' / 'etf'）与 `peer_label`，供前端自适应标题，
+        不必在前端重复一套「什么类型显示什么文案」的判断。
         """
-        from service import StockService
-        me = StockService.get_stock_by_symbol(symbol=ticker)
-        if not me:
-            return None
-        industry = me.get('industry')
-        if not industry:
-            return None
-        peers = StockService.search_stocks(securities_type='stock', industry=industry, per_page=10000) or []
-        peer_symbols = [p['symbol'] for p in peers if p.get('symbol')]
-        if len(peer_symbols) < 3:
+        if asset_type == 'etf':
+            from service.etf_service import EtfService
+            from service.etf_rotation_service import EtfRotationService
+            peer_symbols = sorted(set(EtfService.list_all_symbols())
+                                  | set(EtfRotationService.list_all_pool_symbols()))
+            scope, peer_label = 'etf', '全站 ETF'
+            min_peers = 3
+        else:
+            from service import StockService
+            me = StockService.get_stock_by_symbol(symbol=ticker)
+            if not me:
+                return None
+            industry = me.get('industry')
+            if not industry:
+                return None
+            peers = StockService.search_stocks(securities_type='stock', industry=industry, per_page=10000) or []
+            peer_symbols = [p['symbol'] for p in peers if p.get('symbol')]
+            scope, peer_label = 'industry', industry
+            min_peers = 3
+
+        # ⚠️ 样本数门槛：太少的分位没有统计意义（3 个样本的「优于 66%」是噪音）。
+        if len(peer_symbols) < min_peers:
             return None
 
         names = factor_names or ['mom_20', 'rsi_14', '52week_position', 'vol_20', 'turnover_20', 'bias_20']
-        # 取同行业全部个股在这些因子上的最新值
+        # 取同类样本全部标的在这些因子上的最新值
         latest = FactorValueService_get_latest(peer_symbols, names)  # {(ticker, factor): value}
 
         from service.factor_desc import factor_descriptions
@@ -536,7 +575,23 @@ class FactorAnalysisService:
             })
         if not rows:
             return None
-        return {'ticker': ticker, 'industry': industry, 'peer_count': len(peer_symbols), 'rows': rows}
+        return {
+            'ticker': ticker,
+            'scope': scope,
+            'peer_label': peer_label,
+            'peer_count': len(peer_symbols),
+            'rows': rows,
+        }
+
+    @classmethod
+    def get_industry_rank(cls, ticker: str, factor_names: Optional[List[str]] = None,
+                          asset_type: str = 'stock') -> Optional[Dict[str, Any]]:
+        """兼容旧调用点：`/factor/stock/{symbol}/industry_rank` 的入口（个股语义）。
+
+        ETF 请走 `get_peer_rank(..., asset_type='etf')` —— 这里刻意不做 ETF 分支，
+        避免「函数名说行业、实际做别的」这种会误导后来者的命名漂移。
+        """
+        return cls.get_peer_rank(ticker, factor_names=factor_names, asset_type=asset_type)
 
 
 # 避免循环导入：在函数内引用

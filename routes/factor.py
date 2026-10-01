@@ -38,6 +38,16 @@ factor_router = APIRouter(prefix=api_prefix, tags=['因子分析'])
 # 且因为走主键等值扫描，耗时仍在秒级。
 RECENT_DATES = 5
 
+# 标的类型：'stock'（个股，默认）/ 'etf'。
+# ⚠️ 只有**真正需要区分**的接口才声明它，不搞「全模块统一加一个用不上的参数」——
+#    因子看板 / 序列 / 雷达都只按 ticker 查 factor_values，个股与 ETF 走的是同一张表、
+#    同一套因子，多一个参数只会让人以为口径有差别。
+# 目前需要它的两处：
+#   1. `/dashboard` —— 决定走 get_etf_history 还是 get_stock_history（拿错接口不报错，
+#      而是返回陈旧残缺的日线，均线/关键位/ATR 全错得静默无声）；
+#   2. `/industry_rank` —— 个股按行业取样本，ETF 没有行业，改按全站 ETF 池取样本。
+_ASSET_TYPE_DESC = "标的类型：stock=个股（默认）/ etf=ETF。决定行情接口与横向对比样本的选取"
+
 
 # ==================== L0 · 因子字典 ====================
 @factor_router.get('/factor/catalog')
@@ -99,12 +109,15 @@ def get_factor_series(
 
 # ==================== L1 · 技术面仪表盘 ====================
 @factor_router.get('/factor/stock/{symbol}/dashboard')
-def get_factor_dashboard(symbol: str):
+def get_factor_dashboard(
+    symbol: str,
+    asset_type: str = Query('stock', pattern='^(stock|etf)$', description=_ASSET_TYPE_DESC),
+):
     """技术面仪表盘：均线排列 / 关键位 / ATR 动态止损 / 动量-波动象限 / 主力阶段 / 超买超卖热度"""
     try:
-        return json_resp(FactorAnalysisService.get_dashboard(symbol))
+        return json_resp(FactorAnalysisService.get_dashboard(symbol, asset_type=asset_type))
     except Exception as e:
-        logger.error(f"get_factor_dashboard failed symbol={symbol}: {e}", exc_info=True)
+        logger.error(f"get_factor_dashboard failed symbol={symbol} asset_type={asset_type}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail='技术面仪表盘计算失败')
 
 
@@ -118,13 +131,17 @@ def get_factor_radar(symbol: str):
 @factor_router.get('/factor/stock/{symbol}/industry_rank')
 def get_industry_rank(
     symbol: str,
+    asset_type: str = Query('stock', pattern='^(stock|etf)$', description=_ASSET_TYPE_DESC),
     names: Optional[str] = Query(None, description='指定因子，逗号分隔；默认一组核心因子'),
 ):
-    """行业内因子排名：该股各因子在所属行业个股中的分位"""
+    """横向对比排名：个股比同行业，ETF 比全站 ETF 池（响应带 scope/peer_label）
+
+    个股无行业归属、或样本不足 3 个时返回 404（前端按「不渲染该卡片」处理）。
+    """
     fields = [f.strip() for f in names.split(',') if f.strip()] if names else None
-    data = FactorAnalysisService.get_industry_rank(symbol, factor_names=fields)
+    data = FactorAnalysisService.get_peer_rank(symbol, factor_names=fields, asset_type=asset_type)
     if data is None:
-        raise HTTPException(status_code=404, detail='该标的无行业归属或同行业样本不足')
+        raise HTTPException(status_code=404, detail='该标的无同类样本或样本不足')
     return json_resp(data)
 
 
