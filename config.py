@@ -112,19 +112,19 @@ cache_setting = {
     # 监控股票列表：接口内部是 N+1 查询（每只票 4 次），开销大；
     # 所含数据（恐惧贪婪、52 周高低、主力行为阶段）都是日频更新，
     # 但 monitoring 标记可能被后台任务随时改动，故 TTL 取短一些（默认 5 分钟）
-    'monitored_stocks': int(os.getenv('CACHE_MONITORED_STOCKS', 300)),
+    'monitored_stocks': int(os.getenv('CACHE_MONITORED_STOCKS', 1800)),
     # ETF 监控列表：与个股池同类（每只 ETF 2 次因子查询 + 1 次上游实时行情，是 N+1），
     # 但它的载荷里带**实时报价**，缓存久了页面上的价格就是假的，
     # 所以 TTL 取短（默认 60 秒），只用来吸收「反复进出页面」的重复请求。
     # 增删 ETF 由写接口主动失效（见 routes/etf.py 的 ETF_LIST_NS），不依赖这个 TTL。
-    'etfs': int(os.getenv('CACHE_ETFS', 60)),
+    'etfs': int(os.getenv('CACHE_ETFS', 1800)),
     # ETF 轮动池成员：纯 DB 读，且增删由写接口主动失效（见 routes/etf_rotation.py），
     # TTL 只是防止反复切页签时的重复查询，可以给长一点。
-    'etf_rotation_pool': int(os.getenv('CACHE_ETF_ROTATION_POOL', 300)),
+    'etf_rotation_pool': int(os.getenv('CACHE_ETF_ROTATION_POOL', 1800)),
     # ETF 轮动分析结果：这是全站最重的读接口之一 —— 池内每只都要单独拉 3 年日线
     # （上游无批量行情接口）+ 逐日回测。结果只依赖「池成员 + 参数 + 日线」，
     # 而日线是日频数据，故 TTL 给 15 分钟；池子增删同样会主动失效。
-    'etf_rotation': int(os.getenv('CACHE_ETF_ROTATION', 900))
+    'etf_rotation': int(os.getenv('CACHE_ETF_ROTATION', 1800))
 }
 
 # ===== 登录鉴权（多用户）=====
