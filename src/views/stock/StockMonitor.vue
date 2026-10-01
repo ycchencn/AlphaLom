@@ -463,12 +463,31 @@ function onGroupSelect(key) {
     selectedGroup.value = key;
 }
 
+/**
+ * 从监控列表移除一只股票（调 DELETE /stocks/{symbol}，只删当前用户私有层那一行，
+ * 不删 stocks 表公共数据 —— 别的用户可能还在监控它）。
+ *
+ * ⚠️ 与「取消分组」不同：取消分组只是把标签清成「未分组」、票仍留在监控里；
+ *    这里是真正把票移出你的监控列表。两者在菜单里并列，文案刻意区分，避免误操作。
+ */
+async function removeStock(symbol) {
+    if (!window.confirm(`确定将 ${symbol} 移出监控列表？\n（其他用户若也在监控该标的则不受影响，股票基础数据不会删除。）`)) return;
+    try {
+        await axios.delete(`/api/v1/stocks/${encodeURIComponent(symbol)}`);
+        showSuccess(`已移出监控：${symbol}`);
+        await loadStockList();
+        await loadGroups();
+    } catch (error) {
+        handleGroupErr(error);
+    }
+}
+
 function onGroupAction({ key, type }) {
     if (type === 'rename') startRename(key);
     else if (type === 'delete') deleteGroup(key);
 }
 
-// 行内「操作」下拉菜单（查看详情 / 设置分组 / 取消分组），全表共用一个 Menu 实例
+// 行内「操作」下拉菜单（设置分组 / 查看详情 / 移除监控 / 取消分组），全表共用一个 Menu 实例
 const rowMenu = ref();
 const rowMenuModel = ref([]);
 function onRowMenuToggle(event, data) {
@@ -490,6 +509,12 @@ function onRowMenuToggle(event, data) {
             label: '查看详情',
             icon: 'pi pi-eye',
             command: () => router.push({ name: 'stock-detail', params: { symbol: data.symbol } }),
+        },
+        {
+            label: '移除监控',
+            icon: 'pi pi-trash',
+            class: 'text-red-500',
+            command: () => removeStock(data.symbol),
         },
     ];
     if (data.group_name) {
