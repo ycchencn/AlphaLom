@@ -63,6 +63,18 @@ PLATFORM_META: Dict[str, Dict[str, str]] = {
         'default_base_url': 'https://open.bigmodel.cn/api/paas/v4',
         'docs': 'https://docs.bigmodel.cn',
     },
+    'tencent': {
+        'label': '腾讯云混元',
+        'env_key': 'TENCENT_APIKEY',
+        'default_base_url': 'https://api.hunyuan.cloud.tencent.com/v1',
+        'docs': 'https://cloud.tencent.com/document/product/1729',
+    },
+    'baidu': {
+        'label': '百度云千帆',
+        'env_key': 'BAIDU_QIANFAN_APIKEY',
+        'default_base_url': 'https://qianfan.baidubce.com/v2',
+        'docs': 'https://cloud.baidu.com/doc/WENXINWORKSHOP',
+    },
 }
 
 

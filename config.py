@@ -61,6 +61,8 @@ siliconflow_apikey = os.getenv('SILICONFLOW_APIKEY')
 tencent_api = os.getenv('TENCENT_APIKEY')
 # 智谱 GLM 密钥，env: ZHIPU_APIKEY
 zhipu_api = os.getenv('ZHIPU_APIKEY')
+# 百度云千帆密钥，env: BAIDU_QIANFAN_APIKEY
+baidu_qianfan_apikey = os.getenv('BAIDU_QIANFAN_APIKEY')
 
 # ===== 通知 =====
 # 飞书机器人 Webhook 地址，用于告警 / 推送，env: FEISHU_WEBHOOK_URL

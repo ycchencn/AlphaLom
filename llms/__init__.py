@@ -20,6 +20,8 @@ from llms.llm_base_deepseek import LLMBaseDeepSeek
 from llms.llm_base_siliconflow import LLMBaseSiliconflow
 from llms.llm_base_volcengine import LLMBaseVolcEngine
 from llms.llm_base_zhipu import LLMBaseZhipu
+from llms.llm_base_tencent import LLMBaseTencent
+from llms.llm_base_baidu import LLMBaseBaidu
 from utils.logger import logger
 
 # 平台 → LLM 实现类映射
@@ -29,6 +31,8 @@ _PLATFORM_REGISTRY: Dict[str, type] = {
     'siliconflow': LLMBaseSiliconflow,
     'aliyun': LLMBaseAliyun,
     'zhipu': LLMBaseZhipu,
+    'tencent': LLMBaseTencent,
+    'baidu': LLMBaseBaidu,
 }
 
 # 拉模型列表时需要改用其它端点的平台（key 仍取平台自己的）：
