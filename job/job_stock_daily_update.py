@@ -71,18 +71,23 @@ def __beta_task(stock, market_index, start_date, end_date, trade_date):
 
 def job_fix_ohlc_last_all():
     markets = ['cn', 'us', 'hk']
+    # (symbol, market) 成对收集：美股/港股必须走各自市场的实时行情路径
+    # （us/stock/tick、hk/stock/tick），否则默认 cn 路径取不到数据、ohlc_last 恒为空。
     all_stocks = []
     for market in markets:
         stocks = StockService.get_monitoring_stock_pool(market=market, per_page=10000)
-        all_stocks.extend([s['symbol'] for s in stocks])
-    
+        all_stocks.extend([(s['symbol'], market) for s in stocks])
+
     total_cnt = len(all_stocks)
     success_cnt = 0
     fail_cnt = 0
     logger.info(f"开始多线程更新全市场最新行情快照，标的总数：{total_cnt}，并发数：{MAX_WORKERS}")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        future_map = {executor.submit(job_fix_ohlc_last, symbol): symbol for symbol in all_stocks}
+        future_map = {
+            executor.submit(job_fix_ohlc_last, symbol, market): symbol
+            for symbol, market in all_stocks
+        }
         for future in as_completed(future_map):
             try:
                 future.result()
@@ -91,12 +96,18 @@ def job_fix_ohlc_last_all():
                 fail_cnt +=1
                 stock_code = future_map[future]
                 logger.error(f"标的{stock_code} 更新最新行情异常: {str(e)}")
-    
+
     logger.info(f"全市场最新行情更新任务完成，总标的{total_cnt}，成功{success_cnt}，失败{fail_cnt}")
 
 
-def job_fix_ohlc_last(stock_code):
-    tick_last = databull.get_realtime(symbol=stock_code)
+def job_fix_ohlc_last(stock_code, market=None):
+    # 美股/港股需走各自市场的实时行情路径（us/stock/tick、hk/stock/tick），
+    # get_realtime 默认 market='cn'，不传会导致非 A 股取不到数据、ohlc_last 恒为空。
+    # market 未显式传入时，从库内标的记录回查（新增入库的票 market 已落库）。
+    if market is None:
+        rec = StockService.get_stock_by_symbol(stock_code, fields=['market'])
+        market = (rec or {}).get('market') or 'cn'
+    tick_last = databull.get_realtime(symbol=stock_code, market=market)
     if 'lastPrice' not in tick_last:
         return False
     tick_last['close'] = tick_last['lastPrice']
