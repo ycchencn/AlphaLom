@@ -125,6 +125,28 @@ class StockFinancialScoreService:
             return None
 
     @staticmethod
+    def get_by_codes(codes):
+        """
+        批量按股票代码查询基本面评分，**一次查询**完成。
+
+        用途：对外批量分析接口（一次要几十上百只票），逐只调 get_by_code 会变成 N 次往返。
+        返回 `{code: score_dict}`；没有评分的代码不会出现在字典里（调用方给默认值 None）。
+        """
+        codes = [c for c in dict.fromkeys(codes or []) if c]
+        if not codes:
+            return {}
+        try:
+            rows = (
+                db_session.query(StockFinancialScore)
+                .filter(StockFinancialScore.code.in_(codes))
+                .all()
+            )
+            return {r.code: r.to_dict() for r in rows}
+        except Exception as e:
+            logger.error(f"get_by_codes error: {e}")
+            return {}
+
+    @staticmethod
     def get_top_scores(limit: int = 20, min_score: float = None):
         """
         获取综合评分最高的 N 条记录

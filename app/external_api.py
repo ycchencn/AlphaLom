@@ -16,6 +16,7 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
 from routes.external_portfolio import ext_portfolio_router
+from routes.external_stock import ext_stock_router
 from utils.api_auth import ApiAuthError
 
 
@@ -30,12 +31,14 @@ def _auth_error_handler(request: Request, exc: ApiAuthError):
 
 def create_external_app() -> FastAPI:
     app = FastAPI(
-        title='AlphaLom 投资组合开放 API',
+        title='AlphaLom 开放 API',
         description=(
-            '基于 API Key 鉴权的投资组合数据开放接口（只读）。\n\n'
+            '基于 API Key 鉴权的数据开放接口（只读），面向外部交易决策系统。\n\n'
             '**鉴权**：在「API Key 管理」页创建密钥后，请求时携带 '
             '`X-API-Key: <你的密钥>`（或 `Authorization: Bearer <密钥>`）。\n\n'
-            '**配额**：按用户 + 自然日计调用次数，超限返回 429 并带 `Retry-After`。'
+            '**配额**：按用户 + 自然日计调用次数，超限返回 429 并带 `Retry-After`。\n\n'
+            '**覆盖数据**：投资组合（/portfolios）、股票池（/stocks/pools、/stocks/watchlist）、'
+            '个股分析（/stocks/{symbol}/profile|fundamentals|factors|financials|fear-greed|analysis）。'
         ),
         version='1.0.0',
         docs_url='/docs',
@@ -43,6 +46,7 @@ def create_external_app() -> FastAPI:
     )
 
     app.include_router(ext_portfolio_router)
+    app.include_router(ext_stock_router)
     app.add_exception_handler(ApiAuthError, _auth_error_handler)
 
     def custom_openapi():
