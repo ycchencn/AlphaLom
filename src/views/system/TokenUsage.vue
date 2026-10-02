@@ -44,6 +44,22 @@ const fmtThousand = (n) => {
 // 表格数字列通用 body（千分位）
 const bodyThousand = (row, col) => fmtThousand(row[col.field]);
 
+// Token 统一按 M（百万）展示：23,145,805 → "23.15M"，480,198 → "0.48M"，0 → "0.00M"。
+// 用于所有「汇总」场景：顶部卡片、按天/按模型/按场景汇总表、图表坐标轴与 tooltip。
+// ⚠️ 不用于「调用次数」（那是次数不是 token），也不用于「调用明细」表——
+//    单次请求平均仅 8K，转 M 会全塌成 0.01M 反而更难读。
+const fmtM = (n) => {
+    const v = Number(n);
+    if (!Number.isFinite(v)) return '0.00M';
+    const m = v / 1e6;
+    // 去掉无意义的尾随零，但整数百万（1M）保留一位、零值固定 "0.00M"
+    if (m === 0) return '0.00M';
+    return m.toFixed(2).replace(/\.?0+$/, '') + 'M';
+};
+
+// 表格 Token 列通用 body（M）
+const bodyM = (row, col) => fmtM(row[col.field]);
+
 const fmtDate = (d) => {
     const dt = new Date(d);
     return dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
@@ -161,7 +177,11 @@ const renderTrend = async () => {
                 if (!params || !params.length) return '';
                 const head = params[0].axisValue;
                 const rows = params
-                    .map((p) => `${p.marker}${p.seriesName}：<b>${fmtCompact(p.value)}</b>`)
+                    .map((p) => {
+                        // 「调用次数」是次数不是 token，不能按 M 显示
+                        const v = p.seriesName === '调用次数' ? fmtThousand(p.value) : fmtM(p.value);
+                        return `${p.marker}${p.seriesName}：<b>${v}</b>`;
+                    })
                     .join('<br/>');
                 return head + '<br/>' + rows;
             }
@@ -175,8 +195,8 @@ const renderTrend = async () => {
         },
         yAxis: [
             {
-                type: 'value', name: 'Token',
-                axisLabel: axisLabel({ color: COLORS.secondary, fontSize: FONT.legend, formatter: (v) => fmtCompact(v) }),
+                type: 'value', name: 'Token (M)',
+                axisLabel: axisLabel({ color: COLORS.secondary, fontSize: FONT.legend, formatter: (v) => fmtM(v) }),
                 splitLine: splitLine()
             },
             {
@@ -221,7 +241,7 @@ const renderModelPie = async () => {
                 const pct = total ? (p.value / total * 100).toFixed(2) : 0;
                 const m = byModel.find((x) => x.model === p.name);
                 return `<div style="font-size:12px"><b>${p.name}</b><br/>`
-                    + `Token：${fmtCompact(p.value)}<br/>`
+                    + `Token：${fmtM(p.value)}<br/>`
                     + `占比：<b>${pct}%</b><br/>`
                     + `调用：${fmtThousand(m ? m.calls : 0)} 次</div>`;
             }
@@ -254,7 +274,7 @@ const renderScenePie = async () => {
                 const pct = total ? (p.value / total * 100).toFixed(2) : 0;
                 const s = byScene.find((x) => x.scene === p.name);
                 return `<div style="font-size:12px"><b>${p.name}</b><br/>`
-                    + `Token：${fmtCompact(p.value)}<br/>`
+                    + `Token：${fmtM(p.value)}<br/>`
                     + `占比：<b>${pct}%</b><br/>`
                     + `调用：${fmtThousand(s ? s.calls : 0)} 次</div>`;
             }
@@ -314,7 +334,7 @@ onUnmounted(() => {
                 <template #content>
                     <div class="card-content">
                         <div class="stat-label">总 Token</div>
-                        <div class="stat-value">{{ fmtCompact(summary?.total_tokens) }}</div>
+                        <div class="stat-value">{{ fmtM(summary?.total_tokens) }}</div>
                     </div>
                 </template>
             </Card>
@@ -322,7 +342,7 @@ onUnmounted(() => {
                 <template #content>
                     <div class="card-content">
                         <div class="stat-label">输入 Token</div>
-                        <div class="stat-value">{{ fmtCompact(summary?.total_prompt_tokens) }}</div>
+                        <div class="stat-value">{{ fmtM(summary?.total_prompt_tokens) }}</div>
                     </div>
                 </template>
             </Card>
@@ -330,7 +350,7 @@ onUnmounted(() => {
                 <template #content>
                     <div class="card-content">
                         <div class="stat-label">输出 Token</div>
-                        <div class="stat-value">{{ fmtCompact(summary?.total_completion_tokens) }}</div>
+                        <div class="stat-value">{{ fmtM(summary?.total_completion_tokens) }}</div>
                     </div>
                 </template>
             </Card>
@@ -351,9 +371,9 @@ onUnmounted(() => {
         <DataTable :value="summary?.daily || []" stripedRows showGridlines class="mb-4" style="font-size: 11px">
             <Column field="date" header="日期" />
             <Column field="calls" header="调用次数" :body="bodyThousand" />
-            <Column field="prompt_tokens" header="输入 Token" :body="bodyThousand" />
-            <Column field="completion_tokens" header="输出 Token" :body="bodyThousand" />
-            <Column field="total_tokens" header="总计 Token" :body="bodyThousand" />
+            <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
+            <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
+            <Column field="total_tokens" header="总计 Token" :body="bodyM" />
             <template #empty>暂无数据</template>
         </DataTable>
 
@@ -365,9 +385,9 @@ onUnmounted(() => {
                 <DataTable :value="summary?.by_model || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
                     <Column field="model" header="模型" />
                     <Column field="calls" header="调用次数" :body="bodyThousand" />
-                    <Column field="prompt_tokens" header="输入 Token" :body="bodyThousand" />
-                    <Column field="completion_tokens" header="输出 Token" :body="bodyThousand" />
-                    <Column field="total_tokens" header="总计 Token" :body="bodyThousand" />
+                    <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
+                    <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
+                    <Column field="total_tokens" header="总计 Token" :body="bodyM" />
                     <template #empty>暂无数据</template>
                 </DataTable>
             </div>
@@ -377,7 +397,7 @@ onUnmounted(() => {
                 <DataTable :value="summary?.by_scene || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
                     <Column field="scene" header="场景" />
                     <Column field="calls" header="调用次数" :body="bodyThousand" />
-                    <Column field="total_tokens" header="总计 Token" :body="bodyThousand" />
+                    <Column field="total_tokens" header="总计 Token" :body="bodyM" />
                     <template #empty>暂无数据</template>
                 </DataTable>
             </div>
