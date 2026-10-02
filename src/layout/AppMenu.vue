@@ -128,6 +128,14 @@ const model = ref([
                 adminOnly: true,
             },
             {
+                label: 'API Key',
+                icon: 'pi pi-fw pi-key',
+                to: '/system/api_key',
+                enable: true,
+                // 对外开放 API 的密钥管理 → 仅管理员可见（与路由 requiresAdmin 一致）
+                adminOnly: true,
+            },
+            {
                 label: 'API文档',
                 icon: 'pi pi-fw pi-twitch',
                 url: 'https://www.databull.cn/docs',

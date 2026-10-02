@@ -187,6 +187,16 @@ const router = createRouter({
                     meta: { title: 'Token 统计', requiresAuth: true, requiresAdmin: true }
                 },
                 {
+                    path: '/system/api_key',
+                    name: 'api_key_manage_view',
+                    component: () => import('@/views/system/ApiKeyManage.vue'),
+                    // 管理的是「对外开放 API 的调用凭证」→ 管理员专属（与菜单 adminOnly 一致）。
+                    // 注：后端 /api/v1/api-keys 实际是按当前用户（get_current_user_id）隔离的，
+                    //     这里加 requiresAdmin 只是前端拦一道；若将来要让普通用户也管自己的密钥，
+                    //     去掉 route 的 requiresAdmin + 菜单的 adminOnly 即可，后端无需改。
+                    meta: { title: 'API Key', requiresAuth: true, requiresAdmin: true }
+                },
+                {
                     path: '/ai/chat/',
                     name: 'ai_chat_view',
                     component: () => import('@/views/ai/chat.vue'),
