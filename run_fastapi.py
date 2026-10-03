@@ -8,15 +8,22 @@
 """
 
 import uvicorn
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.openapi.docs import (
+    get_redoc_html,
+    get_swagger_ui_html,
+)
 from app.fastapi_app import create_app
 from config import server_setting
 from models.init_db import init_database
 import os
 
 # 创建 FastAPI 应用
-app = create_app()
+# docs_url=None / redoc_url=None：Swagger UI / ReDoc 的静态资源默认走 jsdelivr CDN，
+# 该 CDN 曾被 reset 导致 /docs 白屏。这里关闭默认路由，改用本地自托管资源
+# （static/vendor/swagger-ui/，见下方 _docs_router()），彻底摆脱外部 CDN 依赖。
+app = create_app(docs_url=None, redoc_url=None)
 env = os.getenv('ENV', 'dev').lower()
 
 # ==================== 路由注册 ====================
@@ -60,6 +67,35 @@ app.include_router(chat_router)
 app.include_router(token_usage_router)
 app.include_router(api_key_router)
 app.include_router(factor_router)
+
+# ==================== 自托管 Swagger UI / ReDoc ====================
+# 默认的 /docs、/redoc 指向 jsdelivr CDN，被 reset 后无法加载。这里用本地
+# static/vendor/swagger-ui/（app/fastapi_app.py 里已 mount 到 /swagger-ui）重新注册。
+# 必须放在所有 include_router 之后、/api/ext mount 与 SPA 兜底之前注册。
+app.add_api_route(
+    '/docs',
+    lambda: get_swagger_ui_html(
+        openapi_url='/openapi.json',
+        title='AlphaLom 量化交易系统 - Swagger UI',
+        swagger_js_url='/swagger-ui/swagger-ui-bundle.js',
+        swagger_css_url='/swagger-ui/swagger-ui.css',
+        swagger_favicon_url='/swagger-ui/favicon-32x32.png',
+    ),
+    methods=['GET'],
+    include_in_schema=False,
+)
+app.add_api_route(
+    '/redoc',
+    lambda: get_redoc_html(
+        openapi_url='/openapi.json',
+        title='AlphaLom 量化交易系统 - ReDoc',
+        redoc_js_url='/swagger-ui/redoc.standalone.js',
+        redoc_favicon_url='/swagger-ui/favicon-32x32.png',
+        with_google_fonts=False,
+    ),
+    methods=['GET'],
+    include_in_schema=False,
+)
 
 # ==================== 对外 API 子应用（mount 必须在 SPA catch-all 之前）====================
 # /api/ext 提供独立的 Swagger/OpenAPI（API Key 鉴权 + 每日配额），详见 app/external_api.py。

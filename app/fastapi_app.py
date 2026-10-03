@@ -182,13 +182,20 @@ async def lifespan(_app: FastAPI):
 
 
 # ==================== 快速创建 FastAPI 应用 ====================
-def create_app() -> FastAPI:
-    """创建并配置 FastAPI 应用"""
+def create_app(docs_url: Optional[str] = '/docs', redoc_url: Optional[str] = '/redoc') -> FastAPI:
+    """创建并配置 FastAPI 应用
+
+    docs_url / redoc_url 可传 None 关闭默认路由——Swagger UI 静态资源默认走
+    jsdelivr CDN，被 reset 后 /docs 白屏；由调用方（run_fastapi.py）自行
+    用本地自托管资源（static/vendor/swagger-ui）注册自定义 /docs、/redoc。
+    """
     _app = FastAPI(
         title="AlphaLom 量化交易系统",
         description="基于 LLM 的量化交易与分析平台",
         version="2.0.0",
         lifespan=lifespan,
+        docs_url=docs_url,
+        redoc_url=redoc_url,
     )
 
     # CORS 配置
@@ -238,5 +245,12 @@ def create_app() -> FastAPI:
     # if os.path.isdir(static_dir):
     #     _app.mount('/assets', StaticFiles(directory=os.path.join(static_dir, 'assets')), name='assets')
         # _app.mount('/fonts', StaticFiles(directory=os.path.join(static_dir, 'fonts')), name='fonts')
+
+    # 自托管 Swagger UI / ReDoc 静态资源（jsdelivr CDN 曾被 reset，依赖外部 CDN 不可靠）。
+    # 文件由 tools/download_swagger_ui.py 从国内镜像（npmmirror / staticfile）拉取，
+    # 存放于 static/vendor/swagger-ui/，供自定义 /docs、/redoc 及对外 /api/ext/docs 使用。
+    vendor_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'vendor', 'swagger-ui')
+    if os.path.isdir(vendor_dir):
+        _app.mount('/swagger-ui', StaticFiles(directory=vendor_dir), name='swagger-ui')
 
     return _app

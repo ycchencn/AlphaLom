@@ -12,6 +12,7 @@
 """
 
 from fastapi import FastAPI, Request
+from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
@@ -41,13 +42,28 @@ def create_external_app() -> FastAPI:
             '个股分析（/stocks/{symbol}/profile|fundamentals|factors|financials|fear-greed|analysis）。'
         ),
         version='1.0.0',
-        docs_url='/docs',
+        # docs_url 默认走 jsdelivr CDN，被 reset 后无法加载。这里关闭默认路由，
+        # 用主应用自托管的本地资源（static/vendor/swagger-ui，主应用已 mount 到 /swagger-ui）。
+        docs_url=None,
+        redoc_url=None,
         openapi_url='/openapi.json',
     )
 
     app.include_router(ext_portfolio_router)
     app.include_router(ext_stock_router)
     app.add_exception_handler(ApiAuthError, _auth_error_handler)
+
+    # 自托管 Swagger UI：/api/ext 子应用挂在主应用 /api/ext 下，
+    # 其文档页直接引用主应用根路径的本地资源（/swagger-ui/*）
+    @app.get('/docs', include_in_schema=False)
+    def ext_docs():
+        return get_swagger_ui_html(
+            openapi_url='/api/ext/openapi.json',
+            title='AlphaLom 开放 API - Swagger UI',
+            swagger_js_url='/swagger-ui/swagger-ui-bundle.js',
+            swagger_css_url='/swagger-ui/swagger-ui.css',
+            swagger_favicon_url='/swagger-ui/favicon-32x32.png',
+        )
 
     def custom_openapi():
         if app.openapi_schema:
