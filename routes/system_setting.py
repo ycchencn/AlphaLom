@@ -22,10 +22,14 @@ from llms import (_PLATFORM_REGISTRY, list_platform_models,
 from llms.llm_platform import (PLATFORM_META, get_platform_setting, list_platforms_view,
                                platform_label)
 from service.system_setting_service import SystemSettingService
-from utils.auth import require_admin
+from utils.auth import get_current_user, require_admin
 from utils.logger import logger
 
-settings_router = APIRouter(prefix=f'{api_prefix}/settings', tags=['系统设置'])
+# 全站登录制：router 级先要求登录；写接口再由各自的 require_admin 精确兜底。
+# ⚠️ GET 读接口（chart_display / general）此前注释「普通用户也要读」，但对应前端
+# 页面全部 requiresAdmin —— 登录即可读、admin 才能写，符合全站登录目标。
+settings_router = APIRouter(prefix=f'{api_prefix}/settings', tags=['系统设置'],
+                            dependencies=[Depends(get_current_user)])
 
 # 同步 `def` 路由：由 Starlette 丢进 anyio 线程池执行（读写库是阻塞调用），
 # 不要写成 async def —— 那会占死唯一事件循环、拖垮全站并发。
@@ -67,12 +71,15 @@ class LlmSceneSettingRequest(BaseModel):
 
 
 @settings_router.get('/llm_models')
-def get_llm_models_setting():
+def get_llm_models_setting(_admin: dict = Depends(require_admin)):
     """
     读取大模型路由配置：可选平台 + 各业务场景当前生效的平台与模型。
 
     每个场景同时返回代码里的默认值（default_platform / default_model）与是否已被表内配置覆盖
     （customized），前端据此显示「已自定义」并能一键恢复默认。
+
+    ⚠️ 需要管理员：配置本身虽不含密钥，但「哪些平台/模型在生效」属于系统内部信息，
+    且该页是纯后台页面（前端路由 requiresAdmin）。与同模块其余写接口对齐，统一加门禁。
 
     不挂 @cache：设置页改完必须立刻看到新值。
     """
@@ -83,13 +90,16 @@ def get_llm_models_setting():
 
 
 @settings_router.put('/llm_models/{scene}')
-def update_llm_models_setting(scene: str, req: LlmSceneSettingRequest):
+def update_llm_models_setting(scene: str, req: LlmSceneSettingRequest,
+                              _admin: dict = Depends(require_admin)):
     """
     写入某个场景的模型配置（存在则更新）。写完立即生效，无需重启。
 
     - scene 必须是已登记的场景（拼错的场景名写进去也不会有任何代码读它，故直接拒绝）；
     - platform 必须是 llms 已注册的平台；
     - model 不能为空。
+
+    ⚠️ 管理员专属：改的是全站 LLM 路由，任何人可改会把系统指向错误平台/模型。
     """
     scene = (scene or '').strip()
     if _scene_view(scene) is None:
@@ -129,11 +139,12 @@ def update_llm_models_setting(scene: str, req: LlmSceneSettingRequest):
 
 
 @settings_router.delete('/llm_models/{scene}')
-def reset_llm_models_setting(scene: str):
+def reset_llm_models_setting(scene: str, _admin: dict = Depends(require_admin)):
     """
     删除某个场景的表内配置 = 恢复代码默认值（config.llm_model_setting）。
 
     幂等：本来就没有配置行时也返回成功，只是 deleted=False。
+    ⚠️ 管理员专属（与 PUT 对齐）。
     """
     scene = (scene or '').strip()
     if _scene_view(scene) is None:

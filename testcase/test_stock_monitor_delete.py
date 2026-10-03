@@ -30,7 +30,7 @@ from fastapi_cache.backends.inmemory import InMemoryBackend
 import routes.stock as stock_routes
 from service import StockService
 from utils.api_cache import init_api_cache
-from utils.auth import get_current_user_id
+from utils.auth import get_current_user, get_current_user_id
 
 TEST_USER_ID = 7
 # 前端 StockMonitor.vue 调的就是这个相对路径，前缀由 api_prefix 注入
@@ -60,6 +60,8 @@ class TestStockMonitorDelete(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(stock_routes.stock_router)
+        # 路由级 dependencies=[Depends(get_current_user)] 也要覆盖，否则走真实鉴权 401
+        app.dependency_overrides[get_current_user] = lambda: {'id': TEST_USER_ID, 'role': 'user'}
         app.dependency_overrides[get_current_user_id] = lambda: TEST_USER_ID
         self.client = TestClient(app)
 

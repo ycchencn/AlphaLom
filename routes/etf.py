@@ -15,7 +15,7 @@ from typing import Optional
 from app.fastapi_app import api_prefix
 from config import cache_setting
 from databull import DataBullError
-from utils.auth import get_current_user_id
+from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from service import FactorValueService
 from service.etf_service import EtfService
@@ -24,7 +24,11 @@ from utils.common import get_today, get_date_by_n
 from utils.logger import logger
 import pandas as pd
 
-etf_router = APIRouter(prefix=api_prefix, tags=['ETF'])
+# 全站登录制：整个 router 加登录鉴权，未登录访问任意接口一律 401。
+# ⚠️ router 级 dependencies 的返回值不注入 endpoint 参数，因此不会污染
+# `@cache` 缓存键（行情类数据仍全局共享一份缓存），也不会改变任何函数签名。
+etf_router = APIRouter(prefix=api_prefix, tags=['ETF'],
+                       dependencies=[Depends(get_current_user)])
 
 # ETF 监控列表的缓存命名空间：装饰器与「增删后失效」两处共用同一常量，
 # 避免字符串写得不一致导致失效静默落空（表现是加完 ETF 页面不刷新）。

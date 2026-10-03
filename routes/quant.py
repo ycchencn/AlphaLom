@@ -5,12 +5,15 @@
 """
 
 import json
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from utils.redis_obj import redis_obj
 from app.fastapi_app import json_resp
+from utils.auth import get_current_user
 from job.dump_stocks_dcf import export_dcf_to_excel
 
-quant_router = APIRouter(prefix='/api/v1', tags=['量化'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+quant_router = APIRouter(prefix='/api/v1', tags=['量化'],
+                         dependencies=[Depends(get_current_user)])
 
 # ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）。这个接口尤其需要：
 # 缓存未命中时会同步执行 `export_dcf_to_excel()` 生成 Excel、再同步读 Redis，

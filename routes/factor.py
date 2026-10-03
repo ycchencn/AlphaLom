@@ -15,7 +15,7 @@
 
 from typing import Optional, List
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
 
 from app.fastapi_app import api_prefix, json_resp
@@ -25,9 +25,13 @@ from service.factor_selector_service import FactorSelectorService
 from service.factor_desc import factor_descriptions
 from service import StockService
 from service.trading_calendar_service import get_latest_trading_date
+from utils.auth import get_current_user, get_current_user_id
 from utils.logger import logger
 
-factor_router = APIRouter(prefix=api_prefix, tags=['因子分析'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+# ⚠️ router 级依赖返回值不注入 endpoint，不污染缓存键、不改函数签名。
+factor_router = APIRouter(prefix=api_prefix, tags=['因子分析'],
+                          dependencies=[Depends(get_current_user)])
 
 # ⚠️ 同步 `def` 路由会被 Starlette 丢进 anyio 线程池；写成 async def 会让同步 DB 查询
 # 占死事件循环。故本模块全部用同步 def。详见 routes/market.py 顶部说明。
@@ -159,8 +163,12 @@ class ScreenRequest(BaseModel):
 
 
 @factor_router.post('/factor/screen')
-def screen_stocks(req: ScreenRequest):
+def screen_stocks(req: ScreenRequest, user_id: int = Depends(get_current_user_id)):
     """按因子条件选股（截至 asof 的最新值）。
+
+    ⚠️ 需要登录：全库选股是重查询（因子表 2000 万行级扫描），且是「按条件拿全市场
+    候选」的能力，开放给未登录访客易被脚本批量调用打爆资源。这里至少要求登录用户
+    （user_id 同时进入缓存键，天然按用户隔离）。
 
     ⚠️ 这里复用的是既有引擎 `FactorSelectorService.select_stocks_by_factors_asof`
     —— 它此前全仓无调用点，本接口是它第一次被接上出口。

@@ -14,12 +14,15 @@ from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
-from utils.auth import get_current_user_id
+from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
 from utils.logger import logger
 
-stock_router = APIRouter(prefix=api_prefix, tags=['个股'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+# 写接口（入池/分组/重新分析）同时有各自的 get_current_user_id 精确校验。
+stock_router = APIRouter(prefix=api_prefix, tags=['个股'],
+                         dependencies=[Depends(get_current_user)])
 
 # ⚠️ 路由的 async/sync 决定并发度，不是代码风格：
 # Service 层与 databull 客户端全是同步实现（pymysql / requests），写成 `async def` 会让这些
@@ -461,15 +464,23 @@ def get_stock_history(
 
 
 @stock_router.put('/stock/re_analysis/{symbol}')
-def stock_re_analysis(symbol: str):
-    """重新分析个股"""
+def stock_re_analysis(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """重新分析个股
+
+    ⚠️ 需要登录：该操作会向任务队列派发一次完整分析（恐贪 → 技术因子 → DCF 估值
+    → 信号 → 报价），其中 DCF 是真实的大模型调用、单只实测约 6 分钟 ——
+    不设门槛等于任何人都能无限触发 LLM 成本。这里至少要求是登录用户。
+    """
     _stock_reanalysis(symbol)
     return {'code': 0, 'message': 'Stock updated successfully!'}
 
 
 @stock_router.put('/stock/re_analysis_dcf/{symbol}')
-def stock_re_analysis_dcf(symbol: str):
-    """重新分析个股DCF"""
+def stock_re_analysis_dcf(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """重新分析个股DCF
+
+    ⚠️ 需要登录：直接派发 DCF 估值任务（大模型调用，成本与上面的 re_analysis 相当）。
+    """
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid stock code")
     if StockService.get_stock_by_symbol(symbol) is None:

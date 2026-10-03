@@ -4,14 +4,17 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.fastapi_app import api_prefix
+from utils.auth import get_current_user
 from databull import DataBullError
 from utils.data_loader import databull
 from utils.logger import logger
 from fastapi_cache.decorator import cache
 
-index_router = APIRouter(prefix=api_prefix, tags=['指数'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+index_router = APIRouter(prefix=api_prefix, tags=['指数'],
+                         dependencies=[Depends(get_current_user)])
 
 # ⚠️ 同步 `def` 路由由 Starlette 自动丢进 anyio 线程池（默认 40 线程）；写成 `async def`
 # 会让下面循环里的同步 databull HTTP 调用直接占死事件循环 → 全站一起卡。

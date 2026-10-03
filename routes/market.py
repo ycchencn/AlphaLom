@@ -12,14 +12,16 @@ from service.news_digest_service import REFRESH_HOUR_END, REFRESH_HOUR_START, RE
 from service.growth_value_service import GrowthValueError, GrowthValueService
 from service.sector_daily_service import SectorDailyService, normalize_sector_type
 from service.sector_rotation_service import SectorRotationService
-from utils.auth import require_admin
+from utils.auth import get_current_user, require_admin
 from utils.redis_obj import redis_obj
 from utils.logger import logger
 from utils.timezone_util import get_timezone_name
 from utils.data_loader import databull
 from fastapi_cache.decorator import cache
 
-market_router = APIRouter(prefix=api_prefix, tags=['市场数据'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+market_router = APIRouter(prefix=api_prefix, tags=['市场数据'],
+                          dependencies=[Depends(get_current_user)])
 
 # 新闻速览手动刷新的冷却时间（秒）：一次刷新要真花 LLM token，
 # 连点会把成本放大成 N 倍，且同一分钟内数据也不会变。

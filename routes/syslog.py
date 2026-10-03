@@ -7,8 +7,9 @@
 """
 
 from datetime import datetime
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Depends, Query, HTTPException
 from service.app_log_service import AppLogService
+from utils.auth import require_admin
 from utils.logger import logger
 
 syslog_router = APIRouter(prefix='/api/v1', tags=['系统日志'])
@@ -16,6 +17,10 @@ syslog_router = APIRouter(prefix='/api/v1', tags=['系统日志'])
 # ⚠️ 全部改为同步 `def`：这些接口只做同步 ORM 查询，Starlette 会把它们丢进 anyio
 # 线程池（默认 40 线程）执行。写成 `async def` 则跑在唯一的事件循环线程上，
 # 一次慢查询（`app_logs` 表数据量大、还要 count）就会让全站请求一起排队。
+
+# ⚠️ 全部接口仅管理员可访问：系统日志含请求路径、报错栈、可能的环境变量等
+# 敏感信息，且属于纯后台运维功能（前端「系统日志」页 requiresAdmin）。
+# 统一加 require_admin 兜底，未登录/非管理员一律 401/403。
 
 
 def make_response(data=None, msg="success", code=200):
@@ -25,6 +30,7 @@ def make_response(data=None, msg="success", code=200):
 
 @syslog_router.get('/app_logs')
 def get_app_logs(
+    _admin: dict = Depends(require_admin),
     level: str = Query(None, description="日志级别"),
     module: str = Query(None, description="模块名"),
     keyword: str = Query(None, description="关键词（搜索 message）"),
@@ -66,7 +72,7 @@ def get_app_logs(
 
 
 @syslog_router.get('/app_logs/levels')
-def get_log_levels():
+def get_log_levels(_admin: dict = Depends(require_admin)):
     """获取所有日志级别（用于筛选下拉）"""
     try:
         levels = AppLogService.get_levels()
@@ -77,7 +83,7 @@ def get_log_levels():
 
 
 @syslog_router.get('/app_logs/modules')
-def get_log_modules():
+def get_log_modules(_admin: dict = Depends(require_admin)):
     """获取所有模块名（用于筛选下拉）"""
     try:
         modules = AppLogService.get_modules()
@@ -88,7 +94,7 @@ def get_log_modules():
 
 
 @syslog_router.get('/app_logs/statistics')
-def get_log_statistics():
+def get_log_statistics(_admin: dict = Depends(require_admin)):
     """获取日志统计信息"""
     try:
         stats = AppLogService.get_statistics()
@@ -105,7 +111,7 @@ def get_log_statistics():
 # Flask 时代 Werkzeug 会按具体度排序，所以这是迁移引入的回归，不是历史遗留。
 # 以后新增 `/app_logs/xxx` 静态路径，请加在上面几个之前。
 @syslog_router.get('/app_logs/{log_id}')
-def get_app_log_detail(log_id: int):
+def get_app_log_detail(log_id: int, _admin: dict = Depends(require_admin)):
     """获取单条日志详情"""
     try:
         log = AppLogService.get_by_id(log_id)

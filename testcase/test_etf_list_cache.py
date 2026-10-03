@@ -35,7 +35,7 @@ from fastapi_cache.backends.inmemory import InMemoryBackend
 import routes.etf as etf_routes
 from service.etf_service import EtfService
 from utils.api_cache import init_api_cache
-from utils.auth import get_current_user_id
+from utils.auth import get_current_user, get_current_user_id
 
 TEST_USER_ID = 7
 
@@ -103,6 +103,9 @@ class TestEtfListCache(unittest.TestCase):
         app = FastAPI()
         app.include_router(etf_routes.etf_router)
         # 鉴权走依赖注入，这里直接覆盖成固定用户（免造令牌、免连 Redis）
+        # ⚠️ 路由级 dependencies=[Depends(get_current_user)] 也要覆盖——
+        #    只覆盖 get_current_user_id 的话，router 级依赖走真实鉴权会 401。
+        app.dependency_overrides[get_current_user] = lambda: {'id': TEST_USER_ID, 'role': 'user'}
         app.dependency_overrides[get_current_user_id] = lambda: TEST_USER_ID
         self.client = TestClient(app)
 

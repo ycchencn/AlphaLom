@@ -12,10 +12,11 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi_cache.decorator import cache
 
 from app.fastapi_app import api_prefix
+from utils.auth import get_current_user
 from service.portfolio_backtest_service import (
     BENCHMARK_OPTIONS,
     DEFAULT_BENCHMARK,
@@ -25,7 +26,9 @@ from service.portfolio_backtest_service import (
 )
 from utils.logger import logger
 
-backtest_router = APIRouter(prefix=api_prefix, tags=['组合回测'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+backtest_router = APIRouter(prefix=api_prefix, tags=['组合回测'],
+                            dependencies=[Depends(get_current_user)])
 
 
 @backtest_router.get('/portfolio_backtest_benchmarks')

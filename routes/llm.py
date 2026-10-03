@@ -6,14 +6,17 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi_cache.decorator import cache
 
 from llms import _PLATFORM_REGISTRY, list_platform_models
 from app.fastapi_app import json_resp
+from utils.auth import get_current_user
 from utils.logger import logger
 
-llm_router = APIRouter(prefix='/api/v1', tags=['LLM'])
+# 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
+llm_router = APIRouter(prefix='/api/v1', tags=['LLM'],
+                       dependencies=[Depends(get_current_user)])
 
 # 模型列表变化低频（上游新上/下线模型），缓存 30 分钟；带 platform 参数各自独立 key
 _MODELS_CACHE_TTL = 1800
