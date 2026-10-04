@@ -24,28 +24,26 @@ const market_temp_data_last = ref({
 
 const fetchTurnOverRatesData = async () => {
     try {
-        const response = await fetch(`/api/v1/market_turnover_rates`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        return data;
+        // ⚠️ 必须用 axios：market 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/market_turnover_rates`);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
 
 const fetchBackTestCount = async (last_signal_trade_type) => {
     try {
-        const response = await fetch(`/api/v1/backtest_signals_count?last_signal_trade_type=` + last_signal_trade_type);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-        return data;
+        // ⚠️ 必须用 axios：backtest 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/backtest_signals_count`, {
+            params: {last_signal_trade_type}
+        });
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };

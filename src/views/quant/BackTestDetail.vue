@@ -6,6 +6,7 @@ import { init, dispose } from 'klinecharts';
 import { ref } from 'vue';
 import { useRoute } from 'vue-router';
 import { chartConfigs } from '@/utils/constants.js';
+import axios from 'axios';
 import { fetchStockMarketData, fetchStockInfo } from '@/utils/function.js';
 
 const route = useRoute();
@@ -15,13 +16,12 @@ const stock_info = ref({ name: '' });
 
 const fetchBackTestTrade = async (backtest_id) => {
     try {
-        const response = await fetch(`/api/v1/get_backtest_trades/` + backtest_id);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：backtest 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/get_backtest_trades/` + backtest_id);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };

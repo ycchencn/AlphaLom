@@ -97,39 +97,36 @@ export function dictToMarkdownRecursive(data, indent = 0) {
 
 export const fetchIndustryList = async () => {
     try {
-        let response = await fetch(`/api/v1/stocks/industry_list`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：stocks 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。令牌由 main.js 的 axios 拦截器注入。
+        const response = await axios.get(`/api/v1/stocks/industry_list`);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
 
 export const fetchStockInfo = async (stockCode) => {
     try {
-        let response = await fetch(`/api/v1/stocks/${stockCode}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：stocks 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/stocks/${stockCode}`);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
 
 export const fetchStockProfile = async (stockCode) => {
     try {
-        let response = await fetch(`/api/v1/stocks/profile/${stockCode}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：stocks 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/stocks/profile/${stockCode}`);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
@@ -155,47 +152,39 @@ export const fetchStockMarketData = async (stockCode, startDate, endDate, Period
         const period = Period || 'd';
         const version = '1.2'
 
-        let response = null;
+        // 2. 构建带查询参数的 URL —— ⚠️ 必须用 axios：stock_history 路由有
+        // router 级 get_current_user 依赖，原生 fetch 不带 Authorization → 401。
+        const params = {start_date, end_date, period, version};
+        const response = await axios.get(`/api/v1/stock_history/${stockCode}`, {params});
 
-        // 2. 构建带查询参数的 URL
-        const params = new URLSearchParams({start_date, end_date, period, version});
-
-        response = await fetch(`/api/v1/stock_history/${stockCode}?${params}`);
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        return await response.json();
+        return response.data;
 
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
 
 export const fetchIndexMarketData = async (stockCode) => {
     try {
-        const response = await fetch(`/api/v1/index_history/` + stockCode);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：index 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/index_history/` + stockCode);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
 
 export const fetchMarketTempData = async () => {
     try {
-        const response = await fetch(`/api/v1/market/market_temperature_data`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return await response.json();
+        // ⚠️ 必须用 axios：market 路由有 router 级 get_current_user 依赖，
+        // 原生 fetch 不带 Authorization → 401。
+        const response = await axios.get(`/api/v1/market/market_temperature_data`);
+        return response.data;
     } catch (error) {
-        console.error('Error fetching stock data:', error);
+        console.error('Error fetching stock data:', error?.response?.status || error.message);
         return [];
     }
 };
