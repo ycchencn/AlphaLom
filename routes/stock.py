@@ -171,13 +171,18 @@ async def update_stock(symbol: str, request: Request,
     # 目标分组（可选）：前端在某个分组下点「添加个股」时带上，让新票直接落到该分组。
     # 非空才生效，空/缺省 = 不动既有分组（详见 StockService.add_to_user_pool）。
     group_name = _clean_group_name(data.get('group_name'))
+    market_hint = data.get('market')
+    # ⚠️ 港股代码必须 5 位补零（databull 要求，700→404、00700✅），在查库 / 调 API 前归一化，
+    # 否则后续 get_stock_by_symbol / get_stock_info 都按未补零的码查、既查不到也落错库。
+    if market_hint == 'hk' and symbol.isdigit():
+        symbol = symbol.zfill(5)
     # 一次查询同时拿到「是否存在」与更新前的监控状态，省掉原先的 exists() 往返
     before = StockService.get_stock_by_symbol(symbol, fields=['monitoring', 'securities_type'])
 
     # ⚠️ market 只在调用方**显式传**时才覆盖已有标的：原来的 `data.get('market','cn')`
     # 会把不传 market 的调用（如 StockMonitor.vue）一律写成 cn，港股/美股标的被记错市场，
     # 之后按 market 分段查询就再也查不到它了。
-    market = data.get('market') or (before or {}).get('market') or 'cn'
+    market = market_hint or (before or {}).get('market') or 'cn'
 
     if before is not None:
         # 已在库：只更新调用方显式传来的字段（不含 monitoring，见 docstring）
@@ -450,13 +455,17 @@ def get_stock_history(
     if not validate_stock_code(stock_code):
         raise HTTPException(status_code=400, detail="Invalid stock code")
 
+    # 港股/美股必须显式带 market，否则默认 cn 取不到日线
+    stock = StockService.get_stock_by_symbol(stock_code)
+    market = (stock or {}).get('market') or 'cn'
+
     dayn = 365 * 1
     if start_date is None:
         start_date = get_date_by_n(-1 * dayn)
     if end_date is None:
         end_date = get_today()
 
-    securities_data = databull.get_stock_history(stock_code, start_date, end_date, period)
+    securities_data = databull.get_stock_history(stock_code, start_date, end_date, period, market=market)
     securities_data.reset_index(inplace=True)
     securities_data['date'] = securities_data['date'].dt.strftime('%Y-%m-%d')
     securities_data_dict = securities_data.to_dict(orient='records')
@@ -498,9 +507,14 @@ def get_stock_profile(symbol: str):
     """获取公司信息"""
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid symbol")
-    # SDK 的 get_company_profile 返回 {code, data} 信封（旧本地客户端已解包），
-    # 这里取内层 data 再返回，前端是按 profile 的字段直接读的。
-    resp = databull.get_company_profile(symbol, market='cn')
+    # 港股/美股无 company_profile 端点（404 抛错），按标的真实市场取；失败兜底空对象。
+    stock = StockService.get_stock_by_symbol(symbol)
+    market = (stock or {}).get('market') or 'cn'
+    try:
+        resp = databull.get_company_profile(symbol, market=market)
+    except Exception as e:
+        logger.warning(f"get_stock_profile failed ({symbol}, market={market}): {e}")
+        return {}
     return resp.get('data') if isinstance(resp, dict) else resp
 
 

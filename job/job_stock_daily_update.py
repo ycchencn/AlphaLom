@@ -198,9 +198,10 @@ def job_fix_ohlc_last(stock_code, market=None):
 
 
 def job_sync_data():
-    # stock_list = databull.get_stock_list()['data']
-    market = 'cn'
-    stock_list = StockService.get_monitoring_stock_pool(market=market, per_page=10000)
+    # 基础信息同步覆盖全部市场；__sync_single_stock 已按标的真实 market 取概况
+    stock_list = []
+    for market in ('cn', 'hk', 'us'):
+        stock_list.extend(StockService.get_monitoring_stock_pool(market=market, per_page=10000))
     total_cnt = len(stock_list)
     success_cnt = 0
     logger.info(f"开始多线程全量同步股票基础信息，标的总数：{total_cnt}，并发数：{MAX_WORKERS//2}")
@@ -229,7 +230,7 @@ def __sync_single_stock(stock):
         'name': stock['name'],
         'name_en': stock['name'],
     }
-    record.update(StockService.company_profile_fields(stock['symbol']))
+    record.update(StockService.company_profile_fields(stock['symbol'], stock.get('market', 'cn')))
     StockService.upsert_stock(record)
     logger.debug(f"更新个股信息, {stock['symbol']}, {stock['name']}")
     return True

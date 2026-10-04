@@ -29,13 +29,20 @@ _stock_server_search_supported: Optional[bool] = None  # None=未探测, True/Fa
 
 
 def _normalize_stock_items(resp) -> List[Dict[str, str]]:
-    """把上游清单响应归一化为 [{symbol, name}]（兼容数组与 {code,data} 信封两种写法）。"""
+    """把上游清单响应归一化为 [{symbol, name}]（兼容数组 / {code,data} 信封 / 港股美股分页信封）。"""
     if resp is None:
         return []
     if isinstance(resp, list):
         items = resp
     else:
-        items = resp.get('data') or resp.get('items') or resp.get('list') or []
+        data = resp.get('data') if isinstance(resp, dict) else None
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            # 港股/美股列表接口返回 {code, data:{items:[...], total, page, ...}} 分页信封
+            items = data.get('items') or data.get('list') or []
+        else:
+            items = resp.get('items') or resp.get('list') or []
 
     result, seen = [], set()
     for it in items:
@@ -72,7 +79,10 @@ def _probe_stock_server_search(market: str = 'cn') -> bool:
 
 
 def _get_stock_catalog(market: str = 'cn') -> List[Dict[str, str]]:
-    """获取（并缓存）全市场股票目录，供本地过滤使用。拉取失败时沿用旧缓存。"""
+    """获取（并缓存）全市场股票目录，供本地过滤使用。拉取失败时沿用旧缓存。
+
+    港股/美股列表接口分页（最大 500/页），需按 has_more 翻页拉全量；A 股单次返回全量清单。
+    """
     cached = _stock_catalog_cache.get(market)
     if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
         return cached['items']
@@ -81,10 +91,20 @@ def _get_stock_catalog(market: str = 'cn') -> List[Dict[str, str]]:
         cached = _stock_catalog_cache.get(market)
         if cached and time.time() - cached['ts'] < _STOCK_CATALOG_TTL:
             return cached['items']
+        items = []
         try:
-            items = _normalize_stock_items(databull.get_stock_list(market=market))
+            if market in ('hk', 'us'):
+                for page in range(1, 100):  # 上限 ~5万只，远超港/美交所总量
+                    raw = (databull.get_hk_stock_list(page=page, page_size=500)
+                           if market == 'hk' else databull.get_us_stock_list(page=page, page_size=500))
+                    items.extend(_normalize_stock_items(raw))
+                    data = raw.get('data') if isinstance(raw, dict) else None
+                    if not data or not data.get('has_more'):
+                        break
+            else:
+                items = _normalize_stock_items(databull.get_stock_list(market='cn'))
         except Exception as e:
-            logger.warning(f"get_stock_list failed: {e}")
+            logger.warning(f"get_stock_catalog failed (market={market}): {e}")
             items = []
         if items:
             _stock_catalog_cache[market] = {'ts': time.time(), 'items': items}
@@ -515,12 +535,8 @@ class StockService:
         按代码/名称搜索全市场股票目录，返回 [{symbol, name}]，最多 limit 条。
         用于「添加个股监控」弹窗的搜索联想。
 
-        实现说明：上游 `GET /cn/stocks` 的 OpenAPI 定义里**没有任何查询参数**，实测传
-        search/q 会被忽略并原样返回全量列表（keyword=600519 与 keyword=平安 返回同一份数据）。
-        所以这里不直接假设上游行为：
-          1) 若探测到上游服务端过滤真的生效 → 直接用上游结果（省掉本地全量过滤）；
-          2) 否则退化为「进程内缓存全量目录 + 本地按代码/名称过滤」，
-             避免每次按键都向上游拉一份全量清单。
+        港股/美股走专用列表接口（get_hk/us_stock_list），它们支持 `q` 服务端关键字过滤；
+        A 股走 get_stock_list。任一市场服务端过滤失效/无结果时，退化为进程内缓存全量目录做本地匹配。
         """
         keyword = (keyword or '').strip()
         if not keyword:
@@ -528,16 +544,20 @@ class StockService:
         kw = keyword.lower()
 
         candidates = []
-        if _stock_server_search_supported is not False and _probe_stock_server_search(market):
-            try:
-                raw = _normalize_stock_items(databull.get_stock_list(market=market, search=keyword))
-                candidates = [it for it in raw
-                              if kw in it['symbol'].lower() or kw in it['name'].lower()]
-            except Exception as e:
-                logger.warning(f"get_stock_list(search={keyword}) failed: {e}")
+        try:
+            if market == 'hk':
+                raw = databull.get_hk_stock_list(q=keyword, page=1, page_size=limit)
+            elif market == 'us':
+                raw = databull.get_us_stock_list(q=keyword, page=1, page_size=limit)
+            else:
+                raw = databull.get_stock_list(market='cn', q=keyword)
+            candidates = [it for it in _normalize_stock_items(raw)
+                          if kw in it['symbol'].lower() or kw in it['name'].lower()]
+        except Exception as e:
+            logger.warning(f"server-side stock search failed (market={market}, kw={keyword}): {e}")
 
         if not candidates:
-            # 上游不过滤（或过滤无结果）→ 用缓存的全量目录做本地匹配
+            # 服务端过滤失效/无结果 → 用缓存的全量目录做本地匹配
             catalog = _get_stock_catalog(market)
             candidates = [it for it in catalog
                           if kw in it['symbol'].lower() or kw in it['name'].lower()]
@@ -693,8 +713,25 @@ class StockService:
         """
         # ⚠️ SDK 的 get_company_profile 返回 {code, data} 信封（旧本地客户端已解包成 data 本身），
         # 必须自己取内层 data —— 否则 industry/province 等全部取到 None 且不报错。
-        resp = databull.get_company_profile(symbol, market)
-        profile = resp.get('data') if isinstance(resp, dict) else None
+        if market == 'cn':
+            # 公司概况接口只有 A 股（`cn/stock/profile`）；港股/美股该端点不存在（404 抛 DataBullError）。
+            resp = databull.get_company_profile(symbol, market)
+            profile = resp.get('data') if isinstance(resp, dict) else None
+        else:
+            # 港股/美股没有 company_profile 接口，改从个股基本信息的 profile 子对象取
+            # （美股该字段有真实数据，港股通常为空 {}）；港股代码必须 5 位补零。
+            profile = {}
+            try:
+                sym = symbol.zfill(5) if (market == 'hk' and symbol.isdigit()) else symbol
+                info = (databull.get_hk_stock_info(sym) if market == 'hk'
+                        else databull.get_us_stock_info(sym))
+                if isinstance(info, dict):
+                    sub = info.get('profile')
+                    if isinstance(sub, dict):
+                        profile = sub
+            except Exception as e:
+                logger.warning(f"get {market} stock profile failed ({symbol}): {e}")
+                profile = {}
         # 上游无此标的时 data 为空，异常结构也一并按空处理，避免下游 .get() 报错
         if not isinstance(profile, dict):
             profile = {}

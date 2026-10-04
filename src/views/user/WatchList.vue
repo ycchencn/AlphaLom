@@ -13,6 +13,13 @@ const filters1 = ref(null);
 const loading1 = ref(null);
 const modal_visible = ref(false);
 const modal_stock_code = ref(null);
+// 添加弹窗：市场选择（cn=沪深, hk=港股, us=美股），随加池请求一起下发
+const modal_market = ref('cn');
+const marketSelectOptions = [
+    { label: 'A股', value: 'cn' },
+    { label: '港股', value: 'hk' },
+    { label: '美股', value: 'us' },
+];
 const { showSuccess, showError } = useNotification();
 const dt1 = ref(null);
 const modal_analysis_interval = ref(1)
@@ -92,7 +99,8 @@ async function addStockMonitor(stockCode) {
     try {
         await axios.put(`/api/v1/stocks/${encodeURIComponent(trimmedCode)}`, {
             monitoring: 1,
-            monitor_by: 'guest'
+            monitor_by: 'guest',
+            market: modal_market.value
         });
         showSuccess('个股添加成功，数据已提交后台任务，请稍后查看');
         modal_stock_code.value = ""
@@ -184,6 +192,20 @@ const conceptsFilterOptions = [
             autocomplete="off"
             placeholder="填写股票代码"
             @keyup.enter="modal_visible=false; addStockMonitor(modal_stock_code);"
+            class="w-full mt-3"
+          />
+        </div>
+
+        <!-- 市场选择：决定加池时记录的市场，港股代码会自动补零 -->
+        <div>
+          <label for="modal_market" class="font-semibold block mb-1">市场</label>
+          <Dropdown
+            v-model="modal_market"
+            inputId="modal_market"
+            :options="marketSelectOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="A股"
             class="w-full mt-3"
           />
         </div>

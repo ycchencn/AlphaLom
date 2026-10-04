@@ -22,6 +22,13 @@ const filter_market = ref('')
 
 // 添加个股弹窗：搜索状态
 const searchKeyword = ref('');
+// 添加个股弹窗：市场选择（cn=沪深, hk=港股, us=美股），随搜索与加池请求一起下发
+const modal_market = ref('cn');
+const marketSelectOptions = [
+    { label: 'A股', value: 'cn' },
+    { label: '港股', value: 'hk' },
+    { label: '美股', value: 'us' },
+];
 const searchResults = ref([]);
 const searching = ref(false);
 const addingSymbol = ref('');   // 正在添加的 symbol，用于禁用对应按钮
@@ -143,7 +150,7 @@ async function doSearch(kw) {
     const seq = ++searchSeq;
     searching.value = true;
     try {
-        const r = await axios.get('/api/v1/stock_search', {params: {keyword: kw, limit: 50}});
+        const r = await axios.get('/api/v1/stock_search', {params: {keyword: kw, limit: 50, market: modal_market.value}});
         if (seq !== searchSeq) return;   // 已有更新的搜索，丢弃本次结果，避免乱序覆盖
         searchResults.value = Array.isArray(r.data) ? r.data : [];
     } catch (e) {
@@ -177,12 +184,13 @@ function getFearGreedClass(greedValue) {
  * @param {boolean} [isMove] - 是否是对「已在池中的票」改分组（仅影响提示文案）
  * @returns {Promise<boolean>} 是否成功
  */
-async function putStockMonitoring(symbol, groupName, isMove = false) {
+async function putStockMonitoring(symbol, groupName, isMove = false, market = 'cn') {
     try {
         const payload = {
             monitoring: 1,
             monitor_by: 'guest',
-            securities_type: 'stock'
+            securities_type: 'stock',
+            market: market
         };
         // 只在目标分组非空时带该字段：后端的语义是「非空才生效」，
         // 传空串并不会把票移出分组（想移出分组走行内菜单的「取消分组」）。
@@ -247,7 +255,7 @@ async function addFromSearch(row) {
     const isMove = isWatched(symbol);   // 已在池中 → 本次是「换分组」而不是「新增」
     addingSymbol.value = symbol;
     try {
-        await putStockMonitoring(symbol, targetGroup.value, isMove);
+        await putStockMonitoring(symbol, targetGroup.value, isMove, modal_market.value);
     } finally {
         addingSymbol.value = '';
     }
@@ -273,7 +281,7 @@ async function addByCode(stockCode) {
     }
     addingSymbol.value = trimmedCode;
     try {
-        const ok = await putStockMonitoring(trimmedCode, targetGroup.value);
+        const ok = await putStockMonitoring(trimmedCode, targetGroup.value, false, modal_market.value);
         if (ok) {
             searchKeyword.value = '';
             searchResults.value = [];
@@ -606,6 +614,21 @@ async function deleteGroup(groupName) {
           <span v-else class="text-xs text-gray-400">
             未选择分组，新添加的股票将进入「未分组」
           </span>
+        </div>
+
+        <!-- 市场选择：决定搜索目录与加池时记录的市场，港股代码会自动补零 -->
+        <div class="flex flex-col gap-1">
+          <label for="modal_market" class="text-xs text-gray-500">市场</label>
+          <Dropdown
+            v-model="modal_market"
+            inputId="modal_market"
+            :options="marketSelectOptions"
+            optionLabel="label"
+            optionValue="value"
+            placeholder="A股"
+            class="w-full"
+            size="small"
+          />
         </div>
 
         <IconField>
