@@ -1,6 +1,7 @@
 {
     "name": "alphalom",
     "version": "1.0.0",
+    "homepage": "https://www.alphalom.com/",
     "scripts": {
         "dev": "vite",
         "build": "vite build",
