@@ -34,6 +34,12 @@ const router = createRouter({
                     meta: { title: '沪深大盘', requiresAuth: true }
                 },
                 {
+                    path: '/market/us_market_overview',
+                    name: 'us-market-overview',
+                    component: () => import('@/views/market/UsMarketOverview.vue'),
+                    meta: { title: '美股大盘', requiresAuth: true }
+                },
+                {
                     path: '/market/sector_sentiment',
                     name: 'market-sector-sentiment',
                     component: () => import('@/views/market/SectorSentiment.vue'),

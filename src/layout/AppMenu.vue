@@ -16,6 +16,12 @@ const model = ref([
                 enable: true, // 可进一步控制该菜单项是否展示或禁用
             },
             {
+                label: '美股大盘',
+                icon: 'pi pi-fw pi-globe',
+                to: '/market/us_market_overview',
+                enable: true,
+            },
+            {
                 label: '事件驱动',
                 icon: 'pi pi-fw pi-twitter',
                 to: '/market/news_flow',
