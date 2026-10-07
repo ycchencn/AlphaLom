@@ -152,8 +152,7 @@ def job_update_etf_factor_all():
     symbols = _all_etf_symbols()
     logger.info(f"开始回填 ETF 因子，共 {len(symbols)} 只")
     for symbol in symbols:
-        job_update_stock_factor(stock_code=symbol, asset_type='etf',
-                                save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
+        job_update_stock_factor(stock_code=symbol, asset_type='etf',  save_last=True, time_period=-FACTOR_LOOKBACK_DAYS)
 
 
 def job_update_financial_score_all():
@@ -164,8 +163,7 @@ def job_update_financial_score_all():
         StockFinancialScoreService.upsert(res)
         print(res)
 
-def job_update_stock_factor(stock_code, trade_date=None, save_last=False, time_period=-360,
-                            asset_type=None):
+def job_update_stock_factor(stock_code, trade_date=None, save_last=False, time_period=-360,  asset_type=None):
     """
     计算单个标的（个股或 ETF）的因子数据并入库。
 
@@ -209,6 +207,8 @@ if __name__ == '__main__':
 
     # job_update_financial_score_all()
 
-    job_update_stock_factor_daily_all()
+    job_update_stock_factor(stock_code='588170', asset_type='etf', save_last=False, time_period=-FACTOR_LOOKBACK_DAYS)
 
-    job_update_etf_factor_all()
+    # job_update_stock_factor_daily_all()
+
+    # job_update_etf_factor_all()

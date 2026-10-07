@@ -40,5 +40,5 @@ aiohttp
 uvicorn
 quantstats
 werkzeug
-databull
+databull==0.1.3
 altcha==2.1.0    # 登录人机校验（自托管开源版）：出题/校验在 utils/altcha.py，前端产物在 public/altcha/
