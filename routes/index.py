@@ -10,6 +10,7 @@ from app.fastapi_app import api_prefix
 from utils.auth import get_current_user
 from databull import DataBullError
 from service.us_index_service import UsIndexError, UsIndexService
+from service.cn_index_service import CN_INDEX_CODES, CnIndexError, CnIndexService
 from utils.data_loader import databull
 from utils.logger import logger
 from fastapi_cache.decorator import cache
@@ -25,12 +26,15 @@ index_router = APIRouter(prefix=api_prefix, tags=['指数'],
 @index_router.get('/index/last_tick')
 @cache(expire=3600)
 def get_index_last():
+    """获取指数最新行情（原始 tick 列表，未加工）。
+
+    ⚠️ **页面已不再用这个接口**：沪深大盘页改成调 `/index/cn_cards`（返回加工后的卡片）。
+    本接口保留给「要原始 tick 字段」的调用方，语义与卡片接口不同，不是替代关系。
+    代码表统一从 `CnIndexService` 取，**别在这里再抄一份** —— 两份名单一旦漂移，
+    会出现「卡片有、tick 没有」（或反之）这种很难察觉的不一致。
     """
-    获取指数最新行情
-    """
-    index_codes = ['000001', '399001', '399006', '000688', '000692']
     index_ticks = []
-    for code in index_codes:
+    for code in CN_INDEX_CODES:
         try:
             res = databull.get_realtime(code, tick_type='index', market='cn')
         except DataBullError as e:
@@ -71,4 +75,30 @@ def get_us_index_cards(
     except UsIndexError as e:
         # 上游全挂才是真故障；单个指数失败已在service 内跳过并记入 meta.failed。
         logger.error(f'us index cards failed: {e}')
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@index_router.get('/index/cn_cards')
+@cache(expire=60)
+def get_cn_index_cards(
+    bust: Optional[str] = Query(None, description='绕缓存用的透传参数，传任意变化值即可强制回源'),
+):
+    """获取沪深大盘指数卡片（上证 / 深证 / 创业板 / 科创50 / 科创200）。
+
+    支撑「市场监控 → 沪深大盘」页的指数卡片行。与 `/index/us_cards`
+    **同一个响应结构**（前端两页共用同一个卡片组件），每张带：
+    最新点位、当日涨跌、近 5 日、年初至今、近 60 日迷你走势。
+
+    ⚠️ 与美股的差别：沪深**有实时 tick**（`meta.realtime_available=True`），
+    最新价是盘中价、并已并入走势序列末端。所以缓存只给 60s（美股是 1800s）——
+    日线部分一天不变，但 tick 在盘中是动的。需要立即看最新值就传 `bust=<时间戳>`
+    （原因见 `get_us_index_cards` 里对 `bust` 的说明：未声明的 query 不进 cache key）。
+
+    ⚠️ 旧的 `/index/last_tick` 保留不动（语义是「原始 tick 列表」，
+    本接口返回的是**加工后的卡片**，两者不是替代关系）。
+    """
+    try:
+        return CnIndexService.get_cards()
+    except CnIndexError as e:
+        logger.error(f'cn index cards failed: {e}')
         raise HTTPException(status_code=502, detail=str(e))

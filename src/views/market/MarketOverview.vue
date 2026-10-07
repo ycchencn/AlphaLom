@@ -3,13 +3,17 @@
  * 沪深大盘监控
  *
  * 页面结构（自上而下）：
- *   1. 指数卡片行    —— GET /api/v1/index/last_tick（F1：补全沪深300、空值跳过、真实数据时间）
+ *   1. 指数卡片行    —— GET /api/v1/index/cn_cards（与美股大盘页共用 IndexCard 组件）
  *   2. 大盘恐惧贪婪  —— GET /api/v1/market/fear_greed（F4：综合值 + 近一年走势 + 分量拆解）
  *   3. 申万行业排行  —— GET /api/v1/market/sectors（F3：一级/二级/三级可切换）
  *
- * 刷新策略（F2）：默认 60s 轮询，页面切到后台自动暂停；指数 tick 与恐惧贪婪
- * 分开刷新 —— 前者是盘中盯盘数据（后端缓存 20s），后者是日线（后端缓存 1h），
+ * 刷新策略（F2）：默认 60s 轮询，页面切到后台自动暂停；指数卡片与恐惧贪婪
+ * 分开刷新 —— 前者是盘中盯盘数据（后端缓存 60s），后者是日线（后端缓存 1h），
  * 用一个定时器同时刷会让日线数据被无意义地重复请求。
+ *
+ * ⚠️ 指数卡片的**视觉与算法都与美股大盘页共用**：
+ *   组件 `@/components/IndexCard.vue`、后端算法 `service/index_card_common.py`。
+ *   本文件只负责取数 + 页面级布局，**不要再往这里写卡片的颜色/迷你走势逻辑**。
  */
 import {ref, onMounted, onUnmounted, computed, watch, nextTick} from 'vue'
 import Card from 'primevue/card'
@@ -18,6 +22,7 @@ import Column from 'primevue/column'
 import SelectButton from 'primevue/selectbutton'
 import ToggleSwitch from 'primevue/toggleswitch'
 import axios from 'axios'
+import IndexCard from '@/components/IndexCard.vue'
 import * as echarts from 'echarts'
 import {
     COLORS, LINE, FONT,
@@ -28,16 +33,11 @@ import ProgressBar200p from '@/components/ProgressBar200p.vue'
 // ========================
 // 常量
 // ========================
-// ⚠️ 必须与后端 routes/index.py 的 INDEX_CODES 保持一致：
-// 前端有名字而后端不返回的指数，卡片根本不会渲染（不是显示空值），很隐蔽。
-const INDICES_NAME = {
-    '000001': '上证指数',
-    '399001': '深证成指',
-    '399006': '创业板指',
-    '000688': '科创50',
-    '000692': '科创200',
-    '000300': '沪深300'
-}
+// 指数的代码与中文名**都在后端**（`service/cn_index_service.py::CN_INDEX_CODES / CN_INDEX_NAMES`），
+// 卡片直接渲染后端返回的 name。
+// ⚠️ 原先前端这里有一份 `INDICES_NAME`，且必须与后端列表手工保持一致 ——
+// 「前端有名字而后端不返回」的指数卡片**根本不渲染**（不是显示空值），很隐蔽。
+// 现在名字随数据一起来，这类不一致从结构上不可能再发生，别再往前端加名单。
 
 // 恐惧贪婪可选的指数。
 //
@@ -72,8 +72,9 @@ const FEAR_GREED_REFRESH_MS = 10 * 60 * 1000   // 恐惧贪婪为日线，刷太
 // ========================
 // 状态
 // ========================
-const index_last_tick = ref([])
-const data_time = ref('')          // 真实数据时间（取所有指数 tick_time 的最大值）
+const index_cards = ref([])        // 指数卡片（cn_cards 的 items）
+const index_meta = ref(null)       // 卡片元信息（data_date / failed / stale_codes ...）
+const data_time = ref('')          // 真实数据时间（取所有指数 tick 时间的最大值）
 
 const sectors = ref([])
 const sector_type = ref('sw1')
@@ -88,9 +89,6 @@ const auto_refresh = ref(true)
 // ========================
 // 工具函数
 // ========================
-const getChangeColor = (val) => (val >= 0 ? 'var(--color-up)' : 'var(--color-down)')
-const formatSign = (val) => (val > 0 ? `+${val.toFixed(2)}` : val.toFixed(2))
-
 const getPctColorClass = (value) => {
     if (value > 0) return 'text-up'
     if (value < 0) return 'text-down'
@@ -124,40 +122,21 @@ const fearGreedColor = (val) => {
 // ========================
 // 指数行情（F1）
 // ========================
-// 上游 tick 的时间字段是 `time`（毫秒时间戳），**不是 `tick_time`**。
-// 原实现读 `item.tick_time` 拿到 undefined，`new Date(undefined)` 得到
-// Invalid Date 并被静默丢弃（因为当时没有任何地方显示它）。
-// 这里两种字段名都兼容，且同时接受毫秒数、秒数与 ISO 字符串。
-const parseTickTime = (item) => {
-    const raw = item?.time ?? item?.tick_time
-    if (raw == null || raw === '') return null
-    if (typeof raw === 'number') {
-        // 13 位毫秒；10 位秒
-        return new Date(raw < 1e12 ? raw * 1000 : raw)
-    }
-    const d = new Date(raw)
-    return Number.isNaN(d.getTime()) ? null : d
+// 指数卡片的「数据时间」精度到分秒，所以用后端回传的毫秒时间戳格式化。
+// ⚠️ 上游 tick 的时间字段名是 `time`（毫秒），不是 `tick_time` —— 后端已归一化，
+// 前端只接收 `meta.data_time_ms`，不再自己解析每个指数的 tick。
+const formatDataTime = (ms) => {
+    if (ms == null) return '--'
+    const n = Number(ms)
+    if (!Number.isFinite(n)) return '--'
+    return new Date(n < 1e12 ? n * 1000 : n).toLocaleString()
 }
 
-const fetchIndexTick = async () => {
-    const res = await axios.get('/api/v1/index/last_tick')
-    const list = Array.isArray(res.data) ? res.data : []
-    list.forEach((item) => {
-        // 上游偶发字段缺失，逐个兜底 —— 直接 toFixed 会因 undefined 抛错让整块渲染失败
-        const lastPrice = Number(item.lastPrice ?? 0)
-        const lastClose = Number(item.lastClose ?? 0)
-        item.change = lastClose ? lastPrice - lastClose : 0
-        item.changePercent = lastClose ? (item.change / lastClose) * 100 : 0
-        const t = parseTickTime(item)
-        item.formatTime = t ? t.toLocaleString() : '--'
-        item._ts = t ? t.getTime() : null
-    })
-    index_last_tick.value = list
-
-    // F1：标题栏显示「数据时间」而非渲染时刻。原实现用 new Date() ，
-    // 页面开着不动就会一直显示当前时间，让人误以为数据是新的。
-    const times = list.map((i) => i._ts).filter((t) => t != null)
-    data_time.value = times.length ? new Date(Math.max(...times)).toLocaleString() : '--'
+const fetchIndexCards = async () => {
+    const res = await axios.get('/api/v1/index/cn_cards')
+    index_cards.value = Array.isArray(res.data?.items) ? res.data.items : []
+    index_meta.value = res.data?.meta || null
+    data_time.value = formatDataTime(index_meta.value?.data_time_ms)
 }
 
 // ========================
@@ -1044,7 +1023,7 @@ let rotTimer = null
 
 const startTimers = () => {
     stopTimers()
-    tickTimer = setInterval(fetchIndexTick, TICK_REFRESH_MS)
+    tickTimer = setInterval(fetchIndexCards, TICK_REFRESH_MS)
     fgTimer = setInterval(fetchFearGreed, FEAR_GREED_REFRESH_MS)
     gvTimer = setInterval(fetchGrowthValue, FEAR_GREED_REFRESH_MS)
     // 板块轮动是日更数据（job_update_sector_daily mon-fri 20:35），涨了也不会盘中变化
@@ -1070,7 +1049,7 @@ const onVisibilityChange = () => {
     if (document.hidden) {
         stopTimers()
     } else if (auto_refresh.value) {
-        fetchIndexTick()
+        fetchIndexCards()
         startTimers()
     }
 }
@@ -1085,7 +1064,7 @@ onMounted(async () => {
     // 首屏并发拉取：五个接口互不依赖，串行等待会让首屏白屏时间翻倍。
     // 用 allSettled：任一接口挂掉不应该让另外几个也不显示。
     await Promise.allSettled([
-        fetchIndexTick(), fetchSectors(), fetchFearGreed(), fetchGrowthValue(), fetchRotation()
+        fetchIndexCards(), fetchSectors(), fetchFearGreed(), fetchGrowthValue(), fetchRotation()
     ])
     startTimers()
 })
@@ -1111,11 +1090,7 @@ onUnmounted(() => {
         <div class="header">
             <h1 class="title">沪深大盘监控</h1>
             <div class="header-right">
-                <span class="update-time">数据时间: {{ data_time || '--' }}
-                    <span v-if="index_last_tick[0]?.formatTime" class="tick-time">
-                        （最新行情 {{ index_last_tick[0].formatTime }}）
-                    </span>
-                </span>
+                <span class="update-time">数据时间: {{ data_time || '--' }}</span>
                 <label class="auto-refresh">
                     <ToggleSwitch v-model="auto_refresh" />
                     <span>{{ auto_refresh ? '自动刷新 30s' : '已暂停' }}</span>
@@ -1123,22 +1098,14 @@ onUnmounted(() => {
             </div>
         </div>
 
-        <!-- 指数卡片行 -->
+        <!-- 指数卡片行（与美股大盘页共用 IndexCard 组件） -->
         <div class="indices-row">
-            <Card v-for="item in index_last_tick" :key="item.index_code" class="index-card">
-                <template #content>
-                    <div class="card-content">
-                        <div class="index-name">{{ INDICES_NAME[item.index_code] || item.index_code }}</div>
-                        <div class="index-code">{{ item.index_code }}</div>
-                        <div class="index-price">{{ Number(item.lastPrice ?? 0).toFixed(2) }}</div>
-                        <div class="index-change" :style="{ color: getChangeColor(item.change) }">
-                            <span>{{ formatSign(item.change) }}</span>
-                            <span class="change-percent">{{ formatSign(item.changePercent) }}%</span>
-                        </div>
-                    </div>
-                </template>
-            </Card>
-            <div v-if="!index_last_tick.length" class="empty-tip">暂无指数行情</div>
+            <IndexCard
+                v-for="item in index_cards"
+                :key="item.code"
+                :item="item"
+            />
+            <div v-if="!index_cards.length" class="empty-tip">暂无指数行情</div>
         </div>
 
         <!-- F4 大盘恐惧贪婪 -->
@@ -1642,10 +1609,6 @@ onUnmounted(() => {
     .update-time {
         color: #64748b;
         font-size: 0.9rem;
-
-        .tick-time {
-            color: #94a3b8;
-        }
     }
 
     // 自动刷新开关
@@ -1660,7 +1623,9 @@ onUnmounted(() => {
     }
 }
 
-// 指数卡片行
+// 指数卡片行。卡片自身样式在 @/components/IndexCard.vue（与美股大盘页共用），
+// 这里只管行布局：flex-wrap + flex:1 1 让每行卡片自动拉伸铺满整行。
+// ⚠️ 沪深是 5 张卡，一行放得下（每张 1/5）；用 grid 反而会因为除不尽在末行留缺口。
 .indices-row {
     display: flex;
     flex-wrap: wrap;
@@ -1668,50 +1633,8 @@ onUnmounted(() => {
     margin-bottom: 1.5rem;
 
     .index-card {
-        flex: 1 1 calc(16.66% - 1rem);
-        min-width: 160px;
-        transition: all 0.2s ease;
-
-        &:hover {
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        }
-    }
-}
-
-.card-content {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-
-    .index-name {
-        font-size: 1rem;
-        color: #475569;
-        font-weight: 600;
-        white-space: nowrap;
-    }
-
-    .index-code {
-        font-size: 0.75rem;
-        color: #94a3b8;
-        margin-top: 0.2rem;
-    }
-
-    .index-price {
-        font-size: 1.8rem;
-        font-weight: 700;
-        color: #0f172a;
-        margin: 0.5rem 0;
-        line-height: 1;
-    }
-
-    .index-change {
-        display: flex;
-        gap: 0.5rem;
-        font-size: 0.95rem;
-
-        .change-percent {
-            color: inherit;
-        }
+        flex: 1 1 calc(20% - 0.8rem);
+        min-width: 220px;
     }
 }
 
@@ -2160,6 +2083,7 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+    /* 窄屏每行两张（卡片自身样式在 IndexCard.vue，这里只覆盖行内宽度） */
     .indices-row .index-card {
         flex: 1 1 calc(50% - 1rem);
     }
