@@ -820,11 +820,21 @@ async function deleteGroup(groupName) {
             </template>
             <template #empty> No data found.</template>
             <template #loading> Loading customers data. Please wait.</template>
-            <Column field="name" filterField="name" header="名称">
+            <!-- 名称列：只设上限、不设下限。
+                 DataTable 是 auto 布局，列宽由内容决定：不设 min-width 时 A 股名称
+                 （4 个汉字）只占几十像素；一旦给了 min-width，短的也会被撑开 —— 这正是
+                 「加 max-width 时顺手写个 min-width 保底」的反面案例。
+                 美股/港股的长公司名（如 Berkshire Hathaway Inc. Class B）则由 max-width
+                 200px 封顶，超出部分省略，完整名称用 title 悬浮查看。
+                 auto 布局下 max-width 对 td 生效的前提是内容自己是不可换行的块级盒子
+                 （truncate 那串 class），否则 td 会无视上限继续撑开。 -->
+            <Column field="name" filterField="name" header="名称" style="max-width: 200px">
                 <template #body="{ data }">
-                    <router-link class="text-blue-500"
+                    <router-link class="text-blue-500 block whitespace-nowrap overflow-hidden text-ellipsis w-full"
+                                 :title="data.symbol"
                                  :to="{ name: 'stock-detail', params: { symbol: data.symbol } }">{{ data.symbol }}
-                    </router-link><br/>{{ data.name }}
+                    </router-link>
+                    <span class="block whitespace-nowrap overflow-hidden text-ellipsis w-full" :title="data.name">{{ data.name }}</span>
                 </template>
             </Column>
             <Column field="close" filterField="close" header="最新" sortable>
