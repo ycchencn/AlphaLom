@@ -25,6 +25,17 @@ CALENDAR_KEY_PREFIX = "alphalom:trading_calendar"
 # 2 天：日更刷新覆盖；单日拉取失败时旧值仍可用
 CALENDAR_TTL = 2 * 24 * 3600
 
+# 强制刷新的冷却锁（防并发风暴）：长假后首日多个任务同时判 is_trading_day，
+# 不能让它们同时打上游 —— NX 键拿到锁的才刷，其余等锁过期后读新缓存。
+REFRESH_COOLDOWN_KEY_PREFIX = "alphalom:trading_calendar:refresh_cooldown"
+REFRESH_COOLDOWN_SEC = 600  # 10 分钟
+
+# 缓存「明显滞后」阈值（自然日）。
+# 缓存末尾 = 最近有数据的交易日。普通周末：今天 - 末尾 <= 2；周一：<= 3；
+# 长假（>=4 天）必然 > 3。取 3 既能覆盖「普通周末 + 周一」不误触发，
+# 又能保证长假后首日 100% 触发强制刷新。
+STALE_GAP_DAYS = 3
+
 
 def _calendar_key(market: str) -> str:
     return f"{CALENDAR_KEY_PREFIX}:{market}"
@@ -65,7 +76,16 @@ def refresh_trading_calendar(market: str = 'cn') -> int:
     """
     每天调用一次：拉取交易日历写入 Redis。返回本次缓存的交易日总数。
     若全部拉取失败则不覆盖旧缓存（避免把可用缓存清空成空）。
+
+    ⚠️ **防「回退」覆盖**（2026-10-08 长假 bug）：长假期间上游日历只到节前最后交易日，
+    若直接用新拉的 `all_days` 覆盖现有缓存，会把「已含 10-08」的完整缓存**换回更短的**。
+    所以这里与现有缓存做**并集**：新值必须 >= 旧值（覆盖范围只增不减），
+    绝不因为上游某天/某年没数据而让缓存变短。
     """
+    # 先取现有缓存（写前留底，防止「上游缺一段 -> 并集后反而缩水」）
+    existing = _get_cached_days(market) or []
+    existing_set = set(existing)
+
     all_days: List[str] = []
     for y in _years_to_cache():
         try:
@@ -77,13 +97,19 @@ def refresh_trading_calendar(market: str = 'cn') -> int:
         except Exception as e:
             logger.warning(f"[trading_calendar] 拉取 {market} {y} 异常: {e}")
 
-    all_days = sorted(set(all_days))
-    if all_days:
-        redis_obj.set(_calendar_key(market), json.dumps(all_days), ex=CALENDAR_TTL)
-        logger.info(f"[trading_calendar] 已刷新 {market} 交易日历，共 {len(all_days)} 天")
-    else:
-        logger.warning(f"[trading_calendar] {market} 拉取结果为空，保留旧缓存")
-    return len(all_days)
+    # ⚠️ 与现有缓存并集：宁可保留「旧但有」的天数，也不要让缓存覆盖范围变短
+    merged = sorted(set(all_days) | existing_set)
+    if not merged:
+        logger.warning(f"[trading_calendar] {market} 拉取结果为空且无旧缓存，保留空")
+        return 0
+
+    redis_obj.set(_calendar_key(market), json.dumps(merged), ex=CALENDAR_TTL)
+    # 日志里区分「上游新给」与「并集后」：方便排查上游缺年/缺段
+    fresh = len(set(all_days))
+    added = len(set(all_days) - existing_set)
+    logger.info(f"[trading_calendar] 已刷新 {market} 交易日历：上游 {fresh} 天"
+                f"{'(新增 ' + str(added) + ' 天)' if added else ''}，合并后共 {len(merged)} 天")
+    return len(merged)
 
 
 def _get_cached_days(market: str) -> Optional[List[str]]:
@@ -96,13 +122,45 @@ def _get_cached_days(market: str) -> Optional[List[str]]:
         return None
 
 
-def _ensure_days(market: str) -> List[str]:
-    """优先 Redis 缓存；缓存缺失则实时兜底（全量拉取并回写缓存）。"""
-    days = _get_cached_days(market)
-    if days:
-        return days
+def _is_stale(days: List[str], market: str) -> bool:
+    """缓存是否「明显滞后于今天」= 缓存里最新日期比今天晚超过 STALE_GAP_DAYS 天。
+
+    - 普通周末/周一：今天 - 缓存末尾 <= 3 → 不滞后；
+    - 长假（>=4 天，如国庆/春节）：今天 - 缓存末尾 > 3 → 滞后，需要强制刷新。
+
+    上游在长假期间**只给到节前**，所以「缓存滞后」是长假后首日的必然特征；
+    此时不能信缓存里的 False（is_trading_day 会误判），要主动去上游拉一次。
+    """
+    if not days:
+        return True  # 空缓存也算滞后（反正要刷）
     try:
-        refresh_trading_calendar(market)
+        last = max(datetime.strptime(d, '%Y-%m-%d').date() for d in days)
+    except Exception:
+        return False
+    return (date.today() - last).days > STALE_GAP_DAYS
+
+
+def _ensure_days(market: str) -> List[str]:
+    """优先 Redis 缓存；缓存缺失或**明显滞后**则实时兜底（全量拉取并回写缓存）。
+
+    修复（2026-10-08 长假 bug）：
+    - 旧实现只判「缓存有没有」，长假后缓存末尾是节前（09-30），is_trading_day(10-08)
+      直接命中旧缓存返回 False，所有依赖它的日更任务被整体跳过。
+    - 现在：缓存缺失 → 直接刷新；缓存滞后（长假期特征）→ 带冷却锁强制刷新一次；
+      刷新完再读缓存，仍为空才返回 []。
+    """
+    days = _get_cached_days(market)
+    if days and not _is_stale(days, market):
+        return days
+    # 缓存缺失 或 滞后（长假）→ 刷新。用 NX 冷却锁防并发风暴：
+    # 节后首日多个任务同时进来时只有第一个真正打上游，其余等锁过期读新缓存。
+    try:
+        lock_key = f"{REFRESH_COOLDOWN_KEY_PREFIX}:{market}"
+        if redis_obj.set(lock_key, '1', nx=True, ex=REFRESH_COOLDOWN_SEC):
+            try:
+                refresh_trading_calendar(market)
+            finally:
+                redis_obj.delete(lock_key)
         days = _get_cached_days(market)
         if days:
             return days
