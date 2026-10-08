@@ -20,6 +20,17 @@
     job_server 捕获异常后直接 ACK 丢弃整个 job（不重试），所以任何一步抛异常若让它冒泡，
     后面的步骤就全都不会执行、对应字段全空。隔离后各字段互不牵连，
     单个上游抖动（大模型超时、行情接口偶发失败）不会连累其它数据。
+
+ 3. **「技术面信号」排在「DCF 估值」前面（见下方步骤 4/5 顺序）。**
+    列表 / 详情页最先要看到的两类数据 —— 主力行为阶段（main_force_behavior_phase）
+    与股票概念（concepts）—— 都只在 `job_check_signal`（技术面信号，调大模型）这一步写入；
+    而它们并不依赖 DCF 估值报告（`job_check_signal` 读 DCF 只是「可选补充上下文」，
+    缺失时自动降级为「仅依据技术面与行情判断」，与每日 `job_check_signal_daily` 行为一致）。
+    若把 DCF 放在前面，这两类字段要等 DCF（单只约 6 分钟）+ 技术面（约 6 分钟）两个大模型
+    步骤全跑完才出现，用户加完自选得干等 ~12 分钟才看到主力行为 / 概念 —— 这正是
+    「新增个股后主力行为和概念题材刷新很慢」的根因。把技术面信号提前到因子算完之后，
+    这两类字段在 ~6 分钟（技术面大模型一步）后即落库，DCF 估值报告（详情页 DCF 标签页，
+    相对没那么急）放到最后慢慢算即可。
 """
 
 from service.stock import StockService
@@ -68,12 +79,14 @@ def job_stock_analysis(stock_code, send_notification=False):
     _run_step('技术因子', job_update_stock_factor,
               stock_code=stock_code, save_last=False, time_period=-1200)
 
-    # DCF 模型分析（重：调大模型）
+    # 技术分析（重：调大模型）—— 排在 DCF 之前：主力行为阶段 + 股票概念都在此步写入，
+    # 用户加完自选最想立刻看到；不依赖 DCF 报告（缺失时自动降级，见文件头说明 3）。
+    _run_step('技术面信号', job_check_signal, stock_code)
+
+    # DCF 模型分析（重：调大模型）—— 放最后：估值报告相对没那么急，且其结论只是
+    # 技术面信号的可选上下文，前置不会拖慢主力行为 / 概念题材的落库。
     _run_step('DCF 估值分析', job_stock_dcf_model_analysis,
               stock_code, send_notification=send_notification)
-
-    # 技术分析（重：调大模型）
-    _run_step('技术面信号', job_check_signal, stock_code)
 
 
 if __name__ == '__main__':
