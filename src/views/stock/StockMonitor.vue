@@ -2,7 +2,7 @@
 
 import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
-import { computed, onActivated, onBeforeMount, ref } from 'vue';
+import { computed, onActivated, onBeforeMount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
 import Dialog from 'primevue/dialog';
@@ -120,8 +120,9 @@ function loadStockList(){
 
 onBeforeMount(() => {
     // 获取个股数据
+    restoreState();          // 整页刷新(F5)后从 sessionStorage 读回上次的分组 + 页码
     loadStockList()
-    loadGroups()
+    loadGroups().then(validateSelectedGroup)   // 分组可能已被删/改名 -> 读回的旧名不存在则回落「全部」
     initFilters1();
 });
 
@@ -130,7 +131,7 @@ onBeforeMount(() => {
 // 同时**保留** selectedGroup 与 DataTable 的分页/排序状态（这正是记忆功能的核心）。
 onActivated(() => {
     loadStockList();
-    loadGroups();
+    loadGroups().then(validateSelectedGroup);
 });
 
 function openAddModal() {
@@ -368,6 +369,31 @@ const groups = ref([]);                  // [{group_name, count}]
 // 选中分组：'__all__'=全部，''=未分组，其余为分组名
 const selectedGroup = ref('__all__');
 
+// keep-alive 只管「点详情返回」这类路由内导航（组件不重建），管不了整页刷新；
+// 整页刷新要持久化到 sessionStorage（同标签页内 F5 不丢，关标签页才清，避免跨会话残留脏状态）。
+const GROUP_KEY = 'stockmonitor:selectedGroup';
+const PAGE_KEY = 'stockmonitor:tableFirst';
+const tableFirst = ref(0);   // DataTable 分页偏移（rows=25 时第 N 页 = N*25）
+
+function persistGroup() { try { sessionStorage.setItem(GROUP_KEY, selectedGroup.value); } catch {} }
+function persistPage() { try { sessionStorage.setItem(PAGE_KEY, String(tableFirst.value)); } catch {} }
+function restoreState() {
+  try {
+    const g = sessionStorage.getItem(GROUP_KEY);
+    if (g !== null) selectedGroup.value = g;
+    const p = sessionStorage.getItem(PAGE_KEY);
+    if (p !== null) tableFirst.value = Number(p) || 0;
+  } catch {}
+}
+// 分组可能已被删除/改名 -> 恢复出来的旧分组名在 loadGroups 后不存在，回落「全部」避免空列表
+function validateSelectedGroup() {
+  const g = selectedGroup.value;
+  if (g === '__all__' || g === '') return;
+  if (!groups.value.some(x => x.group_name === g)) selectedGroup.value = '__all__';
+}
+watch(selectedGroup, persistGroup);
+watch(tableFirst, persistPage);
+
 // 重命名 / 新建分组弹窗状态（必须各自用独立布尔 ref，不能把表达式绑到 v-model:visible）
 const renameVisible = ref(false);
 const renamingGroup = ref('');
@@ -482,6 +508,7 @@ async function setStockGroup(symbol, groupName) {
 
 function onGroupSelect(key) {
     selectedGroup.value = key;
+    tableFirst.value = 0;   // 切换分组回到第一页
 }
 
 /**
@@ -759,6 +786,7 @@ async function deleteGroup(groupName) {
             :value="filteredStockList"
             :paginator="true"
             :rows="25"
+            :first="tableFirst"
             dataKey="symbol"
             :rowHover="true"
             filterDisplay="menu"
@@ -770,6 +798,7 @@ async function deleteGroup(groupName) {
             style="font-size: 11px"
             sortField="fear_greed"
             sortOrder="-1"
+            @page="(e) => tableFirst.value = e.first"
         >
             <template #header>
                 <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
