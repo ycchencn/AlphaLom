@@ -83,7 +83,7 @@ def get_us_index_cards(
 def get_cn_index_cards(
     bust: Optional[str] = Query(None, description='绕缓存用的透传参数，传任意变化值即可强制回源'),
 ):
-    """获取沪深大盘指数卡片（上证 / 深证 / 创业板 / 科创50 / 科创200）。
+    """获取沪深大盘指数卡片（上证 / 深证 / 创业板 / 科创50 / 上证红利）。
 
     支撑「市场监控 → 沪深大盘」页的指数卡片行。与 `/index/us_cards`
     **同一个响应结构**（前端两页共用同一个卡片组件），每张带：

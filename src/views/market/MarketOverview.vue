@@ -1624,17 +1624,27 @@ onUnmounted(() => {
 }
 
 // 指数卡片行。卡片自身样式在 @/components/IndexCard.vue（与美股大盘页共用），
-// 这里只管行布局：flex-wrap + flex:1 1 让每行卡片自动拉伸铺满整行。
-// ⚠️ 沪深是 5 张卡，一行放得下（每张 1/5）；用 grid 反而会因为除不尽在末行留缺口。
+// 这里只管行布局。
+// ⚠️ 沪深是 5 张卡，**一行放得下**（每张 1/5），所以用 flex 铺满整行：
+// 别改成 grid —— 5 张除以 4 列除不尽，末行会缺一格、右侧留空
+// （美股页 11 张卡就是 4+4+3 多行，那边才需要 wrap，两边故意不一致）。
+// ⚠️ **窄屏也不换行**（2026-10-08 用户要求）：靠卡片等比收窄，而不是折成两行。
+// 原先 `.index-card` 是 `flex: 1 1 calc(20% - 0.8rem)` + `min-width: 220px`：
+// 5 张卡最少要 5×220 + 4×16 = 1164px，而 1366 的本子内容区只有
+// 1366 - 侧栏192 - 页边距48 = 1138px → 折成 4+1 两行，且第 5 张被拉成整行宽
+// （实测；768px 以下还被媒体查询改成每行 2 张 → 排成三行）。
+// 现在改成 `nowrap` + `min-width: 0`（允许收窄到内容宽以下），宽度怎么变都只有一行。
+// 实测（无头浏览器逐档量）：1920 → 430px 全程 rows=1、perRow=[5]、
+// 卡片内容不外溢、页面无横向滚动条。
 .indices-row {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 1rem;
     margin-bottom: 1.5rem;
 
     .index-card {
-        flex: 1 1 calc(20% - 0.8rem);
-        min-width: 220px;
+        flex: 1 1 0;
+        min-width: 0;
     }
 }
 
@@ -2083,9 +2093,27 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-    /* 窄屏每行两张（卡片自身样式在 IndexCard.vue，这里只覆盖行内宽度） */
-    .indices-row .index-card {
-        flex: 1 1 calc(50% - 1rem);
+    /* 窄屏**仍是一行**（见 .indices-row 的 nowrap），所以这里只把卡片内边距和
+       点位字号收小，避免 5 张挤在一行时内容溢出卡片（溢出是画到卡外，不是换行）。
+       `.metric-row` 允许折行是「卡内两列折行」，不影响卡片行仍是一行。
+       ⚠️ 卡片自身样式在 IndexCard.vue，跨组件覆盖必须走 :deep。 */
+    .indices-row {
+        gap: 0.5rem;
+
+        .index-card {
+            :deep(.p-card-body) {
+                padding: 0.5rem;
+            }
+
+            :deep(.index-price) {
+                font-size: 1.1rem;
+            }
+
+            :deep(.metric-row) {
+                flex-wrap: wrap;
+                gap: 0.4rem 0.6rem;
+            }
+        }
     }
 }
 
