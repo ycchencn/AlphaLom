@@ -42,7 +42,13 @@ const containerClass = computed(() => {
              :class="{ 'p-0 layout-trading': isCompactLayout, 'overflow-hidden': isCompactLayout }">
             <div class="layout-main">
                 <!-- 交易界面或原业务页均渲染于此 -->
-                <router-view></router-view>
+                <!-- ⚠️ KeepAlive 按组件名缓存「列表页」：点进详情再返回时不重建组件，
+                     分组选中态 / DataTable 分页页码 / 排序 / 搜索过滤全部保留（记忆功能）。
+                     include 里是 **组件名**（defineOptions name），不是路由名；
+                     只缓存列表页，详情页不缓存（详情页带参，缓存会让下次打开显示旧标的）。 -->
+                <KeepAlive :include="['StockMonitor', 'EtfInsight']">
+                    <router-view></router-view>
+                </KeepAlive>
             </div>
             <!-- 底部状态栏同样按需隐藏 -->
             <app-footer v-if="!isCompactLayout"></app-footer>

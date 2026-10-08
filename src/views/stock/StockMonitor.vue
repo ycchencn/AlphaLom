@@ -2,7 +2,7 @@
 
 import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
-import { computed, onBeforeMount, ref } from 'vue';
+import { computed, onActivated, onBeforeMount, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
 import Dialog from 'primevue/dialog';
@@ -10,6 +10,11 @@ import Menu from 'primevue/menu';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import NavSidePanel from '@/components/NavSidePanel.vue';
+
+// ⚠️ 组件名必须与 AppLayout 里 <KeepAlive :include> 的名单一致：
+// keep-alive 缓存的是「组件名」而不是路由名（vue-router 的 RouterView 会把当前路由
+// 组件包进 KeepAlive，include 匹配组件选项的 name）。缺这个 defineOptions 缓存不生效。
+defineOptions({ name: 'StockMonitor' });
 
 const stock_list = ref([]);
 const filters1 = ref(null);
@@ -118,6 +123,14 @@ onBeforeMount(() => {
     loadStockList()
     loadGroups()
     initFilters1();
+});
+
+// keep-alive 激活钩子：组件被缓存后，从详情页返回时 onBeforeMount 不会再触发，
+// 但股票数据/分组计数可能已变化（详情页可能改了监控状态）→ 回来时静默刷新一次，
+// 同时**保留** selectedGroup 与 DataTable 的分页/排序状态（这正是记忆功能的核心）。
+onActivated(() => {
+    loadStockList();
+    loadGroups();
 });
 
 function openAddModal() {

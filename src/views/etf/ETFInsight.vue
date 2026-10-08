@@ -11,6 +11,9 @@ import {
     formatStockTradeAmount,
 } from '@/utils/function.js';
 
+// 组件名与 AppLayout <KeepAlive :include> 名单一致（列表页缓存，返回不重建）
+defineOptions({name: 'EtfInsight'});
+
 const etfList = ref([]);
 const filters1 = ref(null);
 const loading1 = ref(false);
