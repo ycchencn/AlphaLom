@@ -28,6 +28,7 @@ from pydantic import BaseModel
 
 from app.fastapi_app import api_prefix
 from config import cache_setting
+from service.etf_service import EtfService
 from service.etf_rotation_service import (
     COST_RANGE,
     LOOKBACK_RANGE,
@@ -76,6 +77,11 @@ async def add_rotation_pool(req: RotationPoolAddRequest, user_id: int = Depends(
     执行，里面没有事件循环，await 不了）；库操作本身是同步阻塞的（DB + 取名称可能请求
     databull），所以显式走 run_in_threadpool，别占死唯一的事件循环 —— 与 routes/etf.py
     的 add_etf 完全一致。
+
+    ⚠️ 入池后同样要补因子：轮动页的信号是**现算**的，但轮动池里的标的常与监控清单不重合，
+    而它们的 52 周区间 / 因子看板仍读 `factor_values`（`_all_etf_symbols` 取的是两表并集）。
+    只加池不补因子，这些标的在因子相关页面会一直是空 —— 与 add_etf 同一个缺口，
+    这里复用 `EtfService.ensure_factor_coverage`（判定 + 投递封装在一处，两处不会漂移）。
     """
     try:
         item = await run_in_threadpool(EtfRotationService.add_to_pool, user_id, req.symbol,
@@ -86,6 +92,10 @@ async def add_rotation_pool(req: RotationPoolAddRequest, user_id: int = Depends(
         raise HTTPException(status_code=400, detail=str(e))
 
     await _clear_rotation_cache()
+
+    # 因子覆盖检查 + 异步回填（best-effort，失败只记日志）
+    await run_in_threadpool(EtfService.ensure_factor_coverage, item.symbol, 'add_to_pool')
+
     return {'code': 0, 'message': 'ok', 'data': item.to_dict()}
 
 

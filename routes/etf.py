@@ -164,6 +164,13 @@ async def add_etf(req: EtfAddRequest, user_id: int = Depends(get_current_user_id
     事件循环，await 不了）。而库操作本身是同步阻塞的（DB + name 缺失时还要请求
     databull 取名），所以显式走 run_in_threadpool，别占死唯一的事件循环 ——
     与 routes/portfolio.py 的处理方式一致。
+
+    ⚠️ **入池后必须补因子**：本接口只写 `etf_watchlist` 一行，不产出任何因子数据；
+    而 ETF 洞察列表的 52 周区间、详情页技术分析卡都读 `factor_values`，平时只由 20:10
+    的日更任务全量重算。不在这里补一次，**新加的 ETF 到下次日更前页面就是空的**
+    （用户报过的「加了 ETF 因子没算、显示缺很多」）。
+    判定与投递都封在 `EtfService.ensure_factor_coverage`：它会先查历史天数，
+    不足 250 才投递 3 年回填（已是完整历史的标的重复添加不会白烧队列）。
     """
     try:
         item = await run_in_threadpool(EtfService.add_watchlist, user_id, req.symbol, name=req.name)
@@ -174,7 +181,17 @@ async def add_etf(req: EtfAddRequest, user_id: int = Depends(get_current_user_id
     # 幂等命中已有记录（重复添加）时也照清 —— 多清一次没有副作用。
     await FastAPICache.clear(namespace=ETF_LIST_NS)
 
-    return {'code': 0, 'message': 'ok', 'data': item.to_dict()}
+    # 因子覆盖检查 + 异步回填（best-effort，失败只记日志，绝不让「添加」失败）
+    factor_dispatched = await run_in_threadpool(
+        EtfService.ensure_factor_coverage, item.symbol, 'add_watchlist')
+
+    return {
+        'code': 0,
+        'message': 'ok',
+        'data': item.to_dict(),
+        # 前端据此提示「因子正在后台计算，稍后刷新可见」；False = 已有完整历史，无需重算
+        'factor_dispatched': factor_dispatched,
+    }
 
 
 @etf_router.delete('/etf/{symbol}')
