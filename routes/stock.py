@@ -443,6 +443,38 @@ def get_stock(stock_code: str):
     return stock
 
 
+@stock_router.get('/stock/pe_ttm/{symbol}')
+@cache(expire=3600)
+def get_stock_pe_ttm(
+    symbol: str,
+    limit: int = Query(600, ge=1, le=2000, description='返回最近 N 个估值交易日的序列'),
+):
+    """个股 PE-TTM 估值：最新值 + 历史序列（**仅 A 股**，港股/美股返回空）。
+
+    数据来自 `stock_daily_valuation` 表（日更任务 job_update_stock_valuation_daily
+    每日盘后从 databull get_stock_info 落库）。上游只对 A 股提供 PE-TTM，
+    所以非 A 股自然没有数据、返回空结构，前端据此不展示。
+
+    返回 {symbol, market, latest:{trade_date, pe_ttm, pb}, history:[{trade_date, pe_ttm, pb}]}。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+
+    stock = StockService.get_stock_by_symbol(symbol) or {}
+    market = stock.get('market') or 'cn'
+
+    from service.stock_valuation_service import StockValuationService
+    history = StockValuationService.get_history(symbol, limit=limit)
+    latest = history[-1] if history else None
+
+    return {
+        'symbol': symbol,
+        'market': market,
+        'latest': latest,
+        'history': history,
+    }
+
+
 @stock_router.get('/stock_history/{stock_code}')
 @cache(expire=3600)
 def get_stock_history(

@@ -492,6 +492,92 @@ const stock_info = ref({
     name: '',
     concepts: ''
 });
+// PE-TTM 估值（仅 A 股）：latest 顶部报价用，history 基本面走势图用。
+// 数据来自 /api/v1/stock/pe_ttm/{symbol}（日更任务每日盘后落库，见后端说明）。
+const pe_ttm = ref(null);
+// 是否 A 股：`stocks.market` 为 'cn' 才展示 PE-TTM（上游只对 A 股提供估值）。
+const is_cn_stock = computed(() => (stock_info.value?.market || 'cn') === 'cn');
+// 顶部报价的 PE-TTM 最新值（取最新一条，无数据时 null）
+const peTtmLatest = computed(() => pe_ttm.value?.latest?.pe_ttm ?? null);
+const peTtmDate = computed(() => pe_ttm.value?.latest?.trade_date ?? null);
+
+async function loadPeTtm() {
+    try {
+        const {data} = await axios.get(`/api/v1/stock/pe_ttm/${stock_code}`, {params: {limit: 600}});
+        pe_ttm.value = data ?? null;
+    } catch (e) {
+        // 接口挂了保持空态（顶部不显示 PE-TTM、走势图显示空态），不影响本页其它区块
+        pe_ttm.value = null;
+    }
+    // 数据到位后画基本面走势图；容器在 v-show 的 tab2 里，切到该 tab 时由 activeTab watch 重绘
+    renderPeTtmChart();
+}
+
+// ==================== PE-TTM 走势图（基本面分析 tab）====================
+const peTtmChartRef = ref(null);
+let peTtmChart = null;
+
+const ensurePeTtmChart = () => {
+    const host = peTtmChart && peTtmChart.getDom && peTtmChart.getDom();
+    if (peTtmChart && host !== peTtmChartRef.value) {
+        try { peTtmChart.dispose(); } catch (e) { /* ignore */ }
+        peTtmChart = null;
+    }
+    if (!peTtmChart) {
+        if (!peTtmChartRef.value) return null;
+        // 容器不可见（v-show 非激活）时 init 会画出 0x0 画布 → 拒绝并等切 tab 后重绘
+        if (!peTtmChartRef.value.clientWidth || !peTtmChartRef.value.clientHeight) return null;
+        peTtmChart = echarts.init(peTtmChartRef.value);
+    }
+    return peTtmChart;
+};
+
+const renderPeTtmChart = async () => {
+    await nextTick();
+    const chart = ensurePeTtmChart();
+    if (!chart) return;
+    // 仅 A 股才画（非 A 股没有数据，history 为空）；单点也画（标记当前位置）
+    const rows = pe_ttm.value?.history || [];
+    if (!is_cn_stock.value || rows.length < 1) {
+        chart.clear();
+        return;
+    }
+    const dates = rows.map((r) => String(r.trade_date).slice(5)); // MM-DD，短标签
+    const series = [{
+        name: 'PE-TTM',
+        type: 'line',
+        smooth: true,
+        showSymbol: rows.length <= 120,
+        symbolSize: 4,
+        connectNulls: true,
+        data: rows.map((r) => (r.pe_ttm == null ? null : Number(r.pe_ttm))),
+        ...lineSeriesStyle({color: PALETTE[2], width: LINE.primary, shadow: false}),
+        itemStyle: {color: PALETTE[2]},
+        areaStyle: areaGradient(PALETTE[2], 0.18),
+    }];
+    chart.setOption({
+        grid: {left: 46, right: 16, top: 30, bottom: 24},
+        legend: {top: 0, textStyle: {fontSize: FONT.legend, color: COLORS.secondary}},
+        tooltip: tooltipBase({
+            valueFormatter: (v) => (v === null || v === undefined ? '--' : `${Number(v).toFixed(2)}x`),
+        }),
+        xAxis: {
+            type: 'category',
+            data: dates,
+            axisLabel: axisLabel({fontSize: FONT.label}),
+            axisLine: {lineStyle: {color: COLORS.axisLine}},
+        },
+        yAxis: {
+            type: 'value',
+            name: 'PE-TTM',
+            axisLabel: axisLabel({fontSize: FONT.label}),
+            splitLine: splitLine(),
+        },
+        series,
+    }, true);
+    chart.resize();
+};
+
 const watched = ref(false)
 // 1. 定义本地存储的键名
 const CHART_TYPE_STORAGE_KEY = 'user_chart_type';
@@ -889,6 +975,9 @@ onMounted(async () => {
     loadGroupState();
     stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
+    // PE-TTM 估值（仅 A 股）。不 await：与首屏取数并行，标题/行情先出，
+    // 估值数据到位后顶部报价与基本面走势图自动补上。
+    loadPeTtm();
     // 获取日K
     ohlc_data.value = await fetchStockMarketData(stock_code);
     // 1. 提取close数组，自动过滤空值/0值（停牌无收盘价的场景）
@@ -1040,6 +1129,10 @@ watch(activeTab, (val) => {
     if (val === 'tab4') {
         // 容器刚由隐藏变可见，等一帧让布局完成
         nextTick(() => renderFinChart());
+    }
+    if (val === 'tab2') {
+        // PE-TTM 走势图也在 v-show 的 tab2 里，切到该 tab 时容器才可见，需重绘
+        nextTick(() => renderPeTtmChart());
     }
 });
 
@@ -1345,6 +1438,15 @@ onUnmounted(() => {
                 }}%</span>
         </h1>
 
+        <!-- PE-TTM 估值（仅 A 股）：上游只对 A 股提供 PE-TTM，港股/美股不显示。
+             数据由日更任务每日盘后落库，此处展示最新一条。 -->
+        <div v-if="is_cn_stock && peTtmLatest != null" class="pe-ttm-top">
+            <i class="pi pi-chart-line text-blue-500"></i>
+            <span class="pe-ttm-label">PE-TTM</span>
+            <b class="pe-ttm-value">{{ Number(peTtmLatest).toFixed(2) }}</b>
+            <span class="pe-ttm-date" v-if="peTtmDate">（{{ peTtmDate }}）</span>
+        </div>
+
         <div class="absolute top-8 right-8 action-bar">
             <Button v-tooltip.top="'用这只股票跑一次等权买入持有，直接看净值与最大回撤'"
                     label="快速回测" icon="pi pi-chart-line" size="small" severity="secondary"
@@ -1535,6 +1637,26 @@ onUnmounted(() => {
                             <div class="text-gray-500 mb-1">经营范围</div>
                             <div class="text-gray-700 leading-relaxed">{{ stock_profile.business_scope }}</div>
                         </div>
+                    </template>
+                </Card>
+
+                <!-- PE-TTM 估值走势（仅 A 股）：数据由日更任务每日盘后落库。
+                     展示近约两年半的滚动市盈率变化，帮助判断估值中枢与当前分位。 -->
+                <Card class="mb-5" v-if="is_cn_stock">
+                    <template #title>
+                        <div class="flex items-center gap-2">
+                            <i class="pi pi-chart-line text-blue-500"></i>
+                            <span>PE-TTM 估值走势</span>
+                            <span v-if="peTtmLatest != null" class="text-sm font-light text-gray-400">
+                                （最新 {{ Number(peTtmLatest).toFixed(2) }}<template v-if="peTtmDate"> · {{ peTtmDate }}</template>）
+                            </span>
+                        </div>
+                    </template>
+                    <template #content>
+                        <div ref="peTtmChartRef" class="pe-ttm-chart"></div>
+                        <p v-if="!pe_ttm?.history?.length" class="text-xs text-gray-400 mt-2">
+                            暂无 PE-TTM 数据（估值日更任务每日盘后落库，新纳入监控的标的从纳入日起累积）。
+                        </p>
                     </template>
                 </Card>
 
@@ -2283,6 +2405,35 @@ onUnmounted(() => {
 .stock-info-top {
     padding: 20px 15px;
     border-bottom: 1px solid #dedede;
+}
+
+/* 顶部报价区的 PE-TTM 估值（仅 A 股） */
+.pe-ttm-top {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-top: 6px;
+    font-size: 13px;
+    color: #6b7280;
+}
+.pe-ttm-label {
+    font-size: 12px;
+    color: #9ca3af;
+}
+.pe-ttm-value {
+    font-size: 15px;
+    color: #1d4ed8;
+    font-variant-numeric: tabular-nums;
+}
+.pe-ttm-date {
+    font-size: 11px;
+    color: #b0b0b0;
+}
+
+/* 基本面分析 tab 的 PE-TTM 走势图 */
+.pe-ttm-chart {
+    width: 100%;
+    height: 260px;
 }
 
 /* ===== 设置分组弹窗 ===== */

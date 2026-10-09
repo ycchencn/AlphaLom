@@ -475,6 +475,44 @@ class FactorValue(Base):
         }
 
 
+class StockDailyValuation(Base):
+    """A 股每日估值快照（PE-TTM / PB），个股详情页顶部报价与基本面走势图的数据源。
+
+    为什么单独建表而不是写进 `stocks`：
+    - `stocks` 是「当前快照」，同一只票只有一行，放不下历史序列；
+    - 估值数据按**交易日**逐日累积，天然是一张时序表，与板块快照
+      （sector_daily_stats）、恐贪（stocks_fear_greed）同一类模式。
+    - 数据来源 databull `get_stock_info`：它返回 `pe_ttm / pb / valuation_date`
+      （**仅 A 股有效**，港股/美股/ETF 调用直接 500，正好契合「只做 A 股」的需求）。
+
+    ⚠️ 只存 A 股（上游只给 A 股），唯一键 (symbol, trade_date)；同一交易日重复跑幂等。
+    """
+
+    __tablename__ = 'stock_daily_valuation'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), nullable=False, index=True, comment='A 股代码，如 600519')
+    trade_date = Column(Date, nullable=False, index=True, comment='估值对应日期（上游 valuation_date）')
+    pe_ttm = Column(DECIMAL(14, 4), nullable=True, comment='市盈率 PE-TTM（滚动市盈率）')
+    pb = Column(DECIMAL(14, 4), nullable=True, comment='市净率 PB')
+    total_volume = Column(DECIMAL(20, 2), nullable=True, comment='总股本（股）')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='写入时间')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'trade_date', name='uniq_symbol_trade_date'),
+        {'mysql_charset': 'utf8mb4', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'symbol': self.symbol,
+            'trade_date': self.trade_date.isoformat() if self.trade_date else None,
+            'pe_ttm': float(self.pe_ttm) if self.pe_ttm is not None else None,
+            'pb': float(self.pb) if self.pb is not None else None,
+            'total_volume': float(self.total_volume) if self.total_volume is not None else None,
+        }
+
+
 class StockFearGreed(Base):
     __tablename__ = 'stocks_fear_greed'
 

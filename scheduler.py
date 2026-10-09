@@ -18,6 +18,7 @@ from job.job_update_stock_greedy_data import job_update_stock_greedy_data_daily,
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis_daily
 from job.job_stock_daily_update import job_stock_daily_update, job_update_stock_beta_all
 from job.job_check_signal import job_check_signal_daily
+from job.job_update_stock_valuation_daily import job_update_stock_valuation_daily
 from service.trading_calendar_service import refresh_trading_calendar
 
 if __name__ == '__main__':
@@ -62,6 +63,10 @@ if __name__ == '__main__':
 
     # 申万行业每日快照落库（板块轮动图数据源；上游只给最新一天，必须逐日累积）
     scheduler.add_job(job_update_sector_daily, 'cron', day_of_week='mon-fri', hour=20, minute=35, timezone=beijing_tz)
+
+    # A 股每日估值快照落库（PE-TTM / PB，个股详情顶部报价 + 基本面走势图数据源）
+    # ⚠️ 只对 A 股：databull get_stock_info 对港股/美股/ETF 直接 500（见 job 说明）。
+    scheduler.add_job(job_update_stock_valuation_daily, 'cron', day_of_week='mon-fri', hour=20, minute=45, timezone=beijing_tz)
 
     # 每日更新 DCF 估值数据（监控池内标的全量重算，删缓存后由 dump_stocks_dcf 重新生成汇总）
     scheduler.add_job(job_stock_dcf_model_analysis_daily, 'cron', hour=20, minute=30, timezone=beijing_tz)
