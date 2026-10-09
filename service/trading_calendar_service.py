@@ -140,17 +140,41 @@ def _is_stale(days: List[str], market: str) -> bool:
     return (date.today() - last).days > STALE_GAP_DAYS
 
 
+def _needs_refresh(days: List[str], market: str) -> bool:
+    """缓存是否需要强制刷新一次。
+
+    - 空缓存 → 需要；
+    - 长假滞后（缓存末尾比今天晚 > STALE_GAP_DAYS 天）→ 需要；
+    - 普通交易日：每天 00:05 的日更刷新往往跑在「今天尚未发布」之前，缓存末尾停在昨天；
+      若今天是工作日（周一~周五）且今天不在缓存里，说明今天的数据/日历已就绪但缓存没跟上
+      → 需要补刷一次把今天纳入。（周末/节假日今天本就不是交易日，缓存到周五是对的，不刷，
+      避免无谓的刷新风暴。）
+    """
+    if not days:
+        return True
+    if _is_stale(days, market):
+        return True
+    today = date.today()
+    if today.weekday() < 5 and today.strftime('%Y-%m-%d') not in set(days):
+        return True
+    return False
+
+
 def _ensure_days(market: str) -> List[str]:
-    """优先 Redis 缓存；缓存缺失或**明显滞后**则实时兜底（全量拉取并回写缓存）。
+    """优先 Redis 缓存；缓存缺失或**需要刷新**则实时兜底（全量拉取并回写缓存）。
 
     修复（2026-10-08 长假 bug）：
     - 旧实现只判「缓存有没有」，长假后缓存末尾是节前（09-30），is_trading_day(10-08)
       直接命中旧缓存返回 False，所有依赖它的日更任务被整体跳过。
     - 现在：缓存缺失 → 直接刷新；缓存滞后（长假期特征）→ 带冷却锁强制刷新一次；
       刷新完再读缓存，仍为空才返回 []。
+    修复（2026-10-09 普通日滞后）：
+    - 旧实现 `_is_stale` 阈值 > 3 天，普通交易日缓存停在昨天（gap=1）不触发刷新，
+      导致 get_latest_trading_date 整天返回昨天。现由 `_needs_refresh` 在
+      「今天是工作日且不在缓存」时补刷一次。
     """
     days = _get_cached_days(market)
-    if days and not _is_stale(days, market):
+    if days and not _needs_refresh(days, market):
         return days
     # 缓存缺失 或 滞后（长假）→ 刷新。用 NX 冷却锁防并发风暴：
     # 节后首日多个任务同时进来时只有第一个真正打上游，其余等锁过期读新缓存。
