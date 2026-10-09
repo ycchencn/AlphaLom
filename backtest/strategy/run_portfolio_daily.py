@@ -240,7 +240,7 @@ def run_daily_strategy_all(overwrite=False):
 
     # 获取交易日
     trading_day = FactorValueService.get_latest_trading_date().strftime('%Y%m%d')
-    # trading_day = '20260929'
+    # trading_day = '20261009'
 
     for portfolio in portfolios:
         # 剔除禁用的
