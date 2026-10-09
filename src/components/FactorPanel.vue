@@ -51,6 +51,17 @@ const props = defineProps({
     // 'stock'（默认）/ 'etf'。**ETF 必须显式传**：仪表盘的行情接口按它分流，
     // 传错不会报错，而是拿到半年前的日线，均线/关键位/ATR 全按旧价算出（静默错误）。
     assetType: {type: String, default: 'stock'},
+    // 渲染哪些区块（个股详情页按 tab 拆分后传入）：
+    //   'all'（默认）—— 仪表盘 + 因子看板 + 雷达/横向对比（ETF 详情页用，行为不变）；
+    //   'dashboard'  —— 只渲染「技术面仪表盘」，只请求 dashboard 一个接口（技术面分析 tab）；
+    //   'factors'    —— 只渲染「因子看板 + 因子雷达与横向对比」，只请求对应接口（因子分析 tab）。
+    // ⚠️ 两个模式各挂一个实例时，请求互不重叠（dashboard 1 个 / factors 3 个），
+    //    合起来正好是原来一个实例的 4 个接口，不会多打。
+    mode: {type: String, default: 'all'},
+    // 宿主容器是否可见（由父页 tab 切换驱动）。⚠️ 容器在 v-show 里时，非激活状态
+    // display:none、clientWidth=0，此时 echarts.init 会得到 0x0 画布（图是空的）。
+    // 父页在 tab 变可见时把 active 置 true，这里重绘一次图表；默认 true 兼容旧用法。
+    active: {type: Boolean, default: true},
 });
 
 // ==================== 状态 ====================
@@ -75,32 +86,40 @@ function disposeAll() {
 }
 
 // ==================== 取数 ====================
+// mode 控制只取本区块需要的接口，避免两个 tab 各挂一个实例时重复请求：
+//   dashboard 模式只需 dashboard；factors 模式只需 board / radar / industry_rank。
 async function loadAll() {
     if (!props.symbol) return;
     loading.value = true;
     const base = `/api/v1/factor/stock/${props.symbol}`;
     const at = props.assetType;
+    const wantsDashboard = props.mode !== 'factors';
+    const wantsFactors = props.mode !== 'dashboard';
     // ⚠️ 用 allSettled：单个接口失败（如 ETF 无行业样本导致横向对比 404）不应影响其它卡片。
     // asset_type 只传给**真的按它分流**的两个接口（dashboard / industry_rank），
     // 看板与雷达按 ticker 直接查因子表，个股 ETF 同一套口径，多传反而像是有差别。
     const [b, d, r, ir] = await Promise.allSettled([
-        axios.get(base),
-        axios.get(`${base}/dashboard`, {params: {asset_type: at}}),
-        axios.get(`${base}/radar`),
-        axios.get(`${base}/industry_rank`, {params: {asset_type: at}}),
+        wantsFactors ? axios.get(base) : Promise.resolve(null),
+        wantsDashboard ? axios.get(`${base}/dashboard`, {params: {asset_type: at}}) : Promise.resolve(null),
+        wantsFactors ? axios.get(`${base}/radar`) : Promise.resolve(null),
+        wantsFactors ? axios.get(`${base}/industry_rank`, {params: {asset_type: at}}) : Promise.resolve(null),
     ]);
-    board.value = b.status === 'fulfilled' ? (b.value.data?.data ?? b.value.data) : null;
-    dashboard.value = d.status === 'fulfilled' ? (d.value.data?.data ?? d.value.data) : null;
-    radar.value = r.status === 'fulfilled' ? (r.value.data?.data ?? r.value.data) : null;
-    peerRank.value = ir.status === 'fulfilled' ? (ir.value.data?.data ?? ir.value.data) : null;
+    board.value = b.status === 'fulfilled' ? (b.value?.data?.data ?? b.value?.data) : null;
+    dashboard.value = d.status === 'fulfilled' ? (d.value?.data?.data ?? d.value?.data) : null;
+    radar.value = r.status === 'fulfilled' ? (r.value?.data?.data ?? r.value?.data) : null;
+    peerRank.value = ir.status === 'fulfilled' ? (ir.value?.data?.data ?? ir.value?.data) : null;
     loading.value = false;
 
-    // 默认展开第一个分组并画曲线
+    // 默认展开第一个分组并画曲线（仅 factors 模式有看板数据）
     const firstGroup = board.value?.groups?.[0];
     if (firstGroup) {
         await nextTick();
         selectGroup(firstGroup);
     }
+    // ⚠️ 容器在 v-show 里且当前非激活时（display:none、clientWidth=0），
+    // echarts.init 会得到 0x0 画布并告警（表现为「图是空的」）。此时**跳过渲染**，
+    // 数据已取好，等父页把 active 置 true（切到本 tab）时由 active watch 统一重绘。
+    if (!props.active) return;
     await nextTick();
     renderRadar();
     renderQuadrant();
@@ -120,6 +139,8 @@ async function selectGroup(group) {
     } catch (e) {
         seriesData.value = null;
     }
+    // 容器非激活时跳过渲染（0x0 画布问题，见 loadAll 注释），由 active watch 重绘
+    if (!props.active) return;
     await nextTick();
     renderSeries();
 }
@@ -344,6 +365,17 @@ onUnmounted(() => {
 });
 // symbol 或 assetType 变化都要重取：同一代码在个股/ETF 下走的是不同行情接口。
 watch(() => [props.symbol, props.assetType], () => { disposeAll(); loadAll(); });
+// 容器从隐藏（v-show 非激活）变可见时，之前 0x0 画布上的图要重画：
+// 数据早已取好（组件常驻），只差尺寸到位。重走渲染函数即可（内部会 getInstanceByDom + setOption + resize）。
+watch(() => props.active, (v) => {
+    if (!v) return;
+    nextTick(() => {
+        renderRadar();
+        renderQuadrant();
+        renderHeat();
+        renderSeries();
+    });
+});
 </script>
 
 <template>
@@ -552,8 +584,7 @@ watch(() => [props.symbol, props.assetType], () => { disposeAll(); loadAll(); })
 
             <div v-if="!loading && !board && !dashboard" class="fp-empty">
                 暂无因子数据（该标的可能未纳入因子计算，或因子任务尚未运行）
-            </div>
-        </template>
+            </div>        </template>
     </div>
 </template>
 

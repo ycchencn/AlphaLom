@@ -384,8 +384,11 @@ const resizeFinChart = () => {
 const activeTab = ref('tab1');
 
 // 左侧导航面板（NavSidePanel）的跳转项：与原来的 5 个 Tab 一一对应。
+// 「因子分析」是新拆出的 Tab：把原技术面分析里的因子看板 / 因子雷达 / 横向对比
+// 独立出来（技术面分析只保留 K 线 + 仪表盘 + 恐贪 + 深度诊断），见 FactorPanel 的 mode 参数。
 const tabItems = [
     { key: 'tab1', label: '技术面分析' },
+    { key: 'tab6', label: '因子分析' },
     { key: 'tab2', label: '基本面分析' },
     { key: 'tab3', label: '新闻动态' },
     { key: 'tab4', label: '财务分析' },
@@ -1335,9 +1338,10 @@ onUnmounted(() => {
                     <div id="chart"></div>
                 </div>
 
-                <!-- 专业因子分析（因子看板 / 技术面仪表盘 / 因子雷达 / 行业对比）。
+                <!-- 技术面仪表盘（因子看板 / 因子雷达与横向对比已拆到「因子分析」Tab）。
                      数据来自 routes/factor.py，组件自带取数，失败静默降级不影响本页其它区块。 -->
-                <FactorPanel v-if="stock_code" :symbol="stock_code" />
+                <FactorPanel v-if="stock_code" :symbol="stock_code" mode="dashboard"
+                             :active="activeTab === 'tab1'"/>
 
                 <!-- 恐惧贪婪：走势 + 当前读数（与大盘页「成长 vs 价值」同款卡片）。
                      左侧竖排当前值 / 档位 / 日期 / 解读 + 分项迷你条，
@@ -1419,6 +1423,13 @@ onUnmounted(() => {
                     </MarkdownRenderer>
                 </div>
 
+            </div>
+
+            <!-- 因子分析：从技术面分析拆出的独立 Tab，只放因子看板 + 因子雷达 + 横向对比。
+                 组件常驻（数据只取一次），active 随 tab 切换驱动重绘（见 FactorPanel）。 -->
+            <div v-show="activeTab === 'tab6'">
+                <FactorPanel v-if="stock_code" :symbol="stock_code" mode="factors"
+                             :active="activeTab === 'tab6'"/>
             </div>
 
             <div v-show="activeTab === 'tab2'">
