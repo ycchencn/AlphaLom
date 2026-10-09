@@ -22,7 +22,6 @@ const loading1 = ref(null);
 const modal_visible = ref(false);
 const { showSuccess, showError } = useNotification();
 const router = useRouter();
-const modal_analysis_interval = ref(1)
 const filter_market = ref('')
 
 // 添加个股弹窗：搜索状态
@@ -322,11 +321,6 @@ const phaseFilterOptions = Object.entries(PHASE_CONFIG)
     label: config.label,
     value: key // 使用字符串作为 value，兼容性更好
 }));
-
-const stockIntervalOptions = [
-    { label: '每天', value: 1 },
-    { label: '每3天', value: 3 },
-];
 
 const marketFilterOptions = [
     { label: '全部', value: '' },
@@ -741,19 +735,6 @@ async function deleteGroup(groupName) {
           <span class="text-xs text-gray-400 ml-2">未搜到？可直接用代码（如 600519）添加</span>
         </div>
 
-        <!-- 分析周期 -->
-        <div class="pt-2 border-t">
-          <label for="analysis_interval" class="font-semibold block mb-1">分析周期（天）</label>
-          <Dropdown
-            v-model="modal_analysis_interval"
-            :options="stockIntervalOptions"
-            optionLabel="label"
-            optionValue="value"
-            placeholder="选择分析周期"
-            class="w-full"
-            @change="() => {}"
-          />
-        </div>
       </div>
 
       <!-- 操作按钮 -->
