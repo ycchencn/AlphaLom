@@ -96,11 +96,12 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 
 ## 🌐 对外开放 API（OpenAPI）
 
-提供一套**基于 API Key 鉴权、只读**的开放数据接口，挂载在独立的 `/api/ext` 子应用下，自带独立 Swagger 文档（`/api/ext/docs`），与主应用互不干扰。面向外部交易决策系统，覆盖三类数据面：
+提供一套**基于 API Key 鉴权、只读**的开放数据接口，挂载在独立的 `/api/ext` 子应用下，自带独立 Swagger 文档（`/api/ext/docs`），与主应用互不干扰。面向外部交易决策系统，覆盖四类数据面：
 
 - **投资组合**（`/portfolios`）——组合列表 / 详情 / 每日统计 / 交易流水
 - **股票池**（`/stocks/pools`、`/stocks/watchlist`）——分组与成员，含行业、最新价、恐贪、主力阶段、52 周区间
 - **个股分析**（`/stocks/{symbol}/profile|fundamentals|factors|financials|fear-greed|analysis`）——公司概况、基本面评分、技术面因子、财务报表、恐贪指数，以及一次拿全的聚合端点；另有批量 `/stocks/batch/analysis`（整池一次拉取，只计 1 次配额）与技术信号 `/stocks/signals`
+- **ETF**（`/etfs/watchlist`、`/etfs/search`、`/etfs/{symbol}/info|history|composition|pcf|pcf-weight|fear-greed|analysis`）——监控清单、目录搜索、基本资料、历史行情、成分股、申赎清单与权重估算、恐贪指数，以及一次拿全的聚合端点
 
 支持在「系统管理 → API Key」页**自助管理密钥**（创建 / 改名 / 启停 / 吊销，明文仅返回一次）、每日调用配额（429 + `Retry-After`）、按账号隔离数据、敏感字段剥离。
 

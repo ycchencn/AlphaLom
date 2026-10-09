@@ -16,7 +16,7 @@ AlphaLom 提供一套**基于 API Key 鉴权、只读**的开放数据接口，�
 | 鉴权方式 | API Key（`X-API-Key` 或 `Authorization: Bearer`） |
 | 配额 | 按「用户 + 自然日」计，默认 1000 次/天，超限额 429 |
 | 数据范围 | **只读**，且剥离敏感字段（见 §6） |
-| 覆盖数据 | 投资组合（`/portfolios`）· 股票池（`/stocks/pools`、`/stocks/watchlist`）· 个股分析（`/stocks/{symbol}/*`、`/stocks/batch/analysis`、`/stocks/signals`） |
+| 覆盖数据 | 投资组合（`/portfolios`）· 股票池（`/stocks/pools`、`/stocks/watchlist`）· 个股分析（`/stocks/{symbol}/*`、`/stocks/batch/analysis`、`/stocks/signals`）· ETF（`/etfs/watchlist`、`/etfs/search`、`/etfs/{symbol}/*`） |
 
 > 部署后访问 `https://<你的域名或IP>:8080/api/ext/docs` 即可看到交互式文档，并可点右上角 **Authorize** 填入密钥后直接试调。
 
@@ -24,7 +24,7 @@ AlphaLom 提供一套**基于 API Key 鉴权、只读**的开放数据接口，�
 
 ## 2. 获取 API Key
 
-对外接口需要用 API Key 调用。密钥**属于某个用户账号**，只能访问该用户自己的数据（投资组合 / 股票池 / 个股分析）。
+对外接口需要用 API Key 调用。密钥**属于某个用户账号**，只能访问该用户自己的数据（投资组合 / 股票池 / ETF 监控 / 个股分析）。
 
 > 推荐直接在 Web 控制台 **「系统管理 → API Key」** 页面创建与管理密钥（列表、创建、改名、启停、改配额、吊销）；创建成功后明文密钥**仅展示一次**，请立即复制保存。
 > 也可通过下面的**管理接口**（编程方式）操作，两者走同一套后端。
@@ -228,6 +228,33 @@ GET /api/ext/stocks/signals?signal=macd_golden_cross&limit=100
 
 > 字段的确切结构以 Swagger（`/api/ext/docs`）为准；模型迭代后会自动同步，本文档不逐字段罗列以免失准。
 
+### 5.8 ETF
+
+`{symbol}` 为 6 位纯数字 ETF 代码（如 `159995`），非法代码返回 `400`。监控清单按密钥所属用户隔离。
+
+| 端点 | 说明 |
+|:--|:--|
+| `GET /etfs/watchlist` | 当前用户的 ETF 监控清单（含名称、52 周高低、最新行情） |
+| `GET /etfs/search?keyword=芯片&market=cn&limit=50` | 按代码/名称搜索全市场 ETF 目录（返回 `[{symbol, name}]`） |
+| `GET /etfs/{symbol}` | ETF 详情：名称 + 实时行情 + 52 周高低 |
+| `GET /etfs/{symbol}/info` | ETF 基本资料（交易所、单位净值、申赎单位、类型等）；上游无数据返回 `{}` |
+| `GET /etfs/{symbol}/history?start_date=&end_date=` | ETF 历史日线（默认近一年，返回 `[{date, open, close, high, low, volume, chg_pct}]`） |
+| `GET /etfs/{symbol}/composition` | 成分股构成（轻量：代码/名称） |
+| `GET /etfs/{symbol}/pcf` | 申赎清单（PCF）成分明细（代码/名称/交易所/每篮子股数） |
+| `GET /etfs/{symbol}/pcf-weight` | 估算成分股占净值比（股数 × 最新价归一；`supported=false` 表示非 A 股篮子或无 PCF） |
+| `GET /etfs/{symbol}/fear-greed?limit=250` | ETF 恐惧贪婪数据（按交易日倒序，与个股共用 `stocks_fear_greed` 表） |
+| `GET /etfs/{symbol}/analysis?history_days=120` | **聚合端点**：一次拿全（详情 + 基本资料 + 成分 + 申赎 + 恐贪 + 近 N 日历史）；单分项失败不影响其他分项 |
+
+```bash
+# ETF 监控清单（含报价 / 52 周区间）
+curl -H "X-API-Key: $API_KEY" \
+  https://<host>:8080/api/ext/etfs/watchlist
+
+# ETF 聚合分析（一次拿全）
+curl -H "X-API-Key: $API_KEY" \
+  https://<host>:8080/api/ext/etfs/159995/analysis
+```
+
 ---
 
 ## 6. 数据安全与剥离字段
@@ -300,6 +327,14 @@ curl -H "X-API-Key: $API_KEY" \
 # 批量扫描整个股票池（只计 1 次配额）
 curl -H "X-API-Key: $API_KEY" \
   https://<host>:8080/api/ext/stocks/batch/analysis
+
+# ETF 监控清单（含报价 / 52 周区间）
+curl -H "X-API-Key: $API_KEY" \
+  https://<host>:8080/api/ext/etfs/watchlist
+
+# ETF 聚合分析（一次拿全）
+curl -H "X-API-Key: $API_KEY" \
+  https://<host>:8080/api/ext/etfs/159995/analysis
 ```
 
 ### Python（`requests`）

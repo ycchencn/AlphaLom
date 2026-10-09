@@ -16,6 +16,7 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 
+from routes.external_etf import ext_etf_router
 from routes.external_portfolio import ext_portfolio_router
 from routes.external_stock import ext_stock_router
 from utils.api_auth import ApiAuthError
@@ -39,7 +40,8 @@ def create_external_app() -> FastAPI:
             '`X-API-Key: <你的密钥>`（或 `Authorization: Bearer <密钥>`）。\n\n'
             '**配额**：按用户 + 自然日计调用次数，超限返回 429 并带 `Retry-After`。\n\n'
             '**覆盖数据**：投资组合（/portfolios）、股票池（/stocks/pools、/stocks/watchlist）、'
-            '个股分析（/stocks/{symbol}/profile|fundamentals|factors|financials|fear-greed|analysis）。'
+            '个股分析（/stocks/{symbol}/profile|fundamentals|factors|financials|fear-greed|analysis）、'
+            'ETF（/etfs/watchlist、/etfs/search、/etfs/{symbol}/*：详情/资料/历史/成分/申赎/权重/恐贪/聚合）。'
         ),
         version='1.0.0',
         # docs_url 默认走 jsdelivr CDN，被 reset 后无法加载。这里关闭默认路由，
@@ -49,6 +51,7 @@ def create_external_app() -> FastAPI:
         openapi_url='/openapi.json',
     )
 
+    app.include_router(ext_etf_router)
     app.include_router(ext_portfolio_router)
     app.include_router(ext_stock_router)
     app.add_exception_handler(ApiAuthError, _auth_error_handler)
