@@ -64,12 +64,6 @@ const router = createRouter({
                     meta: { title: 'DCF估值', requiresAuth: true }
                 },
                 {
-                    path: '/user/watch_list',
-                    name: 'user-watch-list',
-                    component: () => import('@/views/user/WatchList.vue'),
-                    meta: { title: '关注清单', requiresAuth: true }
-                },
-                {
                     path: '/market/news_flow',
                     name: 'news_flow',
                     component: () => import('@/views/market/NewsFlow.vue'),
