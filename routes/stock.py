@@ -586,7 +586,7 @@ def get_financial_data(
             'PershareIndex',
             description='报表类型：Balance/Income/CashFlow/Capital/PershareIndex'
         ),
-        periods: int = Query(12, ge=1, le=40, description='返回最近 N 期'),
+        periods: int = Query(12, ge=1, le=300, description='返回最近 N 期（最大 300，足以覆盖全历史）'),
 ):
     """获取个股财务数据（默认每股指标，可按报表切换）。
 

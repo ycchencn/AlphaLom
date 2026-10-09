@@ -208,8 +208,27 @@ const FIN_REPORTS = [
     {label: '股本结构', value: 'Capital'},
 ];
 
+// 报告期筛选选项（按 report_date 月份识别：03→Q1 06→中报 09→Q3 12→年报）
+const FIN_PERIOD_FILTERS = [
+    {label: '全部', value: 'all'},
+    {label: '一季报', value: 'Q1'},
+    {label: '中报', value: 'H1'},
+    {label: '三季报', value: 'Q3'},
+    {label: '年报', value: 'FY'},
+];
+
+// 时间范围（periods）：近 N 期；全部=300 覆盖全历史（后端 le=300）
+const FIN_PERIOD_OPTIONS = [
+    {label: '近3年', value: 12},
+    {label: '近5年', value: 20},
+    {label: '近10年', value: 40},
+    {label: '全部', value: 300},
+];
+
 // 核心指标：{ key: 上游字段名, name: 展示名, unit: '%' | '元' | '倍' }
-// 字段名以实测为准（PershareIndex 里 net_roe=加权ROE、gross_profit=毛利率…）。
+// ⚠️ 字段名必须与上游 report_table 真实 schema 一致（2026-10-09 全量实测过 5 张报表）。
+//   曾经 Income/CashFlow/Balance 的 key 是想当然写的（total_revenue/net_operate_cash_flow/total_assets
+//   等），上游根本没有这些字段 → 卡片/表格/趋势图全渲染 '--'（每股指标当初实测过所以一直正常）。
 const FIN_INDICATORS = {
     PershareIndex: [
         {key: 'net_roe', name: '净资产收益率(ROE)', unit: '%'},
@@ -223,23 +242,23 @@ const FIN_INDICATORS = {
         {key: 'inc_net_profit_rate', name: '净利同比增速', unit: '%'},
     ],
     Income: [
-        {key: 'total_revenue', name: '营业总收入', unit: '元', scale: true},
         {key: 'revenue', name: '营业收入', unit: '元', scale: true},
-        {key: 'net_profit', name: '净利润', unit: '元', scale: true},
-        {key: 'net_profit_atsopc', name: '归母净利润', unit: '元', scale: true},
-        {key: 'deductible_net_profit', name: '扣非净利润', unit: '元', scale: true},
-        {key: 'total_profit', name: '利润总额', unit: '元', scale: true},
+        {key: 'oper_profit', name: '营业利润', unit: '元', scale: true},
+        {key: 'tot_profit', name: '利润总额', unit: '元', scale: true},
+        {key: 'net_profit_incl_min_int_inc', name: '净利润', unit: '元', scale: true},
+        {key: 'net_profit_excl_min_int_inc', name: '归母净利润', unit: '元', scale: true},
+        {key: 's_fa_eps_basic', name: '每股收益', unit: '元'},
     ],
     CashFlow: [
-        {key: 'net_operate_cash_flow', name: '经营活动现金流净额', unit: '元', scale: true},
-        {key: 'net_invest_cash_flow', name: '投资活动现金流净额', unit: '元', scale: true},
-        {key: 'net_finance_cash_flow', name: '筹资活动现金流净额', unit: '元', scale: true},
-        {key: 'cash_increase', name: '现金净增加额', unit: '元', scale: true},
+        {key: 'net_cash_flows_oper_act', name: '经营活动现金流净额', unit: '元', scale: true},
+        {key: 'net_cash_flows_inv_act', name: '投资活动现金流净额', unit: '元', scale: true},
+        {key: 'net_cash_flows_fnc_act', name: '筹资活动现金流净额', unit: '元', scale: true},
+        {key: 'net_incr_cash_cash_equ', name: '现金净增加额', unit: '元', scale: true},
     ],
     Balance: [
-        {key: 'total_assets', name: '总资产', unit: '元', scale: true},
-        {key: 'total_liability', name: '总负债', unit: '元', scale: true},
-        {key: 'total_owner_equities', name: '股东权益', unit: '元', scale: true},
+        {key: 'tot_assets', name: '总资产', unit: '元', scale: true},
+        {key: 'tot_liab', name: '总负债', unit: '元', scale: true},
+        {key: 'tot_shrhldr_eqy_excl_min_int', name: '股东权益(归母)', unit: '元', scale: true},
     ],
     Capital: [
         {key: 'total_capital', name: '总股本', unit: '股', scale: true},
@@ -250,8 +269,14 @@ const FIN_INDICATORS = {
 
 const fin_report_type = ref('PershareIndex');
 const fin_items = ref([]);
+// 报告期筛选：全部 / 一季报(Q1) / 中报(H1) / 三季报(Q3) / 年报(FY)
+const fin_period_filter = ref('FY');
+// 时间范围（periods）：控制后端取数期数；默认近10年(40)，全部=300 覆盖全历史
+const fin_periods = ref(40);
 const fin_loading = ref(false);
 const fin_error = ref('');
+// 趋势图当前选中的指标 key（点击卡片切换）；为空时回落到该报表首个百分比指标
+const finSelectedKey = ref('');
 
 // 图表容器与实例（与恐惧贪婪同样的孤儿实例防护——报表切换会重渲染）
 const finChartRef = ref(null);
@@ -279,8 +304,43 @@ const ensureFinChart = () => {
 // 当前报表对应的核心指标定义
 const finIndicators = computed(() => FIN_INDICATORS[fin_report_type.value] || []);
 
-// 最新一期（数组已是降序 → 下标 0）
-const finLatest = computed(() => fin_items.value[0] || null);
+// 报告期类型识别（按 report_date 月份，与 fmtFinPeriod 一致）：03→Q1 06→中报 09→Q3 12→年报
+const PERIOD_MONTH = {Q1: '03', H1: '06', Q3: '09', FY: '12'};
+const finPeriodType = (d) =>
+    ({'03': 'Q1', '06': 'H1', '09': 'Q3', '12': 'FY'}[String(d).split('-')[1]] || 'all');
+
+// 按报告期筛选后的展示列表（全部 / 指定季报中报年报），纯前端过滤，不重取数据
+const finDisplayItems = computed(() => {
+    if (fin_period_filter.value === 'all') return fin_items.value;
+    const m = PERIOD_MONTH[fin_period_filter.value];
+    return fin_items.value.filter((r) => String(r.report_date).split('-')[1] === m);
+});
+
+// 最新一期（数组已是降序 → 下标 0）；跟随报告期筛选
+const finLatest = computed(() => finDisplayItems.value[0] || null);
+
+// 趋势图当前要画的指标：优先取 finSelectedKey 命中的；未选中/选中项不在当前报表则回落
+// 到该报表首个百分比指标（否则首条）。报表切换时 resetFinSelection 会重设 finSelectedKey。
+const finActiveIndicator = computed(() => {
+    const list = finIndicators.value;
+    if (!list.length) return null;
+    const hit = list.find((i) => i.key === finSelectedKey.value);
+    if (hit) return hit;
+    return list.find((i) => i.unit === '%') || list[0];
+});
+
+// 选中某指标卡片 → 重绘趋势图（数据已全量加载，纯前端切换）
+const selectFinIndicator = (key) => {
+    finSelectedKey.value = key;
+    renderFinChart();
+};
+
+// 报表切换时把选中项重置到该报表的默认指标（首个百分比项），避免沿用上一张报表的 key
+const resetFinSelection = () => {
+    const list = finIndicators.value;
+    const def = list.find((i) => i.unit === '%') || list[0];
+    finSelectedKey.value = def ? def.key : '';
+};
 
 /** 大额紧凑显示：亿 / 万，避免 12 位数字挤爆卡片 */
 const compactMoney = (n) => {
@@ -309,31 +369,26 @@ const fmtFinPeriod = (d) => {
 };
 
 /**
- * 渲染财务趋势图：X=报告期，Y=当前报表前 3 个核心指标（各自独立量纲 → 多轴会很乱，
- * 所以只画**百分比型**指标；元/股类指标量纲差异太大，交给上方卡片展示绝对值）。
- *
- * 若当前报表没有百分比指标（如现金流量表），退回画第一个指标（元），
- * 并直接显示数值不画百分比 —— 有图总比空着好。
+ * 渲染财务趋势图：只画**当前选中的指标**（finActiveIndicator）。
+ * 点击上方指标卡片 → selectFinIndicator 切换 finSelectedKey → 重绘。
+ * 量纲单一（只有一条线），Y 轴直接按该指标数值缩放。
  */
 const renderFinChart = async () => {
     await nextTick();
     const chart = ensureFinChart();
     if (!chart) return;
 
-    const rows = [...(fin_items.value || [])].reverse(); // 升序：左旧右新
-    if (rows.length < 2) {
+    const ind = finActiveIndicator.value;
+    const rows = [...(finDisplayItems.value || [])].reverse(); // 升序：左旧右新
+    if (!ind || rows.length < 2) {
         chart.clear();
         return;
     }
 
     const dates = rows.map((r) => fmtFinPeriod(r.report_date));
-    // 优先百分比型指标；没有就取前 3 个
-    let inds = finIndicators.value.filter((i) => i.unit === '%').slice(0, 3);
-    if (!inds.length) inds = finIndicators.value.slice(0, 1);
+    const isPct = ind.unit === '%';
 
-    // 调色板取自 echartsTheme（见顶部 import）
-
-    const series = inds.map((ind, idx) => ({
+    const series = [{
         name: ind.name,
         type: 'line',
         smooth: true,
@@ -344,15 +399,17 @@ const renderFinChart = async () => {
             const v = r[ind.key];
             return v === null || v === undefined ? null : Number(v);
         }),
-        ...lineSeriesStyle({color: PALETTE[idx % PALETTE.length], width: LINE.primary, shadow: false}),
-        itemStyle: {color: PALETTE[idx % PALETTE.length]},
-    }));
+        ...lineSeriesStyle({color: PALETTE[0], width: LINE.primary, shadow: false}),
+        itemStyle: {color: PALETTE[0]},
+    }];
 
     chart.setOption({
         grid: {left: 46, right: 16, top: 30, bottom: 24},
         legend: {top: 0, textStyle: {fontSize: FONT.legend, color: COLORS.secondary}},
         tooltip: tooltipBase({
-            valueFormatter: (v) => (v === null || v === undefined ? '--' : Number(v).toFixed(2)),
+            valueFormatter: (v) => (v === null || v === undefined
+                ? '--'
+                : isPct ? `${Number(v).toFixed(2)}%` : Number(v).toFixed(2)),
         }),
         xAxis: {
             type: 'category',
@@ -367,7 +424,7 @@ const renderFinChart = async () => {
             splitLine: splitLine(),
         },
         series,
-    }, true); // notMerge=true：切报表时彻底替换，避免旧 series 残留
+    }, true); // notMerge=true：切报表/切指标时彻底替换，避免旧 series 残留
 };
 
 const resizeFinChart = () => {
@@ -404,7 +461,7 @@ const loadFinancialData = async (reportType = fin_report_type.value) => {
     fin_error.value = '';
     try {
         const {data} = await axios.get(`/api/v1/stock/financial_data/${stock_code}`, {
-            params: {report_type: reportType, periods: 12},
+            params: {report_type: reportType, periods: fin_periods.value},
         });
         // 快速切换报表时丢弃乱序响应（与股票搜索同一个坑）
         if (reportType !== fin_report_type.value) return;
@@ -963,9 +1020,20 @@ onMounted(async () => {
 
 });
 
-// 切换报表 → 重新取数并重绘（不同 report_type 是不同的一次接口调用）
+// 切换报表 → 重置选中指标到该报表默认项、重新取数并重绘
 watch(fin_report_type, (val) => {
+    resetFinSelection();
     loadFinancialData(val);
+});
+
+// 切换报告期筛选 → 仅重绘趋势图（数据已全量加载，无需重取）
+watch(fin_period_filter, () => {
+    renderFinChart();
+});
+
+// 切换时间范围 → 重新取数（periods 变化需后端重拉，非前端过滤）
+watch(fin_periods, () => {
+    loadFinancialData();
 });
 
 // 切到「财务分析」tab 时才首次渲染趋势图：
@@ -1656,6 +1724,30 @@ onUnmounted(() => {
                         />
                     </div>
 
+                    <!-- 报告期筛选：全部 / 一季报 / 中报 / 三季报 / 年报 -->
+                    <div class="card p-0 mb-3" v-if="!fin_loading && !fin_error">
+                        <SelectButton
+                            v-model="fin_period_filter"
+                            :options="FIN_PERIOD_FILTERS"
+                            optionLabel="label"
+                            optionValue="value"
+                            size="small"
+                            :allowEmpty="false"
+                        />
+                    </div>
+
+                    <!-- 时间范围：近3年/近5年/近10年/全部（控制后端取数期数） -->
+                    <div class="card p-0 mb-3" v-if="!fin_loading && !fin_error">
+                        <SelectButton
+                            v-model="fin_periods"
+                            :options="FIN_PERIOD_OPTIONS"
+                            optionLabel="label"
+                            optionValue="value"
+                            size="small"
+                            :allowEmpty="false"
+                        />
+                    </div>
+
                     <div v-if="fin_loading" class="fin-state">
                         <i class="pi pi-spin pi-spinner"></i> 财务数据加载中...
                     </div>
@@ -1664,15 +1756,21 @@ onUnmounted(() => {
                         <i class="pi pi-exclamation-circle"></i> {{ fin_error }}
                     </div>
 
-                    <div v-else-if="!fin_items.length" class="fin-state">
+                    <div v-else-if="!finDisplayItems.length" class="fin-state">
                         暂无该报表的财务数据
                     </div>
 
                     <template v-else>
 
-                        <!-- 核心指标卡片：最新一期 -->
+                        <!-- 核心指标卡片：最新一期（点击切换趋势图指标） -->
                         <div class="fin-cards">
-                            <div class="fin-card" v-for="ind in finIndicators" :key="ind.key">
+                            <div
+                                class="fin-card"
+                                :class="{ 'fin-card--active': ind.key === finActiveIndicator?.key }"
+                                v-for="ind in finIndicators"
+                                :key="ind.key"
+                                @click="selectFinIndicator(ind.key)"
+                            >
                                 <div class="fin-card-label">{{ ind.name }}</div>
                                 <div class="fin-card-value">
                                     {{ fmtFinValue(finLatest?.[ind.key], ind.unit, ind.scale) }}
@@ -1681,10 +1779,12 @@ onUnmounted(() => {
                             </div>
                         </div>
 
-                        <!-- 趋势图 -->
-                        <div class="fin-chart-wrap" v-if="fin_items.length >= 2">
+                        <!-- 趋势图：仅显示选中的指标 -->
+                        <div class="fin-chart-wrap" v-if="finDisplayItems.length >= 2 && finActiveIndicator">
                             <div class="fin-chart-title">
-                                指标趋势（近 {{ fin_items.length }} 期）
+                                指标趋势 · {{ finActiveIndicator.name }}
+                                <span class="fin-chart-unit" v-if="finActiveIndicator.unit === '%'">（%）</span>
+                                <span class="fin-chart-hint">点上方卡片切换</span>
                             </div>
                             <div ref="finChartRef" class="fin-chart"></div>
                         </div>
@@ -1699,7 +1799,7 @@ onUnmounted(() => {
                                 </tr>
                                 </thead>
                                 <tbody>
-                                <tr v-for="row in fin_items" :key="row.report_date">
+                                <tr v-for="row in finDisplayItems" :key="row.report_date">
                                     <td class="fin-td-label">
                                         {{ fmtFinPeriod(row.report_date) }}
                                         <span class="fin-td-sub" v-if="row.announce_date">
@@ -1990,6 +2090,19 @@ onUnmounted(() => {
     border: 1px solid #eef1f6;
     border-radius: 0.5rem;
     padding: 0.7rem 0.9rem;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+
+    &:hover {
+        border-color: #93c5fd;
+        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12);
+    }
+
+    /* 选中态：蓝色描边 + 左侧条，强调「当前趋势图指标」 */
+    &.fin-card--active {
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+    }
 
     .fin-card-label {
         font-size: 0.85rem;
@@ -2026,6 +2139,18 @@ onUnmounted(() => {
         font-weight: 600;
         color: #475569;
         margin-bottom: 0.25rem;
+
+        .fin-chart-unit {
+            color: #94a3b8;
+            font-weight: 400;
+        }
+
+        .fin-chart-hint {
+            float: right;
+            font-size: 0.72rem;
+            font-weight: 400;
+            color: #cbd5e1;
+        }
     }
 
     .fin-chart {
