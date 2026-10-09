@@ -110,9 +110,15 @@ def job_check_signal(_stock_code):
     stock_name = stock_info.get('name')
 
     # 公司基本信息
-    # SDK 的 get_company_profile 返回 {code, data} 信封，取内层 data 交给大模型
-    _profile_resp = databull.get_company_profile(_stock_code, stock_info.get('market'))
-    profile = _profile_resp.get('data') if isinstance(_profile_resp, dict) else _profile_resp
+    # SDK 的 get_company_profile 返回 {code, data} 信封，取内层 data 交给大模型。
+    # ⚠️ 美股（market='us'）上游 profile 接口返回 404，会让整条任务崩溃、concepts/main_force 都不写；
+    #    用 try 容错，拿不到就降级（与下方 recent_quotes 同策略），不阻断技术面研判。
+    try:
+        _profile_resp = databull.get_company_profile(_stock_code, stock_info.get('market'))
+        profile = _profile_resp.get('data') if isinstance(_profile_resp, dict) else _profile_resp
+    except Exception as e:
+        logger.warning(f"[{_stock_code}] 公司信息获取失败（将不提供 profile）：{e}")
+        profile = None
 
     # 1 紧凑的近期行情快照：仅作「模型未调用工具 / 工具失败时」的兜底基线，
     #    避免把 360 天 CSV 全量塞进 prompt（既省 token，也规避工具默认区间过时问题）。
