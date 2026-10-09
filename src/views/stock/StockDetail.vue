@@ -481,7 +481,6 @@ const ohlc_last = ref({})
 const loading = ref(false);
 // 各区块独立加载态：先展示「加载中」，数据到位后再切换内容；
 // 避免首屏数据未回时因判据为「空」而先闪「无数据」、随后整块跳成真实内容。
-const pageLoading = ref(true);     // 标题 + 行情价（核心首屏数据）
 const greedLoading = ref(true);    // 恐惧贪婪卡片
 const newsLoading = ref(true);     // 新闻动态
 const reportsLoading = ref(true);  // 研报数据
@@ -899,9 +898,6 @@ onMounted(async () => {
     realHistoryData.value = realHistoryData.value.slice(-365 / 2)
     // 最新的一个K线
     ohlc_last.value = ohlc_data.value[ohlc_data.value.length - 1]
-
-    // 核心首屏数据已就绪（标题 + 行情价），关闭首屏 loading，交还价格/标题渲染。
-    pageLoading.value = false;
 
     // 图表显示开关（后端 system_setting 的 chart_display 组，默认关闭 K 线）。
     // ⚠️ 必须在 init('chart') 之前 await 到结果：容器 `#chart` 归 v-if="klineEnabled" 管，
@@ -1338,10 +1334,7 @@ onUnmounted(() => {
             class="text-sm font-light">{{ stock_info?.concepts || '加载中...' }}</i>
         </h1>
 
-        <div v-if="pageLoading" class="price-loading">
-            <i class="pi pi-spin pi-spinner"></i> 行情加载中...
-        </div>
-        <h1 class="stock-price" v-else-if="ohlc_data.length > 0" :class="{
+        <h1 class="stock-price" v-if="ohlc_data.length > 0" :class="{
                               'text-red-500': ohlc_last['chg_pct'] > 0,
                               'text-green-600': ohlc_last['chg_pct'] < 0,
                               }">
@@ -2049,8 +2042,7 @@ onUnmounted(() => {
 }
 
 /* 各区块「加载中」占位：与 .empty-tip 同类观感，避免首屏闪现「无数据」 */
-.fg-loading,
-.price-loading {
+.fg-loading {
     padding: 2rem 0;
     text-align: center;
     color: #94a3b8;

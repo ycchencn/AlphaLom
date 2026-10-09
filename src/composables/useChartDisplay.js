@@ -61,8 +61,9 @@ export function invalidateChartDisplay() {
  *   onMounted(() => loadChartDisplay());          // 或在已有的 onMounted 里调用
  */
 export function useChartDisplay() {
-    // 默认 true：与后端默认值一致（表里没配置时 = 开启，详情页默认展示走势图）
-    const klineEnabled = ref(true);
+    // 初始 false：首屏保守不渲染走势图框，最终以后端 /chart_display 返回值为准。
+    // 否则默认 true 会在「用户关闭 K 线」时先渲染出框、待接口返回 false 再消失 —— 一闪而过。
+    const klineEnabled = ref(false);
 
     const loadChartDisplay = async () => {
         const values = await fetchChartDisplay();
