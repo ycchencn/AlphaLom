@@ -63,8 +63,8 @@ if __name__ == '__main__':
     # 申万行业每日快照落库（板块轮动图数据源；上游只给最新一天，必须逐日累积）
     scheduler.add_job(job_update_sector_daily, 'cron', day_of_week='mon-fri', hour=20, minute=35, timezone=beijing_tz)
 
-    # 每周五晚上更新DCF数据
-    scheduler.add_job(job_stock_dcf_model_analysis_daily, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)
+    # 每日更新 DCF 估值数据（监控池内标的全量重算，删缓存后由 dump_stocks_dcf 重新生成汇总）
+    scheduler.add_job(job_stock_dcf_model_analysis_daily, 'cron', hour=20, minute=30, timezone=beijing_tz)
 
     # 每周五晚上更新基础评分
     scheduler.add_job(job_update_financial_score_all, 'cron', day_of_week='fri', hour=20, minute=30, timezone=beijing_tz)

@@ -5,11 +5,38 @@ import {computed, onBeforeMount, ref} from 'vue';
 import {formatPercentage} from '@/utils/function';
 import ToggleSwitch from 'primevue/toggleswitch';
 import axios from 'axios';
+import {useNotification} from '@/composables/useNotification';
+
+const {showSuccess, showError} = useNotification();
 
 const stock_list = ref([]);
 const filters1 = ref(null);
 const loading1 = ref(null);
 const dt1 = ref(null);
+// 正在关闭监控的行 symbol（按钮 loading 态，避免连点）
+const closing_symbol = ref('');
+
+// ==================== 关闭监控 ====================
+// DCF 汇总表是全局缓存（所有被监控的标的一起算），「关闭监控」只把这只票
+// 移出**当前用户**的股票池（调 DELETE /stocks/{symbol}，与个股监控页一致）：
+// 不影响其他用户、也不删除公共行情数据。成功后从当前列表移除该行并提示。
+async function closeMonitoring(row) {
+    if (closing_symbol.value) return;                    // 已有请求在飞，防连点
+    if (!window.confirm(`确定将 ${row.symbol} ${row.name || ''} 移出监控列表？\n（仅移除你的监控，其他用户与该股票基础数据不受影响。）`)) return;
+    closing_symbol.value = row.symbol;
+    try {
+        await axios.delete(`/api/v1/stocks/${encodeURIComponent(row.symbol)}`);
+        showSuccess(`已移出监控：${row.symbol}`);
+        // 当前列表是全局快照，移除后直接剔掉本行即可（不必整表重拉）
+        stock_list.value = stock_list.value.filter((it) => it.symbol !== row.symbol);
+    } catch (error) {
+        const detail = error.response?.data?.detail;
+        showError(detail ? `移出监控失败：${detail}` : '移出监控失败，请重试');
+    } finally {
+        closing_symbol.value = '';
+    }
+}
+
 
 // ==================== 赔率过滤 ====================
 // 「赔率低」的判定口径：**保守情景空间 <= 0**。
@@ -106,7 +133,7 @@ function initFilters1() {
                 <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
                     <!-- 左侧：标题 + 计数 + 赔率过滤开关 -->
                     <div class="w-full md:w-auto flex flex-wrap items-center gap-3">
-                        <span class="font-semibold">DCF估值信息汇总 - 每周更新</span>
+                        <span class="font-semibold">DCF估值信息汇总 - 每日更新</span>
                         <span class="dcf-count">
                             显示 {{ visibleList.length }} / {{ stock_list.length }}
                         </span>
@@ -197,6 +224,20 @@ function initFilters1() {
             </Column>            <Column field="update_time" filterField="update_time" header="更新时间">
                 <template #body="{ data }">
                     {{ data.update_time }}
+                </template>
+            </Column>
+            <Column field="__actions" header="操作" :exportable="false" style="min-width: 110px">
+                <template #body="{ data }">
+                    <Button
+                        size="small"
+                        severity="danger"
+                        text
+                        :loading="closing_symbol === data.symbol"
+                        :disabled="closing_symbol !== '' && closing_symbol !== data.symbol"
+                        @click="closeMonitoring(data)"
+                    >
+                        <i class="pi pi-times mr-1"></i>关闭监控
+                    </Button>
                 </template>
             </Column>
         </DataTable>
