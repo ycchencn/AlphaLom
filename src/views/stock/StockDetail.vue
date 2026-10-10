@@ -1598,7 +1598,7 @@ onUnmounted(() => {
             <div v-show="activeTab === 'tab2'">
 
                 <!-- 公司概况 -->
-                <Card class="mb-5">
+                <Card class="mt-5">
                     <template #title>
                         <div class="flex items-center gap-2">
                             <i class="pi pi-building text-blue-500"></i>
@@ -1642,7 +1642,7 @@ onUnmounted(() => {
 
                 <!-- PE-TTM 估值走势（仅 A 股）：数据由日更任务每日盘后落库。
                      展示近约两年半的滚动市盈率变化，帮助判断估值中枢与当前分位。 -->
-                <Card class="mb-5" v-if="is_cn_stock">
+                <Card class="mt-5" v-if="is_cn_stock">
                     <template #title>
                         <div class="flex items-center gap-2">
                             <i class="pi pi-chart-line text-blue-500"></i>
@@ -1661,7 +1661,7 @@ onUnmounted(() => {
                 </Card>
 
                 <!-- 基本面评分 + DCF 估值结论 -->
-                <div class="flex flex-col lg:flex-row gap-5">
+                <div class="flex flex-col lg:flex-row gap-5 mt-5">
 
                     <!-- 基本面评分雷达 + 维度明细 -->
                     <Card class="w-full lg:w-1/2">
@@ -1732,7 +1732,7 @@ onUnmounted(() => {
                 </div>
 
                 <!-- DCF 估值走势图：单独一行，避免被半宽卡片挤压 -->
-                <Card class="mt-5 w-full" v-if="dcf_research_report?.content_json">
+                <Card class="mt-5 mb-5 w-full" v-if="dcf_research_report?.content_json">
                     <template #title>
                         <div class="flex items-center gap-2">
                             <i class="pi pi-chart-line text-green-500"></i>
@@ -2434,6 +2434,15 @@ onUnmounted(() => {
 .pe-ttm-chart {
     width: 100%;
     height: 260px;
+}
+
+/* 基本面分析 tab 的卡片（PrimeVue <Card>）边框与「技术面分析」FactorPanel 的 .fp-card 对齐。
+   .fp-card 是 0.5px 淡灰描边 + 12px 圆角；而全局 .p-card 被 _core.scss 压成 2px 圆角、
+   Aura 默认 1px 边框，同一株详情页里两个 tab 的卡片观感明显割裂。这里局部覆盖，
+   只作用于本页（StockDetail 里的 <Card> 全都在基本面分析 tab），不影响其它页面。 */
+:deep(.p-card) {
+    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    border-radius: 12px;
 }
 
 /* ===== 设置分组弹窗 ===== */
