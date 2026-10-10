@@ -324,7 +324,34 @@ function fmtValue(field, value) {
 const maState = computed(() => dashboard.value?.ma_status || null);
 const levels = computed(() => dashboard.value?.key_levels || null);
 const phase = computed(() => dashboard.value?.phase_series || null);
-const range52 = computed(() => board.value?.range_52week || null);
+
+/**
+ * 52 周区间位置（位置条用）。
+ *
+ * ⚠️ 数据来源是**仪表盘的 key_levels**，不是因子看板的 range_52week：
+ *    位置条的宿主已从「因子分析 tab」搬到「技术面分析 tab」，而后者只挂
+ *    mode='dashboard' 的实例、只请求 dashboard 一个接口，根本不取 board ——
+ *    继续读 board.range_52week 的话，条子在任何情况下都渲染不出来。
+ *    换成 key_levels 还有个额外好处：条上的最高/最低与紧邻的「关键位与动态止损」
+ *    卡片里的 52周高/52周低**同源同值**（同一份日线 df 算出来的），不会出现
+ *    「上面写 12.30、下面条上写 12.10」这种自相矛盾。
+ *
+ * 位置 = (现价 - 52周最低) / (52周最高 - 52周最低) × 100。
+ * 在这里一次钳到 0~100 并按 1 位小数定稿：原来模板里只在 width 上 Math.min(100)、
+ * 文案却打原值，越界时条子与百分比会互相打架（除权、异常行情下确实会越界）。
+ * 高 == 低（区间退化成一个点，如刚上市/长期停牌）时位置没有意义 → 返回 null，
+ * 整张卡不渲染，而不是画一条永远指在 0% 的假条。
+ */
+const range52 = computed(() => {
+    const lv = levels.value;
+    if (!lv) return null;
+    const low = Number(lv.low_52w);
+    const high = Number(lv.high_52w);
+    const close = Number(lv.close);
+    if (![low, high, close].every(Number.isFinite) || high <= low) return null;
+    const pct = Math.min(100, Math.max(0, ((close - low) / (high - low)) * 100));
+    return {low, high, close, position: Math.round(pct * 10) / 10};
+});
 
 // 横向对比卡片：标题与脚注按后端返回的 scope 走，前端不再自己判「什么类型写什么文案」。
 const peerTitle = computed(() => {
@@ -408,6 +435,24 @@ watch(() => props.active, (v) => {
                                     MA{{ k }} {{ Number(v) >= 0 ? '+' : '' }}{{ v }}%
                                 </span>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- 52周区间位置：整行通栏，紧跟在「均线排列」下方 —— 两者合起来回答
+                         「现价处在什么位置」（均线说的是相对均线，区间条说的是相对近一年高低点）。
+                         最高/最低与下面「关键位与动态止损」卡片里的 52周高低同源同值。 -->
+                    <div class="fp-card fp-card-full" v-if="range52">
+                        <div class="fp-card-h">52周区间位置 <b>现价位于 {{ range52.position.toFixed(1) }}%</b></div>
+                        <div class="fp-range">
+                            <div class="fp-range-bar">
+                                <div class="fp-range-fill"
+                                     :style="{width: range52.position + '%'}"></div>
+                                <span class="fp-range-mark"
+                                      :style="{left: range52.position + '%'}"></span>
+                            </div>
+                            <span class="fp-range-v">
+                                最低 {{ range52.low }} ~ 最高 {{ range52.high }}
+                            </span>
                         </div>
                     </div>
 
@@ -527,21 +572,6 @@ watch(() => props.active, (v) => {
                     </div>
                 </div>
 
-                <!-- 52周区间条 -->
-                <div v-if="range52" class="fp-range">
-                    <span class="fp-range-k">52周区间位置</span>
-                    <div class="fp-range-bar">
-                        <div class="fp-range-fill"
-                             :style="{width: Math.min(100, range52.position ?? 0) + '%'}"></div>
-                        <span class="fp-range-mark"
-                              :style="{left: Math.min(100, range52.position ?? 0) + '%'}"></span>
-                    </div>
-                    <span class="fp-range-v">
-                        {{ range52.low }} ~ {{ range52.high }}
-                        <b>（{{ Number(range52.position).toFixed(1) }}%）</b>
-                    </span>
-                </div>
-
                 <!-- 选中分组的因子曲线 -->
                 <div class="fp-series">
                     <div class="fp-series-h">
@@ -600,7 +630,7 @@ watch(() => props.active, (v) => {
 .fp-title, .fp-sub, .fp-card-h, .fp-group-h, .fp-group-desc,
 .fp-factor, .fp-factor-top, .fp-factor-name, .fp-factor-val, .fp-factor-pct,
 .fp-ma-state, .fp-ma-list, .fp-ma-item, .fp-lv, .fp-lv-k, .fp-lv-v,
-.fp-range-k, .fp-range-v, .fp-phase-cur, .fp-phase-legend, .fp-pl-item,
+.fp-range-v, .fp-phase-cur, .fp-phase-legend, .fp-pl-item,
 .fp-rank-row, .fp-rank-name, .fp-rank-val, .fp-rank-pct, .fp-note {
     min-width: 0;
     overflow-wrap: anywhere;
@@ -620,7 +650,8 @@ watch(() => props.active, (v) => {
 .fp-sub { font-size: 11px; font-weight: 400; color: #9a9a9a; }
 
 /* 仪表盘卡片：两列布局。
-   第 1 行「均线排列」通栏（.fp-card-full），第 2 行「超买超卖热度 | 关键位与动态止损」并排。 */
+   第 1 行「均线排列」通栏、第 2 行「52 周区间位置」通栏（都是 .fp-card-full），
+   第 3 行「超买超卖热度 | 关键位与动态止损」并排。 */
 .fp-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
 .fp-card { background: #fff; border: 0.5px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 12px 14px; }
 .fp-card-full { grid-column: 1 / -1; }
@@ -686,8 +717,7 @@ watch(() => props.active, (v) => {
 .fp-pct-fill { height: 100%; border-radius: 3px; transition: width .3s; }
 .fp-factor-pct { font-size: 10px; color: #b0b0b0; margin-top: 2px; }
 
-.fp-range { display: flex; align-items: center; gap: 12px; margin-top: 14px; font-size: 12px; flex-wrap: wrap; }
-.fp-range-k { color: #6b6b6b; }
+.fp-range { display: flex; align-items: center; gap: 12px; font-size: 12px; flex-wrap: wrap; }
 .fp-range-bar { position: relative; flex: 1 1 120px; min-width: 100px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #cfe8d5, #f0e2cf, #f3cfcf); }
 .fp-range-fill { height: 100%; border-radius: 4px; background: rgba(0,0,0,0.06); }
 .fp-range-mark { position: absolute; top: -3px; width: 2px; height: 14px; background: #333; border-radius: 1px; transform: translateX(-1px); }
