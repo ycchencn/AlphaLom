@@ -307,24 +307,6 @@ async function addByCode(stockCode) {
     }
 }
 
-// 1. 阶段映射配置 (保持不变)
-const PHASE_CONFIG = {
-    0: { label: '未知阶段', type: 'unknown', severity: 'secondary' },
-    1: { label: '吸筹阶段', type: 'accumulate', severity: 'info' },
-    2: { label: '洗盘阶段', type: 'wash', severity: 'help' },
-    3: { label: '拉升阶段', type: 'rise', severity: 'success' },
-    5: { label: '出货阶段', type: 'distribute', severity: 'warn' },
-    6: { label: '出货阶段', type: 'distribute', severity: 'danger' }
-};
-
-// 将对象转换为 [{ label: '吸筹阶段', value: '1' }, ...] 格式
-const phaseFilterOptions = Object.entries(PHASE_CONFIG)
-    .filter(([key, config]) => key !== '0') // 过滤掉 key 为 '0' 的项
-    .map(([key, config]) => ({
-    label: config.label,
-    value: key // 使用字符串作为 value，兼容性更好
-}));
-
 const marketFilterOptions = [
     { label: '全部', value: '' },
     { label: 'A股', value: 'cn' },
@@ -332,15 +314,10 @@ const marketFilterOptions = [
     { label: '港股', value: 'hk' },
 ];
 
-// 2. 修改 initFilters1 函数，添加 main_force_behavior_phase 的配置
+// 列表筛选状态：全局搜索 + 市场
 function initFilters1() {
     filters1.value = {
         global: { value: null, matchMode: FilterMatchMode.CONTAINS },
-        // 添加这一行配置
-        main_force_behavior_phase: {
-            value: null,
-            matchMode: FilterMatchMode.CONTAINS
-        },
         // 新增：市场筛选配置
         market: {
             value: null,
@@ -348,18 +325,6 @@ function initFilters1() {
         }
     };
 }
-
-// 格式化数字为文本
-const formatPhase = (phaseInt) => {
-    const num = Number(phaseInt);
-    return PHASE_CONFIG[num]?.label || PHASE_CONFIG[0].label;
-};
-
-// 获取 Severity (PrimeVue 的预设颜色等级)
-const getPhaseSeverity = (phaseInt) => {
-    const num = Number(phaseInt);
-    return PHASE_CONFIG[num]?.severity || PHASE_CONFIG[0].severity;
-};
 
 // ==================== PE-TTM（滚动市盈率）列渲染 ====================
 /**
@@ -835,17 +800,6 @@ async function deleteGroup(groupName) {
                   <!-- 左侧：下拉框 -->
                   <div class="w-full md:w-auto">
                     <Dropdown
-                      v-model="filters1.main_force_behavior_phase.value"
-                      :options="phaseFilterOptions"
-                      optionLabel="label"
-                      optionValue="value"
-                      placeholder="筛选阶段"
-                      size="small"
-                      class="mr-3"
-                      :showClear="true"
-                      @change="() => {}"
-                    />
-                    <Dropdown
                       v-model="filter_market"
                       :options="marketFilterOptions"
                       optionLabel="label"
@@ -921,14 +875,6 @@ async function deleteGroup(groupName) {
                     <span :style="{ color: data.chg_pct > 0 ? 'red' : 'green' }">
                         {{ data.chg_pct != null ? data.chg_pct.toFixed(2) + '%' : '--' }}
                     </span>
-                </template>
-            </Column>
-            <Column field="main_force_behavior_phase" filterField="main_force_behavior_phase" header="主力行为">
-                <template #body="{ data }">
-                    <Tag
-                      :value="formatPhase(parseInt(data.main_force_behavior_phase))"
-                      :severity="getPhaseSeverity(parseInt(data.main_force_behavior_phase))"
-                    />
                 </template>
             </Column>
             <Column field="pe_ratio" filterField="pe_ratio" header="PE-TTM" sortable>
@@ -1058,21 +1004,6 @@ async function deleteGroup(groupName) {
 :deep(.p-progressbar-value) {
     border-radius: 8px;
 }
-
-.phase-tag {
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-weight: bold;
-    color: white;
-    text-align: center;
-}
-
-/* 不同阶段的颜色定义 */
-.phase-tag--accumulate { background-color: #1890ff; } /* 蓝色 - 吸筹 */
-.phase-tag--wash { background-color: #531dab; }       /* 靛紫色 - 洗盘 */
-.phase-tag--rise { background-color: #389e0d; }       /* 绿色 - 拉升 */
-.phase-tag--distribute { background-color: #d46b08; } /* 橙色 - 出货 */
-.phase-tag--unknown { background-color: #bfbfbf; }    /* 浅灰 - 未知 */
 
 /* 股票池分组布局：左侧分组面板（NavSidePanel）+ 右侧表格，二者紧贴无间距 */
 .pool-layout {

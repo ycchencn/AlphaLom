@@ -270,6 +270,8 @@ def get_stocks_monitored(
     （恐惧贪婪、主力行为阶段、52 周高低），默认 page_size=300 时是一个近 1200 次的
     N+1，实测单次请求要 6 秒以上。现已改为两次批量查询（见下方两个 *_batch 方法），
     并保留服务端缓存（TTL 见 config.cache_setting['monitored_stocks']）降低重复计算。
+    主力行为阶段已随列表展示一并下线，不再纳入批量取数（详情页的「主力行为阶段」
+    卡片走 /dashboard 接口，不经过这里）。
 
     缓存键由函数与其调用参数生成（FastAPI 把 query 参数与依赖注入值都作为 kwargs 传入），
     因此 page / market / page_size / simple / user_id 全部参与区分。
@@ -291,19 +293,18 @@ def get_stocks_monitored(
     # 分组标签映射（symbol -> group_name），用于给每只票注入 group_name
     group_map = StockService.get_user_pool_group_map(user_id)
 
-    # 两次批量查询取代 N+1：每只票原本 4 次往返，现在是 2 次固定往返
+    # 两次批量查询取代 N+1：每只票原本 4 次往返，现在是 2 次固定往返。
+    # ⚠️ 只取列表还在展示的字段：main_force_behavior_phase 已随列表下线，
+    #    详情页的「主力行为阶段」卡片走 /dashboard 接口、不经过这里，别再批量查它。
     greed_map = StockFearGreedService.get_latest_by_index_codes(symbols)
     factor_map = FactorValueService.get_latest_factor_values(
-        symbols, ('main_force_behavior_phase', '52week_low', '52week_high')
+        symbols, ('52week_low', '52week_high')
     )
 
     for stock in stocks:
         symbol = stock['symbol']
         # 字段与默认值保持与原实现完全一致（因子缺失时为 ''，恐惧贪婪缺失时为 {"fear_greed": 0}）
         stock['greed_data'] = greed_map.get(symbol) or {"fear_greed": 0}
-        stock['main_force_behavior_phase'] = factor_map.get(
-            (symbol, 'main_force_behavior_phase'), ''
-        )
         stock['52week_low'] = factor_map.get((symbol, '52week_low'), '')
         stock['52week_high'] = factor_map.get((symbol, '52week_high'), '')
         # 注入分组标签（NULL → ''），供前端左侧分组面板筛选
