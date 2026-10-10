@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from llms import get_model_by_setting
-from prompts.prompt_generator import load_prompt_template
+from llms.prompt_generator import load_prompt_template
 from service import MarketNewsService, NewsDigestService
 from service.news_digest_service import MAX_HEADLINES
 from utils.common import extract_json_object

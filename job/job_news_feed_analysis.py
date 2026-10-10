@@ -19,7 +19,7 @@ from service.wallstreet_fetcher import WallStreetCNFetcher
 from utils.common import string_to_md5, timestamp_to_date
 from utils.news_fetcher import get_realtime_news_from_ths_short
 from llms.prompts import prompt_155th
-from prompts.prompt_generator import load_prompt_template
+from llms.prompt_generator import load_prompt_template
 from backtest.text_embedding import get_embedding
 from config import elasticsearch_setting
 from utils.logger import logger

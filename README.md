@@ -64,8 +64,8 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 **后端模块**
 
 - `app/` —— FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应
-- `routes/`（16 个已注册路由器）· `service/`（33 个业务模块）· `llms/`（多模型封装）· `backtest/`（回测引擎与策略）
-- `job/`（17 个离线任务）· `models/`（DB / Redis / 任务队列）· `utils/` · `prompts/`
+- `routes/`（16 个已注册路由器）· `service/`（33 个业务模块）· `llms/`（多模型封装 + 提示词模板）· `backtest/`（回测引擎与策略）
+- `job/`（17 个离线任务）· `models/`（DB / Redis / 任务队列）· `utils/`
 
 **前端视图**（`src/views/`）：`market`（沪深大盘 · 美股大盘 · 板块情绪 · 事件驱动）· `stock` · `etf` · `portfolios` · `quant` · `ai` · `trading` · `user` · `system` · `auth` · `uikit`
 
@@ -104,7 +104,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 
 支持在「系统管理 → API Key」页**自助管理密钥**（创建 / 改名 / 启停 / 吊销，明文仅返回一次）、每日调用配额（429 + `Retry-After`）、按账号隔离数据、敏感字段剥离。
 
-- 调用方式、鉴权头、配额、全部端点、密钥管理接口、cURL / Python / Node 示例、服务端配置：👉 **[docs/EXTERNAL_API.md](docs/EXTERNAL_API.md)**
+- 调用方式、鉴权头、配额、全部端点、密钥管理接口、cURL / Python / Node 示例、服务端配置：👉 **[public/docs/EXTERNAL_API.md](public/docs/EXTERNAL_API.md)**（部署后也可直接访问 `/docs/EXTERNAL_API.md`）
 - 部署后可在 `<你的域名或IP>:8080/api/ext/docs` 直接试调。
 - 主应用与子应用的 Swagger UI / ReDoc 资源均已**本地化托管**，内网 / 离线环境也能打开，不再依赖外部 CDN。
 
@@ -122,7 +122,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 | L3 | `POST /factor/screen` | 因子选股器：多条件 AND 组合筛选全市场标的 |
 | L3 | `GET /factor/signals` | 技术信号扫描（内置信号目录见 `/factor/signals/catalog`） |
 
-前端入口：个股详情「技术面」Tab 的 `FactorPanel` 组件，以及独立页面 `/quant/factor_screen`（因子选股）。设计说明见 👉 **[docs/技术面分析专业功能方案.md](docs/技术面分析专业功能方案.md)**
+前端入口：个股详情「技术面」Tab 的 `FactorPanel` 组件，以及独立页面 `/quant/factor_screen`（因子选股）。设计说明见 👉 **[public/docs/技术面分析专业功能方案.md](public/docs/技术面分析专业功能方案.md)**
 
 > ⚠️ **数值口径**（写阈值前务必先量 min/max）：`mom_*` / `bias_*` / `vol_*` 是**小数**（`0.03` = 3%，非百分数）；`rsi_14` / `52week_position` 是 **0~100**；`closing_strength` 是 0~1；`turnover_*` 是**成交量均值**（无流通股本，非换手率）；`atr_14` 是价格。
 
@@ -144,11 +144,10 @@ alphalom/
 ├── scheduler.py          # 定时任务入口（配置驱动，任务见 scheduler_jobs.yaml）
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置（按 ENV 加载 .env / .env.<env>）
-├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/ prompts/
+├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/
 ├── src/                  # Vue 前端源码
-├── public/               # 静态资源（images/ 品牌资源、readme/ 截图与配图）
+├── public/               # 静态资源（images/ 品牌资源、readme/ 截图与配图、docs/ 专题文档）
 ├── install/              # SQL 初始化脚本
-├── docs/                 # 专题文档（对外开放 API、因子分析方案）
 ├── dist/                 # 前端构建产物（由 FastAPI SPA 路由直接服务）
 ├── docker-compose.yaml   # 服务编排
 ├── Dockerfile
