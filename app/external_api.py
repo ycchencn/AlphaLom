@@ -45,7 +45,7 @@ def create_external_app() -> FastAPI:
         ),
         version='1.0.0',
         # docs_url 默认走 jsdelivr CDN，被 reset 后无法加载。这里关闭默认路由，
-        # 用主应用自托管的本地资源（static/vendor/swagger-ui，主应用已 mount 到 /swagger-ui）。
+        # 用主应用自托管的本地资源（public/vendor/swagger-ui，主应用已 mount 到 /swagger-ui）。
         docs_url=None,
         redoc_url=None,
         openapi_url='/openapi.json',

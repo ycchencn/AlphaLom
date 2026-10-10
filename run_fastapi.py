@@ -22,7 +22,7 @@ import os
 # 创建 FastAPI 应用
 # docs_url=None / redoc_url=None：Swagger UI / ReDoc 的静态资源默认走 jsdelivr CDN，
 # 该 CDN 曾被 reset 导致 /docs 白屏。这里关闭默认路由，改用本地自托管资源
-# （static/vendor/swagger-ui/，见下方 _docs_router()），彻底摆脱外部 CDN 依赖。
+# （public/vendor/swagger-ui/，见下方 _docs_router()），彻底摆脱外部 CDN 依赖。
 app = create_app(docs_url=None, redoc_url=None)
 env = os.getenv('ENV', 'dev').lower()
 
@@ -70,7 +70,7 @@ app.include_router(factor_router)
 
 # ==================== 自托管 Swagger UI / ReDoc ====================
 # 默认的 /docs、/redoc 指向 jsdelivr CDN，被 reset 后无法加载。这里用本地
-# static/vendor/swagger-ui/（app/fastapi_app.py 里已 mount 到 /swagger-ui）重新注册。
+# public/vendor/swagger-ui/（app/fastapi_app.py 里已 mount 到 /swagger-ui）重新注册。
 # 必须放在所有 include_router 之后、/api/ext mount 与 SPA 兜底之前注册。
 app.add_api_route(
     '/docs',

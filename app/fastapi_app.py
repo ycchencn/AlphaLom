@@ -187,7 +187,7 @@ def create_app(docs_url: Optional[str] = '/docs', redoc_url: Optional[str] = '/r
 
     docs_url / redoc_url 可传 None 关闭默认路由——Swagger UI 静态资源默认走
     jsdelivr CDN，被 reset 后 /docs 白屏；由调用方（run_fastapi.py）自行
-    用本地自托管资源（static/vendor/swagger-ui）注册自定义 /docs、/redoc。
+    用本地自托管资源（public/vendor/swagger-ui）注册自定义 /docs、/redoc。
     """
     _app = FastAPI(
         title="AlphaLom 量化交易系统",
@@ -248,8 +248,9 @@ def create_app(docs_url: Optional[str] = '/docs', redoc_url: Optional[str] = '/r
 
     # 自托管 Swagger UI / ReDoc 静态资源（jsdelivr CDN 曾被 reset，依赖外部 CDN 不可靠）。
     # 文件由 tools/download_swagger_ui.py 从国内镜像（npmmirror / staticfile）拉取，
-    # 存放于 static/vendor/swagger-ui/，供自定义 /docs、/redoc 及对外 /api/ext/docs 使用。
-    vendor_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static', 'vendor', 'swagger-ui')
+    # 存放于 public/vendor/swagger-ui/（前端 public 目录，随构建进 dist，也可被 Vite 层访问），
+    # 供自定义 /docs、/redoc 及对外 /api/ext/docs 使用。
+    vendor_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'public', 'vendor', 'swagger-ui')
     if os.path.isdir(vendor_dir):
         _app.mount('/swagger-ui', StaticFiles(directory=vendor_dir), name='swagger-ui')
 
