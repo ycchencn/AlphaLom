@@ -85,6 +85,46 @@ def _extract_json_object(text):
     return extract_json_object(text)
 
 
+# 概念题材最多保留的个数。
+# ⚠️ prompt 里已要求模型「最多 5 个」，这里是**代码侧兜底**：模型不保证遵守数量约束，
+#    一旦超额，列表页「概念题材」列会被撑长、且 concepts 参与搜索过滤（值越杂噪声越大）。
+MAX_CONCEPTS = 5
+
+
+def _limit_concepts(raw, max_count=MAX_CONCEPTS) -> str:
+    """把大模型给的「股票概念」归一成最多 max_count 个、逗号分隔的字符串。
+
+    兼容模型偶尔不按 prompt 返回的三种形态：
+      - 逗号分隔字符串（prompt 要求的形态；中英文逗号、顿号都容忍）
+      - list / tuple（模型有时直接给数组）
+      - dict（历史默认值是 {}，视为空）
+    处理：去首尾空白与包裹引号、丢弃空项、按原顺序去重、截断到 max_count。
+    """
+    if raw is None:
+        return ''
+    if isinstance(raw, dict):
+        # 历史默认值 {}：模型没给这个概念字段，视为空
+        return ''
+    if isinstance(raw, str):
+        items = re.split(r'[,，、]', raw)
+    elif isinstance(raw, (list, tuple)):
+        items = list(raw)
+    else:
+        items = [raw]
+
+    seen = set()
+    result = []
+    for item in items:
+        name = str(item).strip().strip('"\'')
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        result.append(name)
+        if len(result) >= max_count:
+            break
+    return ','.join(result)
+
+
 def job_check_signal(_stock_code):
 
     stock_info = StockService.get_stock_by_symbol(symbol=_stock_code)
@@ -201,11 +241,18 @@ def job_check_signal(_stock_code):
 
     logger.info(content_json)
 
-    # 刷新股票概念
-    StockService.upsert_stock({
-        'symbol': _stock_code,
-        'concepts': content_json.get('股票概念', {}),
-    })
+    # 刷新股票概念（最多 MAX_CONCEPTS 个，见 _limit_concepts 说明）
+    # ⚠️ 模型没产出概念时（归一化结果为空）保留库中已有值，不能用空串覆盖 ——
+    #    否则一次失败的模型输出就会把该股历史概念抹掉（列表页当场变空）。
+    _concepts = _limit_concepts(content_json.get('股票概念'))
+    _concept_payload = _concepts or (stock_info.get('concepts') or '')
+    if _concepts:
+        StockService.upsert_stock({
+            'symbol': _stock_code,
+            'concepts': _concept_payload,
+        })
+    else:
+        logger.warning(f"[{_stock_code}] 模型未产出股票概念，保留库中已有值")
 
     # 1. 单条插入
     data = {
