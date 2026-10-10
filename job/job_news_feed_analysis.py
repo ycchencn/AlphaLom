@@ -243,7 +243,7 @@ def llm_news_summarize(
                 "_source": {**es_payload, "author": "", VECTOR_FIELD: vector}
             }
             safe_bulk_write(es_client, [action])
-            logger.info(f"✅ 向量数据已写入ES，标题: {db_payload['digest']}, {db_payload}")
+            logger.debug(f"✅ 向量数据已写入ES，标题: {db_payload['digest']}")
         except Exception as e:
             logger.error(f"❌ 向量化或ES写入失败: {e}， {db_payload}")
             return False
@@ -251,7 +251,7 @@ def llm_news_summarize(
     # 6. 持久化至业务库
     try:
         MarketNewsService.create(**db_payload)
-        logger.info(f"📦 新闻数据已落库 MD5: {news_md5}")
+        logger.debug(f"📦 新闻数据已落库 MD5: {news_md5}")
     except Exception as e:
         logger.error(f"❌ 业务库保存失败: {e}")
 
@@ -262,8 +262,17 @@ def llm_news_summarize(
 
 
 def _process_batch_articles(articles: List[Dict[str, Any]], sources: str, news_type: str = 'normal') -> None:
-    """统一调度文章抓取、清洗与AI分析任务"""
-    logger.debug(f"🚀 开始处理 [{sources}] 批量新闻，共 {len(articles)} 条")
+    """统一调度文章抓取、清洗与AI分析任务。
+
+    日志策略：**逐条日志一律 debug**（每条新闻打 info 会淹没日志，
+    一个批次动辄几十上百条），批次结束时打一条 info 汇总（成功/跳过/失败计数）。
+    异常（缺失时间、单条处理失败）保持 warning/error 不变，便于排查。
+    """
+    total = len(articles)
+    logger.debug(f"🚀 开始处理 [{sources}] 批量新闻，共 {total} 条")
+    ok = 0
+    skipped = 0
+    failed = 0
     for idx, art in enumerate(articles, start=1):
         try:
             content = art.get('content_text', art.get('short', ''))
@@ -274,21 +283,28 @@ def _process_batch_articles(articles: List[Dict[str, Any]], sources: str, news_t
             pub_date = art.get('publish_date') or timestamp_to_date(int(art.get('ctime', 0)))
 
             if not pub_date:
-                logger.warning(f"⏭️ 第{idx}条缺失发布时间，跳过。Title: {title[:30]}")
+                skipped += 1
+                logger.debug(f"⏭️ 第{idx}条缺失发布时间，跳过。Title: {title[:30]}")
                 continue
 
-            llm_news_summarize(
+            if llm_news_summarize(
                 news_content=full_text,
                 news_time=str(pub_date),
                 news_type=news_type,
                 sources=sources,
                 url=art.get('url', ''),
                 debug=False
-            )
+            ):
+                ok += 1
+            else:
+                skipped += 1  # 重复记录（MD5 已存在）或上游无数据，属正常跳过
             time.sleep(0.8)  # 礼貌性延迟，避免触发反爬或限流
         except Exception as e:
+            failed += 1
             logger.error(f"❌ 处理第{idx}条新闻时发生异常: {e}")
             continue  # 单条失败不阻断整体流程
+
+    logger.info(f"✅ [{sources}] 批次完成：共 {total} 条，成功 {ok}，跳过 {skipped}，失败 {failed}")
 
 
 def search_digest_keyword(keywords: str, top_k: int = 20, sort_field: str = "_id", sort_order: str = "desc") -> dict:
