@@ -106,7 +106,10 @@ function loadStockList(){
                 open: ohlc?.open ?? null,
                 high: ohlc?.high ?? null,
                 low: ohlc?.low ?? null,
-                market: getMarketByCode(item.symbol) ?? null
+                // ⚠️ market 保留接口原始值（cn/hk/us，PE-TTM 等按数据口径判断）；
+                //    展示用的市场标签（沪/深/港/美…）另存 market_label，不要覆盖 market
+                market: item.market ?? null,
+                market_label: getMarketByCode(item.symbol) ?? null
             };
         });
         loading1.value = false;
@@ -357,6 +360,52 @@ const getPhaseSeverity = (phaseInt) => {
     const num = Number(phaseInt);
     return PHASE_CONFIG[num]?.severity || PHASE_CONFIG[0].severity;
 };
+
+// ==================== PE-TTM（滚动市盈率）列渲染 ====================
+/**
+ * PE-TTM 分档（**只用于着色**，不参与任何数值计算）。
+ *
+ * 阈值就是 A 股语境里对「贵 / 便宜」的通行认知（<15 偏低、15~35 适中、35~80 偏高），
+ * 集中在这里便于统一调整；配色沿用全站既有的语义色（绿=低、橙/红=高），
+ * 与同页贪婪&恐惧条（FEAR_GREED_LEVELS）观感一致，不另造一套色板。
+ * 「适中」档刻意不给 class：池子里大多数票都落在这一档，全部着色等于没着色。
+ */
+const PE_TTM_BANDS = [
+    { upper: 15, cls: 'text-green-700', label: '估值偏低' },
+    { upper: 35, cls: '', label: '估值适中' },
+    { upper: 80, cls: 'text-orange-600', label: '估值偏高' },
+    { upper: Infinity, cls: 'text-red-500', label: '估值很高' },
+];
+
+/**
+ * PE-TTM 单元格的渲染结果 {text, cls, title}。
+ *
+ * ⚠️ 三种「没有数字」必须分开表达，否则用户判断不出该不该等数据：
+ *   1) 非 A 股（market !== 'cn'）：上游 databull get_stock_info 对港股/美股/ETF 直接 500，
+ *      PE-TTM **永远**不会有值 → 显示 '–'（浅灰）；
+ *   2) A 股但 pe_ratio 为空：只是日更（每日盘后）还没跑到，比如刚加进池子的票 → 显示「暂无」；
+ *   3) 亏损股（PE ≤ 0）：显示「亏损」。**绝不能直接显示 -12.34** —— 负 PE 在字面上
+ *      像「很便宜」，是这一列最容易被信以为真的误读；上游异常返回 0 也一并按亏损处理
+ *      （价格为正时真实 PE 不可能为 0）。
+ *
+ * @param {object} row - 列表行（含 market / pe_ratio）
+ * @returns {{text: string, cls: string, title: string}}
+ */
+function peTtmCell(row) {
+    if (row.market !== 'cn') {
+        return { text: '–', cls: 'text-gray-300', title: 'PE-TTM 仅 A 股口径（港股/美股上游不提供）' };
+    }
+    const raw = row.pe_ratio;
+    const v = (raw === null || raw === undefined || raw === '') ? NaN : Number(raw);
+    if (!Number.isFinite(v)) {
+        return { text: '暂无', cls: 'text-gray-400', title: 'PE-TTM 每日盘后更新，该股暂未落库' };
+    }
+    if (v <= 0) {
+        return { text: '亏损', cls: 'text-gray-400', title: `PE-TTM ${v.toFixed(2)}（净利润为负，不适用估值分档）` };
+    }
+    const band = PE_TTM_BANDS.find(b => v < b.upper) || PE_TTM_BANDS[PE_TTM_BANDS.length - 1];
+    return { text: v.toFixed(2), cls: band.cls, title: `PE-TTM ${v.toFixed(2)}（${band.label}）` };
+}
 
 // ==================== 股票池分组（标签式，group_name）====================
 const groups = ref([]);                  // [{group_name, count}]
@@ -880,6 +929,13 @@ async function deleteGroup(groupName) {
                       :value="formatPhase(parseInt(data.main_force_behavior_phase))"
                       :severity="getPhaseSeverity(parseInt(data.main_force_behavior_phase))"
                     />
+                </template>
+            </Column>
+            <Column field="pe_ratio" filterField="pe_ratio" header="PE-TTM" sortable>
+                <template #body="{ data }">
+                    <!-- 渲染口径（非 A 股 / 未落库 / 亏损 / 分档着色）全部集中在 peTtmCell，
+                         见脚本区注释。peTtmCell 是纯函数，这里重复调用只是为取 3 个字段。 -->
+                    <span :class="peTtmCell(data).cls" :title="peTtmCell(data).title">{{ peTtmCell(data).text }}</span>
                 </template>
             </Column>
             <Column field="concepts" filterField="concepts" header="概念题材" style="max-width: 300px">

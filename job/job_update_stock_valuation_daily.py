@@ -39,7 +39,11 @@ def _parse_valuation_date(raw) -> date | None:
 
 
 def _fetch_and_upsert(symbol: str) -> bool:
-    """抓单只 A 股的估值并落库。上游 500 / 无 pe_ttm 时跳过（静默，不拖垮整批）。"""
+    """抓单只 A 股的估值并落库。上游 500 / 无 pe_ttm 时跳过（静默，不拖垮整批）。
+
+    落库后把 PE-TTM 最新值**回写 stocks.pe_ratio**（个股监控列表直接读这张表，
+    避免列表接口对每只票再查估值表造成 N+1，见 StockValuationService.sync_latest_to_stocks）。
+    """
     try:
         info = databull.get_stock_info(symbol=symbol)
     except Exception as e:
@@ -56,13 +60,17 @@ def _fetch_and_upsert(symbol: str) -> bool:
         return False
 
     trade_date = _parse_valuation_date(info.get('valuation_date')) or date.today()
-    return StockValuationService.upsert_daily(
+    ok = StockValuationService.upsert_daily(
         symbol=symbol,
         trade_date=trade_date,
         pe_ttm=pe_ttm,
         pb=info.get('pb'),
         total_volume=info.get('total_volume'),
     )
+    if ok:
+        # 最新值回写 stocks 表（列表接口零查询读取）
+        StockValuationService.sync_latest_to_stocks(symbol, pe_ttm)
+    return ok
 
 
 def job_update_stock_valuation_daily(override=False):

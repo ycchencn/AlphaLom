@@ -13,9 +13,10 @@
 from datetime import date
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from models import StockDailyValuation
+from models import Stock, StockDailyValuation
 from models.database import db_session
 from utils.logger import logger
 
@@ -70,6 +71,31 @@ class StockValuationService:
         except SQLAlchemyError as e:
             db_session.rollback()
             logger.error(f"valuation upsert failed for {symbol} {trade_date}: {e}")
+            return False
+
+    @staticmethod
+    def sync_latest_to_stocks(symbol: str, pe_ttm=None) -> bool:
+        """把 PE-TTM **最新值**写回 `stocks.pe_ratio`（个股监控列表直接读这张表）。
+
+        ⚠️ 为什么回写而不是列表时实时查估值表：
+        列表接口（/stocks_monitored）一次返回几百只票，若对每只再查一次
+        stock_daily_valuation 就是 N+1（列表已有恐贪/因子的 N+1 教训）。
+        把最新值在日更时写进 stocks 表（pe_ratio 字段本就存在、从未被使用），
+        列表接口读 `stocks.to_dict()` 就有 pe_ratio，零额外查询。
+
+        只对 A 股调用（非 A 股上游无 PE-TTM，会写 null，列表据此不展示）。
+        单条 UPDATE 语句，不加载整行 ORM 对象，全池几百只也只多几百次轻量 UPDATE。
+        """
+        try:
+            db_session.query(Stock).filter(Stock.symbol == symbol).update(
+                {'pe_ratio': _to_float(pe_ttm), 'last_update': func.now()},
+                synchronize_session=False,
+            )
+            db_session.commit()
+            return True
+        except SQLAlchemyError as e:
+            db_session.rollback()
+            logger.error(f"valuation sync_to_stocks failed for {symbol}: {e}")
             return False
 
     # ─────────────────────────── 读操作 ───────────────────────────
