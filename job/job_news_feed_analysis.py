@@ -10,7 +10,6 @@ import time
 from pathlib import Path
 from typing import List, Dict, Any
 
-import alphalom
 from elasticsearch import Elasticsearch
 from elasticsearch.helpers import bulk
 from llms import get_model_by_setting
@@ -18,6 +17,7 @@ from service import MarketNewsService
 from service.stock_star_news import StockStarNewsScraper
 from service.wallstreet_fetcher import WallStreetCNFetcher
 from utils.common import string_to_md5, timestamp_to_date
+from utils.news_fetcher import get_realtime_news_from_ths_short
 from llms.prompts import prompt_155th
 from prompts.prompt_generator import load_prompt_template
 from backtest.text_embedding import get_embedding
@@ -494,7 +494,7 @@ def job_news_feed_analysis_ths() -> None:
     @brief 采集同花顺实时快讯并推送至AI分析管线
     @throws [Exception: 网络请求或解析异常]
     """
-    news_list = alphalom.get_realtime_news_from_ths_short(pagesize=20)
+    news_list = get_realtime_news_from_ths_short(pagesize=20)
     _process_batch_articles(news_list, sources='tonghuashun')
 
 

@@ -66,7 +66,6 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 - `app/` —— FastAPI 应用工厂、可信代理白名单、缓存策略、统一 JSON 响应
 - `routes/`（16 个已注册路由器）· `service/`（33 个业务模块）· `llms/`（多模型封装）· `backtest/`（回测引擎与策略）
 - `job/`（17 个离线任务）· `models/`（DB / Redis / 任务队列）· `utils/` · `prompts/`
-- `alphalom/` —— 项目自研的行情数据 SDK：股票 / ETF / 新闻多源抓取（雪球 · 同花顺 · 新浪 · CNBC），扁平包布局、仓库根直接可 `import`
 
 **前端视图**（`src/views/`）：`market`（沪深大盘 · 美股大盘 · 板块情绪 · 事件驱动）· `stock` · `etf` · `portfolios` · `quant` · `ai` · `trading` · `user` · `system` · `auth` · `uikit`
 
@@ -78,7 +77,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供从 **多源数据�
 | ⚙️ **后端** | Python 3.11+ · FastAPI · SQLAlchemy 2.0 · Pydantic 2 · uvicorn |
 | 🗄️ **存储 / 中间件** | MySQL（业务库）· Redis（接口缓存 + 会话 + Stream 任务队列） |
 | 🤖 **模型层** | 火山方舟（豆包 / GLM）· 阿里云百炼 · DeepSeek · 智谱 GLM · SiliconFlow · 腾讯云混元 · 百度云千帆——按场景画像路由，可在系统设置页热切换 |
-| 📡 **数据源** | DataBull（主力行情 / 财务数据 SDK）· 自研 `alphalom` SDK 多源抓取（雪球 · 同花顺 · 新浪 · CNBC） |
+| 📡 **数据源** | DataBull（主力行情 / 财务数据 SDK）· 同花顺快讯（`utils/news_fetcher.py`） |
 | 🚀 **调度 / 部署** | APScheduler · Docker / docker-compose |
 
 ## 🎯 关键设计
@@ -145,7 +144,7 @@ alphalom/
 ├── scheduler.py          # 定时任务入口
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置（按 ENV 加载 .env / .env.<env>）
-├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/ prompts/ alphalom/
+├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/ prompts/
 ├── src/                  # Vue 前端源码
 ├── public/               # 静态资源（images/ 品牌资源、readme/ 截图与配图）
 ├── install/              # SQL 初始化脚本
