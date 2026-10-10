@@ -9,6 +9,7 @@ redis
 openai
 pytest~=9.0.3    # 仅测试用（pytest testcase -q），线上运行不需要
 apscheduler
+pyyaml    # 调度器任务配置（scheduler_jobs.yaml）解析用
 protobuf~=4.24.3
 lxml~=5.3.0    # ⚠️ 代码里不 import：以 BeautifulSoup(html, 'lxml') 的字符串形式加载，删了解析器缺失
 beautifulsoup4~=4.15.0

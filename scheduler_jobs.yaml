@@ -1,0 +1,138 @@
+# ============================================================
+# 调度器任务配置（scheduler.py 的配置驱动来源）
+# ============================================================
+# 任务定义从 scheduler.py 拆到这里：调整执行时间 / 停用某个任务 / 加任务，
+# 改本文件即可，不需要动代码。
+#
+# 顶层结构：
+#   timezone - 全局默认时区（任务没单独写 timezone 时用这个）
+#   jobs     - 任务列表，每项是：
+#     id          任务唯一标识（APScheduler job id，省略时用 func）
+#     func        函数路径，'module.path:attribute' 形式，attribute 支持带点
+#     cron        定时表达式，字段白名单 =
+#                 year / month / day / week / day_of_week / hour / minute / second
+#                 / start_date / end_date / timezone / jitter
+#     kwargs      传给任务函数的参数字典（YAML 的 true/false/null 即 Python 的
+#                 True/False/None）
+#     timezone    单任务时区（可选，覆盖全局默认）
+#     enabled     设为 false 可临时停用该任务而不删除配置
+#     (可选) misfire_grace_time / coalesce / max_instances / replace_existing
+#            — APScheduler add_job 的同名参数，原样透传
+#
+# ⚠️ cron 里多写了白名单之外的键会在启动时注册失败（日志可见），
+#    这是有意的：宁可启动时报错，也不要一个静默少任务的调度器。
+# ============================================================
+
+timezone: Asia/Shanghai
+
+jobs:
+  # 量化回测任务执行（每日 16:15）
+  - id: run_daily_strategy_all
+    func: backtest.strategy.run_portfolio_daily:run_daily_strategy_all
+    cron:
+      hour: 16
+      minute: 15
+
+  # 量化回测任务执行，运算调仓计划（每日 16:30）
+  - id: position_plan_daily_1630
+    func: backtest.strategy.ai_position_plan_daily:job_position_plan_daily_all
+    cron:
+      hour: 16
+      minute: 30
+
+  # 周日 20:30 执行运算调仓计划（带交易日覆盖，用于补跑上周交易日）
+  - id: position_plan_daily_sun
+    func: backtest.strategy.ai_position_plan_daily:job_position_plan_daily_all
+    cron:
+      day_of_week: sun
+      hour: 20
+      minute: 30
+    kwargs:
+      trade_day_override: true
+
+  # 每天刷新个股信息（20:10）
+  - id: job_stock_daily_update
+    func: job.job_stock_daily_update:job_stock_daily_update
+    cron:
+      hour: 20
+      minute: 10
+
+  # 技术面因子计算任务（个股池 + ETF 监控清单，见 job_update_factors.job_update_stock_factor_daily）。
+  # ⚠️ 函数定义在 job/job_update_factors.py（job/__init__.py 只是转发），模块路径别写成 job_update_stock_factor_daily。
+  - id: job_update_stock_factor_daily
+    func: job.job_update_factors:job_update_stock_factor_daily
+    cron:
+      hour: 20
+      minute: 10
+
+  # 个股走势技术分析（降频：每周一/三/五，节省 agent 模式下的 token 消耗）
+  - id: job_check_signal_daily
+    func: job.job_check_signal:job_check_signal_daily
+    cron:
+      day_of_week: mon,wed,fri
+      hour: 20
+      minute: 10
+
+  # 量化回测任务执行，运算个股 beta 数据（20:15）
+  - id: job_update_stock_beta_all
+    func: job.job_stock_daily_update:job_update_stock_beta_all
+    cron:
+      hour: 20
+      minute: 15
+
+  # 更新个股恐贪数据（20:55）
+  - id: job_update_stock_greedy_data_daily
+    func: job.job_update_stock_greedy_data:job_update_stock_greedy_data_daily
+    cron:
+      hour: 20
+      minute: 55
+
+  # 更新 ETF 恐贪数据（独立于个股池：ETF 在 etf_watchlist，get_monitoring_stock_pool 取不到）
+  # ⚠️ 必须整段重算（override_all=True）：False 会只补最新一天且不删旧 → 次日必 Duplicate
+  - id: job_update_etf_greedy_data_daily
+    func: job.job_update_stock_greedy_data:job_update_etf_greedy_data_daily
+    cron:
+      hour: 21
+      minute: 0
+    kwargs:
+      override_all: true
+
+  # 申万行业每日快照落库（板块轮动图数据源；上游只给最新一天，必须逐日累积）
+  - id: job_update_sector_daily
+    func: job.job_update_sector_daily:job_update_sector_daily
+    cron:
+      day_of_week: mon-fri
+      hour: 20
+      minute: 35
+
+  # A 股每日估值快照落库（PE-TTM / PB，个股详情顶部报价 + 基本面走势图数据源）
+  # ⚠️ 只对 A 股：databull get_stock_info 对港股/美股/ETF 直接 500（见 job 说明）。
+  - id: job_update_stock_valuation_daily
+    func: job.job_update_stock_valuation_daily:job_update_stock_valuation_daily
+    cron:
+      day_of_week: mon-fri
+      hour: 20
+      minute: 45
+
+  # 每日更新 DCF 估值数据（监控池内标的全量重算，删缓存后由 dump_stocks_dcf 重新生成汇总）
+  - id: job_stock_dcf_model_analysis_daily
+    func: job.job_stock_dcf_model_analysis:job_stock_dcf_model_analysis_daily
+    cron:
+      hour: 20
+      minute: 30
+
+  # 每周五晚上更新基础评分（20:30）
+  - id: job_update_financial_score_all
+    func: job.job_update_factors:job_update_financial_score_all
+    cron:
+      day_of_week: fri
+      hour: 20
+      minute: 30
+
+  # 每天刷新交易日历并缓存到 Redis（databull trading_calendar 接口，0:05）
+  - id: refresh_trading_calendar
+    func: service.trading_calendar_service:refresh_trading_calendar
+    cron:
+      hour: 0
+      minute: 5
+    replace_existing: true
