@@ -68,6 +68,12 @@ TECH_FACTOR_GROUPS: List[Dict[str, Any]] = [
         'desc': '价格在 52 周区间中的相对位置与技术形态',
         'fields': ['52week_position'],
     },
+    {
+        'key': 'valuation',
+        'label': '估值',
+        'desc': 'ETF 成分股加权市盈率(TTM)，反映整体估值水位（仅 ETF 有数据）',
+        'fields': ['etf_pe_ttm'],
+    },
 ]
 
 # 反向因子：值越低越「好」（用于「好不好」的统一着色，不改变原始值展示）。

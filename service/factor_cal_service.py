@@ -303,6 +303,53 @@ class FactorCalService:
 
         return df
 
+    @staticmethod
+    def update_etf_pe_factor(symbol: str, dates) -> pd.Series:
+        """计算 ETF 的 PE-TTM 时序（成分股 PE 按占净值比加权）。
+
+        :param symbol: ETF 代码
+        :param dates: 该 ETF 行情的交易日列表（str 'YYYY-MM-DD'）
+        :return: pandas.Series，index=dates，value=etf_pe_ttm；不可算/无数据时为 NaN。
+                取数或计算失败也返回全 NaN（**不阻断其余因子入库**）。
+
+        口径：
+          - 成分股权重来自 PCF（股数 × 最新价归一，见 etf_valuation_service）；
+          - 成分股 PE 来自 stock_daily_valuation（仅 A 股）；
+          - 仅计 PE>0 的成分股，并在正 PE 子集内重新归一权重，避免亏损股扭曲整体；
+          - 跨境/商品 ETF 无 A 股成分 → 权重为空 → 整段 NaN（页面不展示）。
+        """
+        na = pd.Series(index=list(dates), dtype='float64')
+        if not dates:
+            return na
+        try:
+            from service.etf_valuation_service import get_etf_pe_weight_map
+            from service.stock_valuation_service import StockValuationService
+
+            weight_map = get_etf_pe_weight_map(symbol)
+            if not weight_map:
+                logger.info(f'[etf_pe] {symbol} 无可用成分权重（跨境/商品/无成分），跳过 PE 因子')
+                return na
+            codes = list(weight_map.keys())
+            pe_frame = StockValuationService.get_history_frame(codes, limit=600)
+            if pe_frame is None or pe_frame.shape[1] == 0:
+                logger.info(f'[etf_pe] {symbol} 成分股无 PE 历史，跳过 PE 因子')
+                return na
+
+            # 只保留权重表里的成分列，按列对齐
+            pe_sub = pe_frame.reindex(columns=codes)
+            w = pd.Series(weight_map)  # code -> 占净值比(%)
+            w_aligned = w.reindex(pe_sub.columns).fillna(0.0)
+            # 仅正 PE 参与，并在正 PE 子集内重新归一权重
+            pos = pe_sub.where(pe_sub > 0)
+            row_w = pos.notna().mul(w_aligned, axis=1)
+            row_w_sum = row_w.sum(axis=1)
+            weighted = (pos * w_aligned).sum(axis=1) / row_w_sum.replace(0, np.nan)
+            # 对齐到 ETF 自身的交易日列表（dates 为 str 'YYYY-MM-DD'）
+            return weighted.reindex(dates)
+        except Exception as e:
+            logger.warning(f'[etf_pe] {symbol} 计算失败: {e}')
+            return na
+
     @classmethod
     def calculate_all_factors(cls, stock_code: str, start_date: str, end_date: str,
                               asset_type: str = None) -> list:
@@ -338,6 +385,15 @@ class FactorCalService:
 
         # 新增：均线多头排列
         df = cls.update_is_ma_bullish(df, short=5, mid=10, long=20)
+
+        # ETF 市盈率（估值因子）：仅 ETF 计算，由成分股 PE 加权得到。
+        # 跨境/商品 ETF 无成分 PE 时整段为 NaN，dropna 后自然不入库、页面不展示。
+        if asset_type == 'etf':
+            try:
+                pe_series = cls.update_etf_pe_factor(stock_code, df['date'].tolist())
+                df['etf_pe_ttm'] = pe_series.reindex(df['date']).values
+            except Exception as e:
+                logger.warning(f'etf_pe_ttm 计算失败 {stock_code}: {e}')
 
         # 所有因子列（除去原始 OHLCV）
         factor_cols = [col for col in df.columns if col not in ['open', 'high', 'low', 'close', 'volume']]

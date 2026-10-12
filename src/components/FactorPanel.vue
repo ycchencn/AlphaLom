@@ -312,6 +312,8 @@ function fmtValue(field, value) {
     if (!Number.isFinite(v)) return '—';
     // 比率类显示成百分比
     if (/^(mom|bias|vol|mom_risk_adj)/.test(field)) return `${(v * 100).toFixed(2)}%`;
+    // ETF 市盈率：估值倍数，2 位小数足够
+    if (field === 'etf_pe_ttm') return v.toFixed(2);
     if (field === 'rsi_14') return v.toFixed(2);
     if (field === 'closing_strength') return v.toFixed(3);
     if (field === '52week_position') return v.toFixed(1);
@@ -532,7 +534,7 @@ watch(() => props.active, (v) => {
             <!-- ============ L0 · 因子看板 ============ -->
             <div v-if="board && board.groups.length" class="fp-block">
                 <div class="fp-title"><i class="pi pi-th-large text-blue-500"></i> 因子看板
-                    <span class="fp-sub">共 {{ board.groups.reduce((s, g) => s + g.items.length, 0) }} 个技术因子 ·
+                    <span class="fp-sub">共 {{ board.groups.reduce((s, g) => s + g.items.length, 0) }} 个因子 ·
                         截至 {{ board.asof }}</span>
                 </div>
 

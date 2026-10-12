@@ -19,6 +19,7 @@ from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from service import FactorValueService
 from service.etf_service import EtfService
+from service.etf_valuation_service import get_etf_constituent_weights
 from service.stock_fear_greed_service import StockFearGreedService
 from utils.common import get_today, get_date_by_n
 from utils.logger import logger
@@ -475,74 +476,14 @@ def get_etf_pcf_weight(symbol: str):
     """
     估算成分股占净值比：weight = 每篮子股数 × 最新价，再按 Σ 归一化成百分比。
 
-    为什么不直接用「股数」当权重：PCF 的股数是**绝对股数**，与价格挂钩，
-    直接展示会让低价股权重虚高。乘价再归一后，篮子整体水平的偏差（PCF 篮子
-    与当前价之间存在时间差）会被约掉，剩下的是相对价格变化带来的误差，可接受，
-    所以这里一律标注为「估算」。
+    逻辑已抽到 service.etf_valuation_service.get_etf_constituent_weights（计算任务算
+    etf_pe_ttm 因子时进程内直接复用，避免走 HTTP）。这里只做接口暴露 + 缓存。
 
     返回 items 与成分列表等长（缺价的 price/weight 为 null），前端按 code 合并。
     `supported=False` 表示这条 ETF 的篮子不是 A 股（跨境 ETF）或没有 PCF，
     此时不会发任何取价请求。
     """
-    try:
-        rows, trading_day, source = _pcf_composition(symbol)
-    except Exception as e:
-        logger.warning(f'get_etf_pcf_weight failed for {symbol}: {e}')
-        return {'symbol': symbol, 'supported': False, 'reason': 'error', 'items': []}
-
-    if not rows:
-        return {
-            'symbol': symbol, 'supported': False, 'reason': 'no_composition',
-            'trading_day': trading_day, 'coverage': 0, 'items': [],
-        }
-
-    parsed = []
-    for row in rows:
-        code, exch = _split_component_code(row.get('code'))
-        volume = row.get('volume')
-        parsed.append((row['code'], code, exch, volume))
-
-    foreign = sorted({e for _, _, e, _ in parsed if e and e not in CN_EXCHANGES})
-    if foreign or any(not e for _, _, e, _ in parsed):
-        return {
-            'symbol': symbol, 'supported': False,
-            'reason': 'non_cn_components', 'exchanges': foreign,
-            'trading_day': trading_day, 'coverage': 0,
-            'items': [{'code': r.get('code'), 'price': None, 'weight': None} for r in rows],
-        }
-
-    prices = _fetch_latest_prices([c for _, c, _, _ in parsed])
-
-    # 先用「股数 × 最新价」算篮子内市值，再归一；缺价的不计入分母，
-    # 否则其它成分的权重会被系统性放大。
-    values = []
-    total = 0.0
-    for full, code, _exch, volume in parsed:
-        price = prices.get(code)
-        value = (float(volume) * price) if (price and volume) else 0.0
-        values.append((full, price, value))
-        total += value
-
-    items = []
-    for full, price, value in values:
-        items.append({
-            'code': full,
-            'price': round(price, 4) if price else None,
-            'weight': round(value / total * 100, 4) if total > 0 and value > 0 else None,
-        })
-
-    priced = sum(1 for _, price, _ in values if price)
-    return {
-        'symbol': symbol,
-        'supported': True,
-        'reason': None,
-        'trading_day': trading_day,
-        'source': source,
-        'priced': priced,
-        'total': len(rows),
-        'coverage': round(priced / len(rows), 4),
-        'items': items,
-    }
+    return get_etf_constituent_weights(symbol)
 
 
 @etf_router.get('/etf_greed_data/{symbol}')

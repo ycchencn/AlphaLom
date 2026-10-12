@@ -11,6 +11,7 @@
 """
 
 from datetime import date
+import pandas as pd
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import func
@@ -123,6 +124,38 @@ class StockValuationService:
         except SQLAlchemyError as e:
             logger.error(f"valuation get_history failed for {symbol}: {e}")
             return []
+
+    @staticmethod
+    def get_history_frame(symbols, limit: int = DEFAULT_HISTORY_LIMIT) -> pd.DataFrame:
+        """批量取多只 A 股 pe_ttm 历史，返回宽表：index=交易日(str 'YYYY-MM-DD')，columns=symbol，value=pe_ttm。
+
+        用于「ETF 市盈率」因子：把成分股 PE 按交易日对齐后再加权。单只/全部无数据时返回空 DataFrame。
+        pe_ttm 为 NULL 的行直接跳过（不进入宽表，对应位置保持 NaN）。
+        """
+        if not symbols:
+            return pd.DataFrame()
+        try:
+            rows = (
+                db_session.query(
+                    StockDailyValuation.symbol,
+                    StockDailyValuation.trade_date,
+                    StockDailyValuation.pe_ttm,
+                )
+                .filter(StockDailyValuation.symbol.in_(symbols))
+                .order_by(StockDailyValuation.trade_date)
+                .all()
+            )
+            if not rows:
+                return pd.DataFrame()
+            data = {}
+            for sym, td, pe in rows:
+                if pe is None:
+                    continue
+                data.setdefault(sym, {})[td.strftime('%Y-%m-%d')] = float(pe)
+            return pd.DataFrame(data)  # index=str date, columns=symbol
+        except SQLAlchemyError as e:
+            logger.error(f"valuation get_history_frame failed: {e}")
+            return pd.DataFrame()
 
     @staticmethod
     def get_last_trade_date() -> Optional[date]:

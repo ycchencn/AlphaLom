@@ -741,6 +741,17 @@ factor_descriptions = [
         "description": "当前价格在52周价格区间内的相对位置，**取值 0~100**（百分比）。",
         "formula": "(close - 52week_low) / (52week_high - 52week_low) * 100",
         "usage": "50 为中位；>80 为高位（可能超买）；<20 为低位（可能超卖）。"
+    },
+
+    # ========== 估值类（仅 ETF）==========
+    # ⚠️ 这不是「技术因子」，但因子的看板/序列/分位管线（factor_analysis_service）
+    # 统一从本列表取元数据并分组展示，故放在这里；它**不进雷达**（RADAR_FIELDS 是硬编码列表）。
+    {
+        "field": "etf_pe_ttm",
+        "name": "ETF市盈率(TTM)",
+        "description": "ETF 成分股按占净值比加权后的整体市盈率(TTM)，反映一篮子成分股的估值水位。",
+        "formula": "Σ_i (w_i × PE_i) / Σ_i w_i，w_i 为成分股权重(占净值比)、PE_i 来自个股每日估值快照；仅纳入 PE>0 的成分并重新归一。",
+        "usage": "用于观察 ETF 估值随时间的动态变化（当前水位与历史分位）。跨境/商品 ETF 无 A 股篮子，不计算。"
     }
 ]
 
