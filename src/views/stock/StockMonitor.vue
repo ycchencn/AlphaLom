@@ -767,7 +767,7 @@ async function deleteGroup(groupName) {
       <!-- 左侧分组面板（与 /market/news_flow 话题列表共用 NavSidePanel，保证风格一致） -->
       <NavSidePanel
         title="分组"
-        subtitle="点击切换 · 悬停可重命名 / 删除 · 新建在行内操作"
+        subtitle="点击切换 · 悬停可重命名 / 删除"
         :items="groupItems"
         :activeKey="selectedGroup"
         :responsive="true"

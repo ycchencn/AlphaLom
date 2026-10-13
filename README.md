@@ -219,8 +219,8 @@ npm run build                  # 构建到 dist/（由 FastAPI SPA 路由直接�
 </tr>
 <tr>
 <td width="50%">
-<img src="public/readme/05-etf-insight.png" alt="ETF 洞察">
-<b>ETF 洞察</b><br>监控清单可持久化，支持搜索添加与删除，列表带净值涨跌与 52 周价格区间
+<img src="public/readme/07-token-overview.png" alt="ETF 洞察">
+<b>Token 统计</b><br>可视化统计分析Token用量情况
 </td>
 <td width="50%">
 <img src="public/readme/06-etf-detail.png" alt="ETF 详情">
