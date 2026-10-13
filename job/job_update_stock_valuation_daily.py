@@ -38,11 +38,26 @@ def _parse_valuation_date(raw) -> date | None:
         return None
 
 
+def _valid_float(v) -> float | None:
+    """把上游估值字段转成 float；缺失/空/非法一律返回 None。"""
+    if v is None or v == '':
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
 def _fetch_and_upsert(symbol: str) -> bool:
-    """抓单只 A 股的估值并落库。上游 500 / 无 pe_ttm 时跳过（静默，不拖垮整批）。
+    """抓单只 A 股的估值并落库。上游 500 / 无有效 PE 时跳过（静默，不拖垮整批）。
 
     落库后把 PE-TTM 最新值**回写 stocks.pe_ratio**（个股监控列表直接读这张表，
     避免列表接口对每只票再查估值表造成 N+1，见 StockValuationService.sync_latest_to_stocks）。
+
+    ⚠️ 无效 PE 判定：pe_ttm 缺失**或 <= 0** 都视为「无有效估值」跳过落库，不写 0。
+    上游在「当日未更新 / 暂缺 / 亏损股」时常返回 0 或缺失；若只判 None 会把 0 写进
+    stock_daily_valuation，污染个股 PE-TTM 走势（末端掉 0）与监控列表。PE-TTM 物理上
+    恒为正，<= 0 必为无效值，跳过安全。
     """
     try:
         info = databull.get_stock_info(symbol=symbol)
@@ -53,23 +68,22 @@ def _fetch_and_upsert(symbol: str) -> bool:
     if not isinstance(info, dict):
         return False
 
-    # 上游对非 A 股会 500，但防御性再确认一下有没有 pe_ttm
-    pe_ttm = info.get('pe_ttm')
-    if pe_ttm is None:
-        logger.info(f'{symbol} 无 pe_ttm，跳过（非 A 股或暂无估值）')
+    pe_val = _valid_float(info.get('pe_ttm'))
+    if pe_val is None or pe_val <= 0:
+        logger.info(f'{symbol} 无有效 pe_ttm（缺失/<=0，上游当日或暂未更新/亏损股），跳过落库')
         return False
 
     trade_date = _parse_valuation_date(info.get('valuation_date')) or date.today()
     ok = StockValuationService.upsert_daily(
         symbol=symbol,
         trade_date=trade_date,
-        pe_ttm=pe_ttm,
+        pe_ttm=pe_val,
         pb=info.get('pb'),
         total_volume=info.get('total_volume'),
     )
     if ok:
         # 最新值回写 stocks 表（列表接口零查询读取）
-        StockValuationService.sync_latest_to_stocks(symbol, pe_ttm)
+        StockValuationService.sync_latest_to_stocks(symbol, pe_val)
     return ok
 
 

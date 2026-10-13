@@ -115,12 +115,29 @@ class StockValuationService:
 
     @staticmethod
     def get_history(symbol: str, limit: int = DEFAULT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
-        """取某只 A 股的 PE-TTM / PB 序列（按交易日升序，走势图用）。"""
+        """取某只 A 股的 PE-TTM / PB 序列（**最近** `limit` 个交易日，升序，走势图用）。
+
+        ⚠️ 必须取「最近」而非「最早」：原实现 order_by(trade_date.asc()).limit(limit)
+        返回的是该标的有记录以来**最早**的 limit 天，老股（历史 > limit）的走势图会
+        退化成 2 年多以前的估值、latest 也变成窗口末尾的老值。改为按降序取最近 limit
+        天再反转回升序，保证走势图与顶部报价都是「当前」数据。
+
+        ⚠️ pe_ttm / pb <= 0 视为无效（上游当日未更新 / 亏损股常返回 0），置 None
+        （前端断点），避免历史上误写入的 0 污染 PE-TTM 走势。
+        """
         try:
             rows = db_session.query(StockDailyValuation).filter(
                 StockDailyValuation.symbol == symbol,
-            ).order_by(StockDailyValuation.trade_date.asc()).limit(limit).all()
-            return [r.to_dict() for r in rows]
+            ).order_by(StockDailyValuation.trade_date.desc()).limit(limit).all()
+            result = []
+            for r in reversed(rows):  # 反转回升序，保持前端/ECharts 约定（x 轴递增）
+                d = r.to_dict()
+                if d['pe_ttm'] is not None and d['pe_ttm'] <= 0:
+                    d['pe_ttm'] = None
+                if d['pb'] is not None and d['pb'] <= 0:
+                    d['pb'] = None
+                result.append(d)
+            return result
         except SQLAlchemyError as e:
             logger.error(f"valuation get_history failed for {symbol}: {e}")
             return []
