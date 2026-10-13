@@ -209,7 +209,7 @@ onBeforeMount(() => {
 </script>
 
 <template>
-    <Toast/>
+    <!-- ⚠️ 不挂自己的 <Toast/>：通知统一走 AppLayout 的全局 Toast（避免合并进通用设置页后被渲染成多条重复提示） -->
     <div class="card">
         <DataTable
             :value="keys"

@@ -85,8 +85,7 @@ onBeforeMount(loadSettings);
 
 <template>
 
-    <Toast/>
-
+    <!-- ⚠️ 不挂自己的 <Toast/>：通知统一走 AppLayout 的全局 Toast（避免合并进通用设置页后被渲染成多条重复提示） -->
     <div class="card">
         <div class="flex flex-col gap-2 w-full mb-4">
             <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">

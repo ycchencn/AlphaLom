@@ -4,6 +4,8 @@ import {computed, onBeforeMount, ref} from 'vue';
 import axios from 'axios';
 import {useNotification} from '@/composables/useNotification';
 import {invalidateTimezone} from '@/composables/useTimezone.js';
+import ChartDisplaySetting from '@/views/system/ChartDisplaySetting.vue';
+import ApiKeyManage from '@/views/system/ApiKeyManage.vue';
 
 // ⚠️ 不要 `import Select from 'primevue/select'`：本项目用
 //    `Components({resolvers: [PrimeVueResolver()]})` 自动导入 PrimeVue 组件，
@@ -11,15 +13,19 @@ import {invalidateTimezone} from '@/composables/useTimezone.js';
 //    其它页面（如 FactorScreen.vue）的 <Select> 也是靠自动导入的。
 
 /**
- * 系统设置 · 通用设置
+ * 系统设置 · 通用设置（合并页）
  *
- * 目前只有一项：**展示时区**。它决定页面上显示的时间按哪个时区解释。
- * 配置存在后端 system_setting 表（分组 general_setting），保存后立即生效、无需重启；
- * 点「恢复默认」= 删掉表里那一行，回落到代码默认值（Asia/Shanghai）。
+ * 把原先分散在「通用设置 / 图表显示 / API Key」三个菜单项下的配置，收敛到这一个页面：
+ *   - 展示时区（本文件内联）
+ *   - 图表显示（<ChartDisplaySetting/>，详情页各图表区块显隐）
+ *   - API Key 管理（<ApiKeyManage/>，对外开放 API 的调用凭证）
  *
- * ⚠️ 作用范围 —— 页面里必须讲清楚，否则用户会以为改时区能改任务触发时刻：
- *    时区**只影响展示**。定时任务（新闻采集、速览生成、日更）固定按 A 股业务时区
- *    （Asia/Shanghai）触发，改这里不会把任务挪点 —— 那属于市场规则而非用户偏好。
+ * 三个区块都自带卡片头与「刷新」，彼此独立、互不影响。共享 AppLayout 里那一个全局
+ * <Toast/>（本文件和各子组件都**不再**各自挂 <Toast/>，否则会被渲染成多条重复提示）。
+ *
+ * 关于时区的作用范围（必须写清楚，否则用户以为改时区能改任务触发时刻）：
+ *   时区**只影响展示**。定时任务（新闻采集、速览生成、日更）固定按 A 股业务时区
+ *   （Asia/Shanghai）触发，改这里不会把任务挪点 —— 那属于市场规则而非用户偏好。
  */
 const {showSuccess, showError} = useNotification();
 
@@ -197,112 +203,126 @@ onBeforeMount(loadSettings);
 
 <template>
 
-    <Toast/>
+    <div class="gs-page mt-5 flex flex-col gap-4">
 
-    <div class="card">
-        <div class="flex flex-col gap-2 w-full mb-4">
-            <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
-                <div class="text-gray-500 text-sm">
-                    通用设置 · 全站展示口径
+        <!-- 区块 1：展示时区（页面标题整合在卡片顶部，避免标题悬浮在卡片外造成多余间距） -->
+        <div class="card">
+            <div class="flex flex-col gap-2 w-full mb-4">
+                <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 w-full">
+                    <div>
+                        <div class="font-semibold text-xl">通用设置</div>
+                        <div class="text-sm text-gray-500 mt-1">全站展示与接口口径，配置存放在数据库里，保存后立即生效、无需重启服务。</div>
+                    </div>
+                    <Button
+                        icon="pi pi-refresh"
+                        label="刷新"
+                        size="small"
+                        severity="secondary"
+                        outlined
+                        :loading="loading"
+                        @click="loadSettings"
+                    />
                 </div>
-                <Button
-                    icon="pi pi-refresh"
-                    label="刷新"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    :loading="loading"
-                    @click="loadSettings"
-                />
-            </div>
-            <div class="text-xs text-gray-500">
-                设置存放在数据库里，<b>保存后立即生效、无需重启服务</b>。
-                「恢复默认」= 删除库里的配置行，回到代码中的默认值。
-            </div>
-        </div>
-
-        <div v-if="loading" class="text-gray-400 text-sm py-6 text-center">
-            <i class="pi pi-spin pi-spinner"></i> 加载中...
-        </div>
-
-        <div v-else-if="errorText" class="text-red-500 text-sm py-6 text-center">
-            {{ errorText }}
-        </div>
-
-        <div v-else class="gs-list">
-            <!-- 时区 -->
-            <div class="gs-row">
-                <div class="gs-main">
-                    <div class="gs-label">
-                        展示时区
-                        <Tag v-if="customized" value="已自定义" severity="warn" class="ml-2"/>
-                        <Tag v-else value="代码默认" severity="secondary" class="ml-2"/>
-                    </div>
-                    <div class="gs-desc">
-                        页面上显示的时间按这个时区解释。影响速览卡片、新闻时间等所有时间展示。
-                    </div>
-                    <div class="gs-meta">
-                        生效值：<b>{{ timezone }}</b>
-                        · <span v-if="utcOffset">{{ utcOffset }}</span>
-                        · 该时区此刻：<b>{{ currentTime }}</b>
-                        <template v-if="serverLocalTimezone">
-                            <br/>服务器本地时区：{{ serverLocalTimezone }}
-                            <span v-if="offsetDiffers" class="gs-warn">
-                                （与展示时区不同，历史数据可能因此有偏移）
-                            </span>
-                        </template>
-                    </div>
+                <div class="text-xs text-gray-500">
+                    「恢复默认」= 删除库里的配置行，回到代码中的默认值。
                 </div>
             </div>
 
-            <!-- 操作区 -->
-            <div class="gs-actions">
-                <Select
-                    v-model="timezone"
-                    :options="timezoneOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    optionGroupLabel="label"
-                    optionGroupChildren="items"
-                    filter
-                    filterBy="label"
-                    class="gs-select"
-                    placeholder="选择时区"
-                    :disabled="saving"
-                />
-                <Button
-                    label="保存"
-                    size="small"
-                    :loading="saving"
-                    :disabled="saving"
-                    @click="saveTimezone"
-                />
-                <Button
-                    label="恢复默认"
-                    size="small"
-                    severity="secondary"
-                    outlined
-                    :disabled="!customized || saving"
-                    @click="resetTimezone"
-                />
+            <div v-if="loading" class="text-gray-400 text-sm py-6 text-center">
+                <i class="pi pi-spin pi-spinner"></i> 加载中...
             </div>
 
-            <!-- 作用范围说明：必须写清楚，否则用户以为改这里能改任务时刻 -->
-            <div class="gs-note">
-                <i class="pi pi-info-circle"></i>
-                <div>
-                    <b>时区只影响展示，不影响定时任务。</b>
-                    新闻采集、速览生成、行情日更等任务固定按 <b>{{ aShareTimezone }}</b>
-                    （A 股业务时区）触发 —— 「15:00 收盘」「交易日」属于市场规则而非个人偏好，
-                    跟着展示时区变会让任务在错误时刻运行并产生错误数据。
+            <div v-else-if="errorText" class="text-red-500 text-sm py-6 text-center">
+                {{ errorText }}
+            </div>
+
+            <div v-else class="gs-list">
+                <!-- 时区 -->
+                <div class="gs-row">
+                    <div class="gs-main">
+                        <div class="gs-label">
+                            展示时区
+                            <Tag v-if="customized" value="已自定义" severity="warn" class="ml-2"/>
+                            <Tag v-else value="代码默认" severity="secondary" class="ml-2"/>
+                        </div>
+                        <div class="gs-desc">
+                            页面上显示的时间按这个时区解释。影响速览卡片、新闻时间等所有时间展示。
+                        </div>
+                        <div class="gs-meta">
+                            生效值：<b>{{ timezone }}</b>
+                            · <span v-if="utcOffset">{{ utcOffset }}</span>
+                            · 该时区此刻：<b>{{ currentTime }}</b>
+                            <template v-if="serverLocalTimezone">
+                                <br/>服务器本地时区：{{ serverLocalTimezone }}
+                                <span v-if="offsetDiffers" class="gs-warn">
+                                    （与展示时区不同，历史数据可能因此有偏移）
+                                </span>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 操作区 -->
+                <div class="gs-actions">
+                    <Select
+                        v-model="timezone"
+                        :options="timezoneOptions"
+                        optionLabel="label"
+                        optionValue="value"
+                        optionGroupLabel="label"
+                        optionGroupChildren="items"
+                        filter
+                        filterBy="label"
+                        class="gs-select"
+                        placeholder="选择时区"
+                        :disabled="saving"
+                    />
+                    <Button
+                        label="保存"
+                        size="small"
+                        :loading="saving"
+                        :disabled="saving"
+                        @click="saveTimezone"
+                    />
+                    <Button
+                        label="恢复默认"
+                        size="small"
+                        severity="secondary"
+                        outlined
+                        :disabled="!customized || saving"
+                        @click="resetTimezone"
+                    />
+                </div>
+
+                <!-- 作用范围说明：必须写清楚，否则用户以为改这里能改任务时刻 -->
+                <div class="gs-note">
+                    <i class="pi pi-info-circle"></i>
+                    <div>
+                        <b>时区只影响展示，不影响定时任务。</b>
+                        新闻采集、速览生成、行情日更等任务固定按 <b>{{ aShareTimezone }}</b>
+                        （A 股业务时区）触发 —— 「15:00 收盘」「交易日」属于市场规则而非个人偏好，
+                        跟着展示时区变会让任务在错误时刻运行并产生错误数据。
+                    </div>
                 </div>
             </div>
         </div>
+
+        <!-- 区块 2：图表显示（子组件，详情页各图表区块显隐） -->
+        <ChartDisplaySetting/>
+
+        <!-- 区块 3：API Key 管理（子组件，对外开放 API 的调用凭证） -->
+        <ApiKeyManage/>
+
     </div>
 
 </template>
 
 <style scoped lang="scss">
+.gs-page {
+    display: flex;
+    flex-direction: column;
+}
+
 .gs-list {
     display: flex;
     flex-direction: column;

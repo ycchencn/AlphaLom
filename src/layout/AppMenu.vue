@@ -105,14 +105,6 @@ const model = ref([
                 adminOnly: true,
             },
             {
-                label: '图表显示',
-                icon: 'pi pi-fw pi-chart-bar',
-                to: '/system/chart_display',
-                enable: true,
-                // 控制的是全站详情页的图表显隐 → 只有管理员可见/可改
-                adminOnly: true,
-            },
-            {
                 label: '系统日志',
                 icon: 'pi pi-fw pi-stopwatch',
                 to: '/system/system_log',
@@ -134,17 +126,9 @@ const model = ref([
                 adminOnly: true,
             },
             {
-                label: 'API Key',
-                icon: 'pi pi-fw pi-key',
-                to: '/system/api_key',
-                enable: true,
-                // 对外开放 API 的密钥管理 → 仅管理员可见（与路由 requiresAdmin 一致）
-                adminOnly: true,
-            },
-            {
                 label: 'API文档',
                 icon: 'pi pi-fw pi-twitch',
-                url: 'https://www.databull.cn/docs',
+                url: '/api/ext/docs',
                 target: '_blank',
                 enable: true,
             }

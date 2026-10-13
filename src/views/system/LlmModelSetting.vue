@@ -332,8 +332,8 @@ onBeforeMount(() => {
 
 <template>
     <Toast/>
-    <div class="llm-setting-page flex flex-col gap-4">
-        <!-- ==================== 平台管理 ==================== -->
+    <div class="llm-setting-page mt-5 flex flex-col gap-4">
+        <!-- ==================== 平台管理（页面标题整合在卡片 header） ==================== -->
         <div class="card">
             <DataTable
                 :value="platformRows"
@@ -344,9 +344,10 @@ onBeforeMount(() => {
             >
                 <template #header>
                     <div class="flex flex-col gap-2 w-full">
-                        <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
-                            <div class="text-gray-500 text-sm">
-                                平台管理 · 共 {{ platformRows.length }} 个大模型平台
+                        <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 w-full">
+                            <div>
+                                <div class="font-semibold text-xl">大模型配置</div>
+                                <div class="text-sm text-gray-500 mt-1">配置大模型平台与业务场景路由，保存后立即生效、无需重启服务。</div>
                             </div>
                             <Button
                                 icon="pi pi-refresh"
@@ -357,6 +358,9 @@ onBeforeMount(() => {
                                 :loading="loading"
                                 @click="refreshAll"
                             />
+                        </div>
+                        <div class="text-gray-500 text-sm">
+                            共 {{ platformRows.length }} 个大模型平台
                         </div>
                         <div class="text-xs text-gray-500">
                             这里配置各平台的<b>启用开关、API Key、Base URL</b>，

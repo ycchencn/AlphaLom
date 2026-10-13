@@ -317,166 +317,169 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="card mt-5">
-        <div class="font-semibold text-xl mb-4">Token 使用量统计</div>
+    <div class="mt-5">
+        <div class="card">
+            <div class="font-semibold text-xl mb-4">Token 使用量统计</div>
 
-        <!-- 汇总卡片 -->
-        <div class="summary-row">
-            <Card class="stat-card">
-                <template #content>
-                    <div class="card-content">
-                        <div class="stat-label">总调用次数</div>
-                        <div class="stat-value">{{ fmtCompact(summary?.total_calls) }}</div>
-                    </div>
-                </template>
-            </Card>
-            <Card class="stat-card">
-                <template #content>
-                    <div class="card-content">
-                        <div class="stat-label">总 Token</div>
-                        <div class="stat-value">{{ fmtM(summary?.total_tokens) }}</div>
-                    </div>
-                </template>
-            </Card>
-            <Card class="stat-card">
-                <template #content>
-                    <div class="card-content">
-                        <div class="stat-label">输入 Token</div>
-                        <div class="stat-value">{{ fmtM(summary?.total_prompt_tokens) }}</div>
-                    </div>
-                </template>
-            </Card>
-            <Card class="stat-card">
-                <template #content>
-                    <div class="card-content">
-                        <div class="stat-label">输出 Token</div>
-                        <div class="stat-value">{{ fmtM(summary?.total_completion_tokens) }}</div>
-                    </div>
-                </template>
-            </Card>
-        </div>
-
-        <!-- 筛选 -->
-        <div class="mb-4 flex flex-wrap gap-2 align-items-center">
-            <Dropdown v-model="filterModel" :options="modelOptions" optionLabel="label" optionValue="value" placeholder="模型" showClear />
-            <Dropdown v-model="filterScene" :options="sceneOptions" optionLabel="label" optionValue="value" placeholder="场景" showClear />
-            <Calendar v-model="dateRange" selectionMode="range" :manualInput="false" dateFormat="yy-mm-dd" placeholder="时间范围" />
-            <Button label="筛选" icon="pi pi-filter" @click="onFilter" size="small" />
-            <Button label="重置" icon="pi pi-filter-slash" @click="onReset" outlined size="small" />
-        </div>
-
-        <!-- 每日用量走势面积图 -->
-        <div class="font-semibold mb-2">每日用量走势</div>
-        <div ref="trendChartRef" style="height: 320px" class="mb-2"></div>
-        <DataTable :value="summary?.daily || []" stripedRows showGridlines class="mb-4" style="font-size: 11px">
-            <Column field="date" header="日期" />
-            <Column field="calls" header="调用次数" :body="bodyThousand" />
-            <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
-            <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
-            <Column field="total_tokens" header="总计 Token" :body="bodyM" />
-            <template #empty>暂无数据</template>
-        </DataTable>
-
-        <!-- 按模型 / 按场景 饼图 -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
-            <div>
-                <div class="font-semibold mb-2">按模型（Token 占比）</div>
-                <div ref="modelPieRef" style="height: 300px"></div>
-                <DataTable :value="summary?.by_model || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
-                    <Column field="model" header="模型" />
-                    <Column field="calls" header="调用次数" :body="bodyThousand" />
-                    <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
-                    <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
-                    <Column field="total_tokens" header="总计 Token" :body="bodyM" />
-                    <template #empty>暂无数据</template>
-                </DataTable>
+            <!-- 汇总卡片 -->
+            <div class="summary-row">
+                <Card class="stat-card">
+                    <template #content>
+                        <div class="card-content">
+                            <div class="stat-label">总调用次数</div>
+                            <div class="stat-value">{{ fmtCompact(summary?.total_calls) }}</div>
+                        </div>
+                    </template>
+                </Card>
+                <Card class="stat-card">
+                    <template #content>
+                        <div class="card-content">
+                            <div class="stat-label">总 Token</div>
+                            <div class="stat-value">{{ fmtM(summary?.total_tokens) }}</div>
+                        </div>
+                    </template>
+                </Card>
+                <Card class="stat-card">
+                    <template #content>
+                        <div class="card-content">
+                            <div class="stat-label">输入 Token</div>
+                            <div class="stat-value">{{ fmtM(summary?.total_prompt_tokens) }}</div>
+                        </div>
+                    </template>
+                </Card>
+                <Card class="stat-card">
+                    <template #content>
+                        <div class="card-content">
+                            <div class="stat-label">输出 Token</div>
+                            <div class="stat-value">{{ fmtM(summary?.total_completion_tokens) }}</div>
+                        </div>
+                    </template>
+                </Card>
             </div>
-            <div>
-                <div class="font-semibold mb-2">按场景（Token 占比）</div>
-                <div ref="scenePieRef" style="height: 300px"></div>
-                <DataTable :value="summary?.by_scene || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
-                    <Column field="scene" header="场景" />
-                    <Column field="calls" header="调用次数" :body="bodyThousand" />
-                    <Column field="total_tokens" header="总计 Token" :body="bodyM" />
-                    <template #empty>暂无数据</template>
-                </DataTable>
-            </div>
-        </div>
 
-        <!-- 调用明细 -->
-        <div class="font-semibold mb-2">调用明细</div>
-        <DataTable
-            :value="records" :loading="loadingRecords" lazy paginator :rows="pageSize"
-            :totalRecords="totalRecords" @page="onPage"
-            :rowsPerPageOptions="[20, 50, 100]" stripedRows showGridlines
-            v-model:expandedRows="expandedRows" dataKey="id" style="font-size: 11px">
-            <Column expander style="width: 2rem" />
-            <Column field="created_at" header="时间" />
-            <Column field="user_id" header="用户ID" />
-            <Column field="scene" header="场景" />
-            <Column field="platform" header="平台" />
-            <Column field="model" header="模型" />
-            <Column field="prompt_tokens" header="输入" :body="bodyThousand" />
-            <Column field="completion_tokens" header="输出" :body="bodyThousand" />
-            <Column field="total_tokens" header="总计" :body="bodyThousand" />
-            <template #expansion="slotProps">
-                <div class="p-3">
-                    <div class="font-semibold mb-1">输入</div>
-                    <pre class="whitespace-pre-wrap text-sm" style="max-height: 300px; overflow: auto">{{ slotProps.data.input_text }}</pre>
-                    <div class="font-semibold mt-3 mb-1">输出</div>
-                    <pre class="whitespace-pre-wrap text-sm" style="max-height: 300px; overflow: auto">{{ slotProps.data.output_text }}</pre>
+            <!-- 筛选 -->
+            <div class="mb-4 flex flex-wrap gap-2 align-items-center">
+                <Dropdown v-model="filterModel" :options="modelOptions" optionLabel="label" optionValue="value" placeholder="模型" showClear />
+                <Dropdown v-model="filterScene" :options="sceneOptions" optionLabel="label" optionValue="value" placeholder="场景" showClear />
+                <Calendar v-model="dateRange" selectionMode="range" :manualInput="false" dateFormat="yy-mm-dd" placeholder="时间范围" />
+                <Button label="筛选" icon="pi pi-filter" @click="onFilter" size="small" />
+                <Button label="重置" icon="pi pi-filter-slash" @click="onReset" outlined size="small" />
+            </div>
+
+            <!-- 每日用量走势面积图 -->
+            <div class="font-semibold mb-2">每日用量走势</div>
+            <div ref="trendChartRef" style="height: 320px" class="mb-2"></div>
+            <DataTable :value="summary?.daily || []" stripedRows showGridlines class="mb-4" style="font-size: 11px">
+                <Column field="date" header="日期" />
+                <Column field="calls" header="调用次数" :body="bodyThousand" />
+                <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
+                <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
+                <Column field="total_tokens" header="总计 Token" :body="bodyM" />
+                <template #empty>暂无数据</template>
+            </DataTable>
+
+            <!-- 按模型 / 按场景 饼图 -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                <div>
+                    <div class="font-semibold mb-2">按模型（Token 占比）</div>
+                    <div ref="modelPieRef" style="height: 300px"></div>
+                    <DataTable :value="summary?.by_model || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
+                        <Column field="model" header="模型" />
+                        <Column field="calls" header="调用次数" :body="bodyThousand" />
+                        <Column field="prompt_tokens" header="输入 Token" :body="bodyM" />
+                        <Column field="completion_tokens" header="输出 Token" :body="bodyM" />
+                        <Column field="total_tokens" header="总计 Token" :body="bodyM" />
+                        <template #empty>暂无数据</template>
+                    </DataTable>
                 </div>
-            </template>
-            <template #empty>暂无数据</template>
-        </DataTable>
+                <div>
+                    <div class="font-semibold mb-2">按场景（Token 占比）</div>
+                    <div ref="scenePieRef" style="height: 300px"></div>
+                    <DataTable :value="summary?.by_scene || []" stripedRows showGridlines class="mt-2" style="font-size: 11px">
+                        <Column field="scene" header="场景" />
+                        <Column field="calls" header="调用次数" :body="bodyThousand" />
+                        <Column field="total_tokens" header="总计 Token" :body="bodyM" />
+                        <template #empty>暂无数据</template>
+                    </DataTable>
+                </div>
+            </div>
+
+            <!-- 调用明细 -->
+            <div class="font-semibold mb-2">调用明细</div>
+            <DataTable
+                :value="records" :loading="loadingRecords" lazy paginator :rows="pageSize"
+                :totalRecords="totalRecords" @page="onPage"
+                :rowsPerPageOptions="[20, 50, 100]" stripedRows showGridlines
+                v-model:expandedRows="expandedRows" dataKey="id" style="font-size: 11px">
+                <Column expander style="width: 2rem" />
+                <Column field="created_at" header="时间" />
+                <Column field="user_id" header="用户ID" />
+                <Column field="scene" header="场景" />
+                <Column field="platform" header="平台" />
+                <Column field="model" header="模型" />
+                <Column field="prompt_tokens" header="输入" :body="bodyThousand" />
+                <Column field="completion_tokens" header="输出" :body="bodyThousand" />
+                <Column field="total_tokens" header="总计" :body="bodyThousand" />
+                <template #expansion="slotProps">
+                    <div class="p-3">
+                        <div class="font-semibold mb-1">输入</div>
+                        <pre class="whitespace-pre-wrap text-sm" style="max-height: 300px; overflow: auto">{{ slotProps.data.input_text }}</pre>
+                        <div class="font-semibold mt-3 mb-1">输出</div>
+                        <pre class="whitespace-pre-wrap text-sm" style="max-height: 300px; overflow: auto">{{ slotProps.data.output_text }}</pre>
+                    </div>
+                </template>
+                <template #empty>暂无数据</template>
+            </DataTable>
+        </div>
     </div>
 </template>
 
 <style scoped lang="scss">
-// 汇总卡片行（与沪深大盘监控 MarketOverview 的指数卡片对齐）
+// 汇总卡片行 —— 视觉与布局对齐沪深大盘监控 MarketOverview 的 .indices-row / .index-card
 .summary-row {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 1rem;
     margin-bottom: 1.5rem;
 
     .stat-card {
-        flex: 1 1 calc(25% - 1rem);
-        min-width: 160px;
-        transition: all 0.2s ease;
-
-        &:hover {
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        }
+        flex: 1 1 0;
+        min-width: 0;
     }
 }
 
-// 让卡片内容撑满高度、垂直居中
+// 让卡片内容撑满卡片高度（与市场页 .index-card .card-body 一致）
 .stat-card :deep(.p-card-body),
 .stat-card :deep(.p-card-content) {
     height: 100%;
 }
 
+// 对齐 IndexCard 的 .card-body：左对齐、gap 0.4rem、撑满高度
 .card-content {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 0.25rem 0;
+    gap: 0.4rem;
+    height: 100%;
 
+    // 对齐 IndexCard 的 .index-name（指标名）
     .stat-label {
-        font-size: 0.9rem;
-        color: #64748b;
+        font-size: 0.95rem;
+        color: #475569;
         font-weight: 600;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
+    // 对齐 IndexCard 的 .index-price（数值）
     .stat-value {
-        font-size: 1.8rem;
+        font-size: 1.7rem;
         font-weight: 700;
         color: #0f172a;
-        margin-top: 0.4rem;
-        line-height: 1;
+        line-height: 1.1;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         font-variant-numeric: tabular-nums;
     }
 }

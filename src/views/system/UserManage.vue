@@ -180,7 +180,8 @@ onBeforeMount(() => {
 
 <template>
     <Toast/>
-    <div class="card">
+    <div class="card mt-5">
+        <div class="font-semibold text-xl mb-4">用户管理</div>
         <DataTable
             :value="users"
             dataKey="id"
@@ -193,7 +194,7 @@ onBeforeMount(() => {
                 <div class="flex flex-col gap-2 w-full">
                     <div class="flex flex-col md:flex-row items-center justify-between gap-3 w-full">
                         <div class="text-gray-500 text-sm">
-                            用户管理 · 共 {{ users.length }} 个账号
+                            共 {{ users.length }} 个账号
                         </div>
                         <div class="flex gap-2 items-center whitespace-nowrap">
                             <Button
