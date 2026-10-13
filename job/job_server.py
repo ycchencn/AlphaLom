@@ -41,6 +41,7 @@ from job.job_update_factors import job_update_stock_factor
 from job.job_stock_dcf_model_analysis import job_stock_dcf_model_analysis
 from job.job_stock_analysis import job_stock_analysis
 from job.job_check_signal import job_check_signal
+from job.job_update_stock_valuation_daily import job_update_etf_constituent_valuation
 from config import job_queue_config
 from models.database import db_session
 from models.job_queue import get_queue_client
@@ -78,6 +79,7 @@ class MarketJobConsumer:
             'job_stock_dcf_model_analysis': job_stock_dcf_model_analysis,
             'job_stock_analysis': job_stock_analysis,
             'job_check_signal': job_check_signal,
+            'job_update_etf_constituent_valuation': job_update_etf_constituent_valuation,
         }
 
     # ---------- Redis 基础设施 ----------

@@ -133,20 +133,80 @@ def job_update_stock_valuation_daily(override=False):
         return
 
     ok = 0
-    # 1) 监控池（个股列表 PE 的来源，保持原有路径不变）
+    # 1) 监控池（个股列表 PE 的来源，保持原有路径不变，必须当天同步完成）
     for symbol in pool_symbols:
         if _fetch_and_upsert(symbol):
             ok += 1
+
     # 2) ETF 成分股（etf_pe_ttm 的 PE 来源；跨境/商品 ETF 的成分不在此列，已过滤）
-    for symbol in etf_only:
-        if _fetch_and_upsert(symbol):
-            ok += 1
+    #    ⚠️ 改为 job server 异步并发：成分股规模 800~1200 只，若在此同步顺序打
+    #    get_stock_info 会长时间阻塞主任务。改为投递 job，由多个 worker 并发消费。
+    #    - 单只 job 幂等（upsert），重复执行无害；
+    #    - 按 symbol 加当日 NX 冷却，避免重复触发（scheduler 重跑 / 手动重跑）重复打接口；
+    #    - 因子日更(job_update_factors)的 etf_pe_ttm 聚合对「当天尚未落库的成分」自动
+    #      跳过并权重重归一（见 update_etf_pe_factor），容忍短暂延迟；scheduler 已把因子
+    #      日更排在估值日更之后，且 job 消费通常数分钟内完成。
+    _dispatch_etf_constituent_jobs(etf_only)
 
     last_date = StockValuationService.get_last_trade_date()
     logger.info(
-        f"估值日更完成：监控池 {len(pool_symbols)} 只 + ETF 成分 {len(etf_only)} 只，"
-        f"成功 {ok} 只，最新估值日 {last_date}"
+        f"估值日更完成：监控池同步 {len(pool_symbols)} 只（成功 {ok}），"
+        f"ETF 成分 {len(etf_only)} 只已投递 job server 异步处理，最新估值日 {last_date}"
     )
+
+
+def job_update_etf_constituent_valuation(symbol: str) -> None:
+    """单只 ETF 成分股(A股)估值落库任务（job server 并发消费）。
+
+    供 etf_pe_ttm 因子把成分股 PE 按权重聚合。单只失败不影响整批——
+    worker 已捕获异常并 ACK 丢弃；upsert 幂等，重复执行无害。
+
+    ⚠️ 本函数由 job_server worker 调用，签名必须与 dispatch 的 job_args 完全一致
+    （仅 symbol 一个键），否则旧 worker 会 TypeError 丢弃消息。
+    """
+    try:
+        _fetch_and_upsert(symbol)
+    except Exception as e:
+        logger.warning(f'[etf-constituent-valuation] {symbol} 落库失败: {e}')
+
+
+def _dispatch_etf_constituent_jobs(symbols: list) -> int:
+    """把 ETF 成分股估值任务投递到 job server（并发消费），返回成功投递数。
+
+    单只按 symbol 加当日 NX 冷却，避免重复触发（scheduler 重跑 / 手动重跑）重复打接口；
+    job 幂等，重复消费无害。投递失败时放开冷却键，允许下次重试。
+    """
+    if not symbols:
+        return 0
+    try:
+        from service import JobService
+        from utils.redis_obj import redis_obj
+        dispatched = 0
+        skipped = 0
+        for symbol in symbols:
+            cooldown_key = f'alphalom:etf_valuation:{symbol}'
+            if not redis_obj.set(cooldown_key, '1', nx=True, ex=86400):
+                skipped += 1
+                continue
+            try:
+                JobService.send_job({
+                    'job_func': 'job_update_etf_constituent_valuation',
+                    'job_args': {'symbol': symbol},
+                })
+                dispatched += 1
+            except Exception as e:
+                logger.warning(f'[etf-constituent-valuation] 投递 {symbol} 失败: {e}')
+                # 投递失败：放开冷却键，允许下次重试
+                try:
+                    redis_obj.delete(cooldown_key)
+                except Exception:
+                    pass
+        logger.info(
+            f'估值日更：ETF 成分股投递 job {dispatched} 只，冷却跳过 {skipped} 只')
+        return dispatched
+    except Exception as e:
+        logger.warning(f'ETF 成分股估值 job 投递失败（整批）: {e}')
+        return 0
 
 
 if __name__ == '__main__':
