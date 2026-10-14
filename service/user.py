@@ -4,6 +4,7 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 import os
+import secrets
 import uuid
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -16,7 +17,8 @@ from utils.redis_obj import redis_obj
 
 # 默认管理员账号（仅在 users 表为空时自动创建），可通过环境变量覆盖
 DEFAULT_ADMIN_USERNAME = os.getenv('ADMIN_USERNAME', 'admin')
-DEFAULT_ADMIN_PASSWORD = os.getenv('ADMIN_PASSWORD', 'admin123456')
+# 出厂弱密码（仅在「未配置 ADMIN_PASSWORD 且管理员已存在并仍用此密码」时用于提示改密）
+FACTORY_ADMIN_PASSWORD = 'admin123456'
 
 
 class UserService:
@@ -158,6 +160,8 @@ class UserService:
                 data['email'] = UserService.normalize_email(data['email'])
             if plain_pwd:
                 data['password_hash'] = generate_password_hash(plain_pwd)
+                # 改密码即视为已处理「需强制改密」提示，清零标志
+                data['must_change_password'] = 0
             for key, value in data.items():
                 if hasattr(user, key):
                     setattr(user, key, value)
@@ -322,20 +326,30 @@ class UserService:
             return -1
 
     @staticmethod
-    def create_user_if_not_exists(username=DEFAULT_ADMIN_USERNAME, password=DEFAULT_ADMIN_PASSWORD,
+    def create_user_if_not_exists(username=DEFAULT_ADMIN_USERNAME, password=None,
                                   role='admin', nickname='管理员'):
         """
         用户不存在时创建（默认创建管理员，首次安装时自动调用）。
         已存在同用户名时不重复创建。
+
+        ⚠️ 首次安装且未配置 `ADMIN_PASSWORD` 时 **不** 复用已知的弱默认密码，而是生成
+        随机强密码并通过返回值回显（调用方负责打印到启动日志），避免开源项目到处散落
+        一个「admin123456」带来的安全隐患；已配置 `ADMIN_PASSWORD` 则视为用户有意为之。
         :param username: 用户名
-        :param password: 明文密码（内部会哈希）
+        :param password: 明文密码；传 None 时首次安装自动生成随机强密码
         :param role: 角色，默认 admin
         :param nickname: 昵称，默认「管理员」
+        :return: (是否新建成功, 需要回显给用户的明文密码 或 None)
+                 仅当「本次新建且密码为系统生成」时第二项非空。
         """
         try:
             existing = UserService.get_by_username(username)
             if existing:
-                return False
+                return False, None
+            # 未显式传入密码（首次安装且未配置 ADMIN_PASSWORD）→ 生成随机强密码
+            generated = password is None
+            if generated:
+                password = secrets.token_urlsafe(12)
             password_hash = generate_password_hash(password)
             db_session.add(User(
                 username=username,
@@ -343,11 +357,37 @@ class UserService:
                 nickname=nickname,
                 role=role,
                 is_active=1,
+                # 系统生成的密码（或后续仍用出厂弱密码）需提示用户尽快修改
+                must_change_password=1 if generated else 0,
             ))
             db_session.commit()
             logger.info(f"已创建用户账号：{username}（role={role}）")
-            return True
+            return True, (password if generated else None)
         except Exception as e:
             db_session.rollback()
             logger.error(f"创建用户失败: {e}")
+            return False, None
+
+    @staticmethod
+    def flag_default_admin_if_using_factory_password(username=DEFAULT_ADMIN_USERNAME):
+        """
+        兼容旧库：若默认管理员已存在且仍在使用出厂弱密码（未配置 ADMIN_PASSWORD 时的
+        历史默认值 `admin123456`），打上「需强制改密」标记，避免升级后默认弱密码无人知晓。
+        已自己改过密码 / 用 ADMIN_PASSWORD 显式配置过的都不会命中，不会被误伤。
+        :return: 是否被标记（True 表示命中出厂弱密码）
+        """
+        try:
+            user = UserService.get_by_username(username)
+            if not user:
+                return False
+            # 用 werkzeug 校验，无需知道哈希算法
+            if check_password_hash(user.password_hash, FACTORY_ADMIN_PASSWORD):
+                if not user.must_change_password:
+                    user.must_change_password = 1
+                    db_session.commit()
+                return True
+            return False
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"标记默认管理员改密失败: {e}")
             return False
