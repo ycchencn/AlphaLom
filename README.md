@@ -86,6 +86,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 - **定时调度**：`scheduler.py` 加载 `scheduler_jobs.yaml`（Asia/Shanghai），16:00 起依次执行回测、调仓、数据刷新、因子、信号、估值等任务；改时间只动 YAML，部署前 `python scheduler.py --check` 校验。
 - **并发模型**：绝大多数路由为同步 `def`，由 anyio 线程池承接阻塞调用获得真并发；worker 数与线程池上限配置化。
 - **真实 IP**：维护可信代理白名单，仅信任来自可信代理的 `X-Forwarded-For`，防 IP 伪造。
+- **增量数据库迁移**：`create_all(checkfirst=True)` 只建「不存在的表」，对已有表加的列不会自动出现。所有**已存在表**的后续变更（新增列、新增索引）统一在 `models/init_db.py` 的 `_SCHEMA_UPGRADES` / `_INDEX_UPGRADES` / `_NONUNIQUE_INDEX_UPGRADES` 三个元组里登记一条，`ensure_schema_upgrades()` 在服务启动时幂等补列/补索引——无需手写迁移脚本，部署即生效。
 
 ## 🌐 对外开放 API（OpenAPI）
 
@@ -112,6 +113,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 - **隔离**：股票池、投资组合、ETF 自选按账号隔离；`user_id` 严禁进可写白名单
 - **越权**：一律返回 404，不通过状态码泄露资源存在性
 - **载荷**：只返回 DTO（`to_dict()`），绝不直接序列化 ORM 对象
+- **改密提示**：任意用户均可自助改密（`POST /auth/change-password`）；首次安装生成的默认管理员 / 仍使用出厂弱密码者，登录后页面置顶横幅提示尽快修改，改密后自动消除
 
 ## 📁 目录结构
 
@@ -140,6 +142,12 @@ cp .env.sample .env       # 配置数据库 / Redis / 各 LLM API Key
 ```
 
 `config.py` 按环境变量 `ENV` 加载 `.env` 或 `.env.<ENV>`，未找到时回退到进程环境变量。主要变量：`DATABASE_CONN_STR`、`REDIS_*`、`JOB_QUEUE_*`、`*_APIKEY`、`DATABULL_HOST`、`DATABULL_KEY`、`MCP_HOST`。
+
+### 首次启动与默认管理员
+
+首次启动（数据库为空）会自动创建默认管理员账号 `admin`，并**在后端启动日志 / `docker logs` 中醒目打印登录密码**——未配置 `ADMIN_PASSWORD` 时密码为系统随机生成的强密码（不再使用固定弱密码 `admin123456`）。登录后页面顶部会出现「请尽快修改默认密码」横幅，点击即可一键改密；也可在「系统管理 → 用户管理」中修改。
+
+> 可在 `.env` 用 `ADMIN_PASSWORD` 预置管理员密码（部署脚本 / 无人值守场景），此时密码以你的配置为准，日志不再回显明文。`ADMIN_USERNAME` 亦可覆盖默认用户名。出于安全，仍建议登录后立即修改。
 
 **并发配置**（`config.py` 的 `server_setting`）：
 

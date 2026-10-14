@@ -111,6 +111,44 @@ def auth_me(user: dict = Depends(get_current_user)):
     return user
 
 
+@auth_router.post('/auth/change-password', summary='修改自己的密码',
+                  description='当前登录用户自助修改密码（无需管理员权限），成功后会吊销该用户其它登录令牌')
+async def change_password(request: Request, user: dict = Depends(get_current_user)):
+    """
+    自助改密：校验原密码 → 更新 → 清零「需强制改密」标志 → 吊销该用户全部令牌并重新签发，
+    避免「改了密码却还有旧令牌在 TTL 内可用」。返回新令牌，前端据此保持登录态。
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    old_pwd = data.get('old_password') or ''
+    new_pwd = (data.get('new_password') or '').strip()
+    if not old_pwd or not new_pwd:
+        raise HTTPException(status_code=400, detail='原密码和新密码均不能为空')
+    if len(new_pwd) < 6:
+        raise HTTPException(status_code=400, detail='新密码至少 6 位')
+
+    # 校验原密码（不当面告知是「账号不存在」，但这里已通过 get_current_user 鉴权）
+    ok = await run_in_threadpool(UserService.authenticate, user['username'], old_pwd)
+    if not ok:
+        raise HTTPException(status_code=400, detail='原密码错误')
+
+    updated = await run_in_threadpool(UserService.update, user['id'], {'password': new_pwd})
+    if not updated:
+        raise HTTPException(status_code=500, detail='修改密码失败')
+
+    # 改密必须立刻生效：吊销全部令牌（含当前），再签发新令牌保持登录
+    await run_in_threadpool(UserService.revoke_all_tokens, user['id'])
+    token = await run_in_threadpool(UserService.issue_token, user['id'])
+    if not token:
+        raise HTTPException(status_code=503, detail='鉴权服务暂不可用，请稍后再试')
+
+    fresh = await run_in_threadpool(UserService.get_by_id, user['id'])
+    logger.info(f"用户 {user['username']} 修改了登录密码")
+    return {'status': 1, 'message': '密码修改成功', 'token': token, 'user': fresh}
+
+
 @auth_router.get('/users', summary='用户列表', description='管理员查看全部账号')
 def list_users(_admin: dict = Depends(require_admin)):
     users = UserService.get_all()

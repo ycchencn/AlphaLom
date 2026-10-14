@@ -60,9 +60,78 @@ function logout() {
             clearLocalAndGoLogin();
         });
 }
+
+// ==================== 「请尽快修改默认密码」提示 ====================
+// 首次安装生成的默认管理员 / 仍在使用出厂弱密码时，后端会在用户对象上返回
+// must_change_password=1；此处据此显示全局横幅，并内嵌自助改密对话框，
+// 免去「去用户管理找自己那一行」的弯路。
+const bannerVisible = ref(true);
+const changeDialog = ref(false);
+const oldPassword = ref('');
+const newPassword = ref('');
+const confirmPassword = ref('');
+const changing = ref(false);
+
+const needChangePwd = computed(
+    () => bannerVisible.value && currentUser.value.must_change_password === 1
+);
+
+function openChangeDialog() {
+    oldPassword.value = '';
+    newPassword.value = '';
+    confirmPassword.value = '';
+    changeDialog.value = true;
+}
+
+function dismissBanner() {
+    bannerVisible.value = false;
+}
+
+async function submitChangePassword() {
+    if (!oldPassword.value || !newPassword.value) {
+        showError('请填写原密码和新密码');
+        return;
+    }
+    if (newPassword.value.length < 6) {
+        showError('新密码至少 6 位');
+        return;
+    }
+    if (newPassword.value !== confirmPassword.value) {
+        showError('两次输入的新密码不一致');
+        return;
+    }
+    changing.value = true;
+    try {
+        const resp = await axios.post('/api/v1/auth/change-password', {
+            old_password: oldPassword.value,
+            new_password: newPassword.value,
+        });
+        // 后端改密后重新签发了令牌并清除了标志，前端同步本地状态，保持登录
+        store.commit('setToken', resp.data.token);
+        store.commit('setUser', resp.data.user);
+        showSuccess('密码修改成功');
+        changeDialog.value = false;
+        bannerVisible.value = false;
+    } catch (e) {
+        const msg = e?.response?.data?.detail || e?.response?.data?.message || '修改失败';
+        showError(msg);
+    } finally {
+        changing.value = false;
+    }
+}
 </script>
 
 <template>
+    <!-- 首次安装 / 出厂弱密码提示横幅：全局置顶，点击「立即修改」内嵌对话框改密 -->
+    <div v-if="needChangePwd" class="pwd-change-banner">
+        <i class="pi pi-exclamation-triangle"></i>
+        <span class="pwd-change-banner-text">
+            您正在使用<strong>默认管理员密码</strong>，存在安全风险，请尽快修改。
+        </span>
+        <Button label="立即修改" size="small" severity="warn" @click="openChangeDialog" />
+        <Button label="暂不处理" size="small" text @click="dismissBanner" />
+    </div>
+
     <div class="layout-topbar">
         <div class="layout-topbar-logo-container">
 
@@ -100,6 +169,28 @@ function logout() {
             <Menu id="user-menu" ref="userMenu" :model="menuItems" :popup="true" />
         </div>
     </div>
+
+    <!-- 自助改密对话框 -->
+    <Dialog v-model:visible="changeDialog" modal header="修改登录密码" :style="{ width: '26rem' }">
+        <div class="flex flex-column gap-3">
+            <div class="field">
+                <label for="oldPwd" class="block text-sm mb-1">原密码</label>
+                <Password id="oldPwd" v-model="oldPassword" :feedback="false" toggleMask fluid />
+            </div>
+            <div class="field">
+                <label for="newPwd" class="block text-sm mb-1">新密码（至少 6 位）</label>
+                <Password id="newPwd" v-model="newPassword" toggleMask fluid />
+            </div>
+            <div class="field">
+                <label for="confirmPwd" class="block text-sm mb-1">确认新密码</label>
+                <Password id="confirmPwd" v-model="confirmPassword" :feedback="false" toggleMask fluid />
+            </div>
+        </div>
+        <template #footer>
+            <Button label="取消" text @click="changeDialog = false" />
+            <Button label="确认修改" :loading="changing" @click="submitChangePassword" />
+        </template>
+    </Dialog>
 </template>
 
 <style scoped lang="scss">
@@ -151,4 +242,35 @@ function logout() {
         display: none;
     }
 }
+
+/* 默认密码风险提示横幅：置顶整条，唤起改密 */
+.pwd-change-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 1.25rem;
+    background: #d97706;
+    color: #fff;
+    font-size: 0.875rem;
+    line-height: 1.4;
+
+    i.pi-exclamation-triangle {
+        font-size: 1.1rem;
+    }
+
+    .pwd-change-banner-text {
+        flex: 1 1 auto;
+        min-width: 0;
+
+        strong {
+            font-weight: 700;
+        }
+    }
+}
+
+[data-theme='dark'] .pwd-change-banner,
+.app-dark .pwd-change-banner {
+    background: #b45309;
+}
+
 </style>

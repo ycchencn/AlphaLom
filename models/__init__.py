@@ -897,6 +897,9 @@ class User(Base):
     email = Column(String(100), nullable=True, comment='邮箱')
     role = Column(String(20), nullable=False, default='user', comment='角色：admin-管理员, user-普通用户')
     is_active = Column(Integer, nullable=False, default=1, comment='是否启用：0-禁用, 1-启用')
+    # 是否需强制修改密码：1-首次安装生成的默认管理员/仍使用出厂弱密码，需尽快修改；0-已修改。
+    # 仅作前端「请改密」提示用，不阻断登录；改密码时由 Service 层清零。
+    must_change_password = Column(SmallInteger, nullable=False, default=0, comment='是否需强制修改密码：1-需修改, 0-已修改')
     last_login_at = Column(DateTime, nullable=True, comment='最后登录时间')
     created_at = Column(DateTime, default=datetime.now, comment='创建时间')
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='更新时间')
@@ -919,6 +922,7 @@ class User(Base):
             'email': self.email,
             'role': self.role,
             'is_active': self.is_active,
+            'must_change_password': self.must_change_password,
             'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
