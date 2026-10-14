@@ -28,6 +28,24 @@ class SystemSettingService:
     # 键与分组的分隔符
     KEY_SEP = '.'
 
+    @staticmethod
+    def _is_missing_table_error(e: Exception) -> bool:
+        """
+        判断异常是否因 system_setting 表尚未创建（首次运行 / 增量迁移前）。
+
+        这种情况是预期的、良性的：配置会退回到代码默认值。应降级为 INFO 日志，
+        不要打 ERROR 吓到新用户；真正的坏库（连接/权限）仍按 ERROR 上报。
+        pymysql 的 1146 = "Table '...' doesn't exist"。
+        """
+        orig = getattr(e, 'orig', None)
+        args = getattr(orig, 'args', None)
+        if isinstance(args, (list, tuple)) and args and args[0] == 1146:
+            return True
+        msg = str(e).lower()
+        return "doesn't exist" in msg or 'unknown table' in msg
+
+
+
     # ---------- 读 ----------
 
     @staticmethod
@@ -39,7 +57,12 @@ class SystemSettingService:
                     .order_by(SystemSetting.setting_key)
                     .all())
         except SQLAlchemyError as e:
-            logger.error(f"list system_setting group={group} failed: {e}")
+            if SystemSettingService._is_missing_table_error(e):
+                logger.info(
+                    f"system_setting 表尚不存在（首次运行，建表后生效），group={group} 暂用代码默认值"
+                )
+            else:
+                logger.error(f"list system_setting group={group} failed: {e}")
             return []
 
     @staticmethod
@@ -49,7 +72,12 @@ class SystemSettingService:
             row = db_session.query(SystemSetting).filter(SystemSetting.setting_key == key).first()
             return row.setting_value if row is not None else default
         except SQLAlchemyError as e:
-            logger.error(f"get system_setting key={key} failed: {e}")
+            if SystemSettingService._is_missing_table_error(e):
+                logger.info(
+                    f"system_setting 表尚不存在（首次运行，建表后生效），key={key} 暂用代码默认值"
+                )
+            else:
+                logger.error(f"get system_setting key={key} failed: {e}")
             return default
 
     @staticmethod

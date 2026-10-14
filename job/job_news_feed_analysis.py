@@ -38,10 +38,28 @@ if elasticsearch_setting['enable']:
 else:
     es_client = None
 
-analysis_model = get_model_by_setting('news_analysis')
-analysis_model.set_response_json()
+# ⚠️ 不要在此处实例化 LLM：原先的 `analysis_model = get_model_by_setting(...)` 会在模块
+# 导入期读 system_setting 表——首次运行表尚未创建会报错，且若平台被禁用 / 缺 key 会在
+# 导入期直接抛错、拖垮整个进程启动（route 链 run_fastapi → routes.quant → job 包 → 本模块）。
+# 改为首次实际调用时惰性创建（见 _get_analysis_model）。
 prompt_template = load_prompt_template(template_path=Path(__file__).parent / "prompt_news_analysis.md")
 MAX_RELATIONS_STOCKS = 10
+
+
+_analysis_model = None
+
+
+def _get_analysis_model():
+    """惰性获取新闻分析 LLM 实例（模块级缓存，首次调用时创建）。
+
+    避免在 import 阶段读 system_setting 表（首次运行表还没建），也避免平台被禁用 /
+    缺 key 时在导入期抛错拖垮进程启动——这些失败应在真正用到时再暴露（由调用方捕获）。
+    """
+    global _analysis_model
+    if _analysis_model is None:
+        _analysis_model = get_model_by_setting('news_analysis')
+        _analysis_model.set_response_json()
+    return _analysis_model
 
 def sanitize_es_doc(raw_doc: dict) -> dict:
     """
@@ -198,7 +216,7 @@ def llm_news_summarize(
         news_content=news_content,
         prompt_155th=prompt_155th
     )
-    raw_answer = analysis_model.ask(question_prompt)
+    raw_answer = _get_analysis_model().ask(question_prompt)
     answer_json = _safe_extract_json(raw_answer)
 
     relations_stocks = answer_json.get("relations_stocks")
