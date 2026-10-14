@@ -87,6 +87,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 - **并发模型**：绝大多数路由为同步 `def`，由 anyio 线程池承接阻塞调用获得真并发；worker 数与线程池上限配置化。
 - **真实 IP**：维护可信代理白名单，仅信任来自可信代理的 `X-Forwarded-For`，防 IP 伪造。
 - **增量数据库迁移**：`create_all(checkfirst=True)` 只建「不存在的表」，对已有表加的列不会自动出现。所有**已存在表**的后续变更（新增列、新增索引）统一在 `models/init_db.py` 的 `_SCHEMA_UPGRADES` / `_INDEX_UPGRADES` / `_NONUNIQUE_INDEX_UPGRADES` 三个元组里登记一条，`ensure_schema_upgrades()` 在服务启动时幂等补列/补索引——无需手写迁移脚本，部署即生效。
+- **网站统计代码**：管理员在「系统管理 · 通用设置」粘贴统计平台（百度统计 / CNZZ / Google Analytics 等）的 `<script>` 片段，整段存 `system_setting` 表；前端启动时拉取并把 `<script>` 重建后注入页面执行（每次页面加载仅一次，避免重复计数），未登录 / 接口不可用时静默跳过，绝不影响主流程。
 
 ## 🌐 对外开放 API（OpenAPI）
 

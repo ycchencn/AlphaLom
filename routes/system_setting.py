@@ -5,7 +5,7 @@
 
  系统设置接口。配置持久化在 system_setting 表（通用 KV，见 service/system_setting_service.py），
  当前开放四组：
-   - 「通用设置」general_setting：目前是时区（展示口径）；
+   - 「通用设置」general_setting：时区（展示口径）+ 网站统计代码（analytics_code）；
    - 「大模型路由配置」llm_model_setting：每个业务场景一个平台 + 一个（或几个）模型；
    - 「大模型平台配置」llm_platform_setting：各平台的启用开关 / API Key（加密存储）/ Base URL；
    - 「图表显示配置」chart_display：详情页各图表区块的开关（目前是 K 线）。
@@ -611,3 +611,120 @@ def reset_general_timezone(_admin: dict = Depends(require_admin)):
     from utils.timezone_util import TIMEZONE_KEY
     deleted = SystemSettingService.delete(f'{GENERAL_SETTING_GROUP}.{TIMEZONE_KEY}')
     return {'code': 0, 'message': 'ok', 'deleted': deleted, 'data': _general_view()}
+
+
+# ==========================================================================
+# 网站统计代码（general_setting.analytics_code）
+#
+# 站长粘贴的第三方统计代码片段（百度统计 / CNZZ / Google Analytics / umami 等），
+# 整段存库，前端启动时注入页面执行。
+#
+# 存储：
+#   general_setting.analytics_code = "<script>...</script>"（字符串，原样整段）
+# - **库里没有该行（或为空串）= 不注入任何统计代码**；
+# - 「恢复默认」= 删行，与 chart_display / llm_platform 语义一致；
+# - 保存空串等价于删除（PUT 里特判），避免「存了空行但看起来像配过」。
+#
+# ⚠️ 注入方式：前端 main.js 启动时拉一次，把 <script> 逐个重建后入 DOM 才会执行
+#    （innerHTML 里的 script 不会跑）。这是 SPA，noscript 像素对禁用 JS 的场景
+#    本就无意义，注入容器用 display:none 挡住代码里可能夹带的可见内容。
+#
+# 读接口**不加管理员门禁**：统计代码本来就是公开嵌在页面里给所有访客看的
+# （与 chart_display 同理）；写接口必须管理员 —— 改的是全站每个页面。
+# ==========================================================================
+
+GENERAL_ANALYTICS_KEY = 'analytics_code'
+
+# 长度上限 64KB：主流统计代码都是几 KB 的片段，64KB 远远够用；
+# 上限的意义是防误粘贴超大文件把配置行撑爆（JSON 列存得下，但 GET 会反复带着它）。
+_ANALYTICS_MAX_LEN = 64 * 1024
+
+
+def _analytics_view() -> Dict[str, Any]:
+    """统计代码视图：当前生效代码 + 是否已被表内配置覆盖（空 = 未配置）。"""
+    code = SystemSettingService.get_value(
+        f'{GENERAL_SETTING_GROUP}.{GENERAL_ANALYTICS_KEY}', default='')
+    if not isinstance(code, str):
+        code = ''
+    return {'code': code, 'customized': bool(code.strip())}
+
+
+@settings_router.get('/general/analytics')
+def get_general_analytics():
+    """
+    读取网站统计代码（**无需管理员**：每个已登录用户的页面都要靠它注入统计）。
+
+    返回当前生效的代码原文（未配置时为空串）与是否自定义。
+    """
+    view = _analytics_view()
+    return {'code': 0, 'data': view, **view}
+
+
+class GeneralAnalyticsRequest(BaseModel):
+    """写入统计代码。整段原文（含 <script> 标签），空串表示清除。"""
+    code: str
+
+
+@settings_router.put('/general/analytics')
+def update_general_analytics(
+        req: GeneralAnalyticsRequest,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    写入网站统计代码（存在则更新）。**保存后刷新页面即生效**，无需重启服务。
+
+    校验：
+    - 长度 ≤ 64KB；
+    - 必须含 '<' —— 统计代码都是 <script> 开头的片段，只贴一个 ID（如
+      "hm.js?xxxx"）是贴错了，这里直接拒并给出提示，避免存进去却不生效。
+    """
+    code = req.code if isinstance(req.code, str) else ''
+
+    # 空串 = 清除配置（删行），语义与 DELETE 一致
+    if not code.strip():
+        deleted = SystemSettingService.delete(
+            f'{GENERAL_SETTING_GROUP}.{GENERAL_ANALYTICS_KEY}')
+        return {'code': 0, 'message': 'ok', 'deleted': deleted,
+                'data': _analytics_view()}
+
+    if len(code) > _ANALYTICS_MAX_LEN:
+        raise HTTPException(
+            status_code=400,
+            detail=f'统计代码过长（{len(code)} 字符，上限 {_ANALYTICS_MAX_LEN}）。'
+                   f'请只粘贴统计平台提供的代码片段。',
+        )
+    if '<' not in code:
+        raise HTTPException(
+            status_code=400,
+            detail='统计代码通常是 <script> 开头的代码片段（百度统计 / CNZZ / '
+                   'Google Analytics 等），请整段粘贴，不要只贴站点 ID。',
+        )
+
+    try:
+        SystemSettingService.upsert(
+            key=f'{GENERAL_SETTING_GROUP}.{GENERAL_ANALYTICS_KEY}',
+            value=code,
+            group=GENERAL_SETTING_GROUP,
+            value_type='string',
+            description='通用设置：网站统计代码（百度统计 / CNZZ / Google Analytics 等，整段原样注入）',
+            updated_by=_admin.get('username'),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f'保存统计代码失败: {e}')
+        raise HTTPException(status_code=500, detail=f'保存失败：{e}')
+
+    return {'code': 0, 'message': 'ok', 'data': _analytics_view()}
+
+
+@settings_router.delete('/general/analytics')
+def reset_general_analytics(_admin: dict = Depends(require_admin)):
+    """
+    删除统计代码 = 不注入任何统计（恢复默认）。
+
+    幂等：本来就没有配置行时也返回成功，只是 deleted=False。
+    """
+    deleted = SystemSettingService.delete(
+        f'{GENERAL_SETTING_GROUP}.{GENERAL_ANALYTICS_KEY}')
+    return {'code': 0, 'message': 'ok', 'deleted': deleted, 'data': _analytics_view()}

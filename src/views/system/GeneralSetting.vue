@@ -6,6 +6,7 @@ import {useNotification} from '@/composables/useNotification';
 import {invalidateTimezone} from '@/composables/useTimezone.js';
 import ChartDisplaySetting from '@/views/system/ChartDisplaySetting.vue';
 import ApiKeyManage from '@/views/system/ApiKeyManage.vue';
+import AnalyticsSetting from '@/views/system/AnalyticsSetting.vue';
 
 // ⚠️ 不要 `import Select from 'primevue/select'`：本项目用
 //    `Components({resolvers: [PrimeVueResolver()]})` 自动导入 PrimeVue 组件，
@@ -17,10 +18,11 @@ import ApiKeyManage from '@/views/system/ApiKeyManage.vue';
  *
  * 把原先分散在「通用设置 / 图表显示 / API Key」三个菜单项下的配置，收敛到这一个页面：
  *   - 展示时区（本文件内联）
+ *   - 网站统计代码（<AnalyticsSetting/>，百度统计 / CNZZ / Google Analytics 等）
  *   - 图表显示（<ChartDisplaySetting/>，详情页各图表区块显隐）
  *   - API Key 管理（<ApiKeyManage/>，对外开放 API 的调用凭证）
  *
- * 三个区块都自带卡片头与「刷新」，彼此独立、互不影响。共享 AppLayout 里那一个全局
+ * 四个区块都自带卡片头与「刷新」，彼此独立、互不影响。共享 AppLayout 里那一个全局
  * <Toast/>（本文件和各子组件都**不再**各自挂 <Toast/>，否则会被渲染成多条重复提示）。
  *
  * 关于时区的作用范围（必须写清楚，否则用户以为改时区能改任务触发时刻）：
@@ -307,10 +309,13 @@ onBeforeMount(loadSettings);
             </div>
         </div>
 
-        <!-- 区块 2：图表显示（子组件，详情页各图表区块显隐） -->
+        <!-- 区块 2：网站统计代码（子组件，整段统计脚本注入） -->
+        <AnalyticsSetting/>
+
+        <!-- 区块 3：图表显示（子组件，详情页各图表区块显隐） -->
         <ChartDisplaySetting/>
 
-        <!-- 区块 3：API Key 管理（子组件，对外开放 API 的调用凭证） -->
+        <!-- 区块 4：API Key 管理（子组件，对外开放 API 的调用凭证） -->
         <ApiKeyManage/>
 
     </div>
