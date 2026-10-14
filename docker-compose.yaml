@@ -1,5 +1,20 @@
 services:
 
+    redis:
+        image: redis:7-alpine
+        # ⚠️ 不设密码：代码里所有 Redis 客户端（utils/redis_obj.py / models/job_queue.py /
+        #    utils/api_cache.py）都硬编码 db=0 且不传 password，设密码会导致全部连不上。
+        #    服务只暴露在 compose 内部网络，外部不可达，不设密码没有暴露面。
+        command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+        volumes:
+            - redis-data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 3s
+            retries: 10
+        restart: always
+
     web:
         image: alphalom-service:latest
         ports:
@@ -10,8 +25,13 @@ services:
             ENV: production
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            # 默认连 compose 内置 Redis（服务名 redis）；如需外部 Redis，
+            # 在 .env 里设置 REDIS_HOST=<外部地址> 即可覆盖（服务名只对容器内有效）。
+            REDIS_HOST: ${REDIS_HOST:-redis}
             WEB_WORKERS: 3
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: always
 
     scheduler:
@@ -22,7 +42,10 @@ services:
             ENV: production
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            REDIS_HOST: ${REDIS_HOST:-redis}
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: always
 
     job_server:
@@ -33,7 +56,10 @@ services:
             ENV: production
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            REDIS_HOST: ${REDIS_HOST:-redis}
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: always
 
     news_server:
@@ -44,7 +70,10 @@ services:
             ENV: production
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            REDIS_HOST: ${REDIS_HOST:-redis}
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: always
 
     log_comsumer:
@@ -55,5 +84,11 @@ services:
             ENV: production
             PYTHONPATH: /app
             DATABASE_CONN_STR: ${DATABASE_CONN_STR}
-            REDIS_HOST: ${REDIS_HOST}
+            REDIS_HOST: ${REDIS_HOST:-redis}
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: always
+
+volumes:
+    redis-data:
