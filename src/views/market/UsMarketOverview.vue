@@ -20,11 +20,17 @@
  * （`@/components/IndexCard.vue`）—— 两页的卡片视觉与算法都只有一处来源，
  * 改一处两页同时生效。本文件只负责取数与页面级布局。
  */
-import {ref, computed, onMounted, onUnmounted} from 'vue'
+import {ref, computed, onMounted, onUnmounted, nextTick} from 'vue'
 import ToggleSwitch from 'primevue/toggleswitch'
 import axios from 'axios'
 import {useToast} from 'primevue/usetoast'
 import IndexCard from '@/components/IndexCard.vue'
+import Card from 'primevue/card'
+import * as echarts from 'echarts'
+import {
+    COLORS, LINE,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+} from '@/utils/echartsTheme'
 
 // 日线数据，收盘后不变 → 刷新间隔给长（与大盘页的恐惧贪婪一致）。
 const REFRESH_MS = 10 * 60 * 1000
@@ -37,6 +43,7 @@ const cards = ref([])
 const meta = ref(null)
 const auto_refresh = ref(true)
 let timer = null
+let avTimer = null
 
 // 顶部的滞后提示：只在真的有指数落后于主日期时说，别天天刷「VIX 领先一天」。
 const stale_hint = computed(() => {
@@ -79,7 +86,11 @@ const fetchCards = async (silent = false) => {
 
 const startTimer = () => {
     stopTimer()
-    if (auto_refresh.value) timer = setInterval(() => fetchCards(true), REFRESH_MS)
+    if (auto_refresh.value) {
+        timer = setInterval(() => fetchCards(true), REFRESH_MS)
+        // A股/美股比值是日线数据，与指数卡片同节奏刷新即可（后端缓存 30 分钟）
+        avTimer = setInterval(() => fetchA500Sp500(true), REFRESH_MS)
+    }
 }
 
 const stopTimer = () => {
@@ -87,11 +98,16 @@ const stopTimer = () => {
         clearInterval(timer)
         timer = null
     }
+    if (avTimer) {
+        clearInterval(avTimer)
+        avTimer = null
+    }
 }
 
 const onRefreshToggle = () => {
     if (auto_refresh.value) {
         fetchCards(true)
+        fetchA500Sp500(true)
         startTimer()
     } else {
         stopTimer()
@@ -110,14 +126,213 @@ const manualRefresh = async () => {
     }).catch((e) => {
         toast.add({severity: 'error', summary: '刷新失败', detail: '上游接口暂时不可用', life: 4000})
     })
+    // 比值图同样用 bust 绕过缓存（non-silent，失败会提示）
+    await fetchA500Sp500(false, true)
+}
+
+// ========================
+// A股 vs 美股（中证A500 ÷ 标普500 比值走势）
+// ========================
+/**
+ * A股 vs 美股 = 中证A500(000510) ÷ 标普500(GSPC)
+ *
+ * 比值**上行 = A股跑赢美股**，下行 = 美股跑赢 A股。比值本身没有绝对高低含义，
+ * 所以后端返回的是「以区间首日归一为 1.0」的净值，同时给出两条成分腿的
+ * 归一化净值 —— 只看比值看不到「是中证A500涨出来的还是标普500跌出来的」，
+ * 副轴叠两条线就能一眼分辨。
+ *
+ * ⚠️ 中证A500 用的是 000510（不是官方 CSI 代码 931337，上游对 931 段无 K 线），
+ * 详见 service/a500_sp500_service.py 顶部说明。结构完全复用沪深大盘页
+ * 「成长 vs 价值」卡片的界面与逻辑。
+ */
+const A500_SP500_DAYS = 250   // ≈ 一年交易日
+
+const a500_sp500 = ref(null)
+const a500_sp500_loading = ref(false)
+
+const avLatest = computed(() => a500_sp500.value?.points?.slice(-1)[0] || null)
+const avMeta = computed(() => a500_sp500.value?.meta || null)
+const avPeriods = computed(() => a500_sp500.value?.periods || [])
+
+// 比值涨 → A股占优（红）；跌 → 美股占优（绿）。与全站红涨绿跌一致。
+const avRatioColor = computed(() => {
+    const v = avLatest.value?.ratio
+    if (v == null) return '#909399'
+    if (v > 1) return 'var(--color-up)'
+    if (v < 1) return 'var(--color-down)'
+    return 'var(--color-flat)'
+})
+
+const avChartRef = ref(null)
+let avChart = null
+let avResizeObserver = null
+
+/**
+ * 相对强度（归一化净值或比值）→ 迷你条宽度（%）。
+ * 与沪深大盘页「成长 vs 价值」同一条约定：按三者里最大偏离度做相对归一，留 12% 下限。
+ */
+const avBarWidth = (norm) => {
+    if (norm == null) return 0
+    const devs = [avLatest.value?.ratio, avLatest.value?.a500_norm, avLatest.value?.sp500_norm]
+        .filter((v) => v != null)
+        .map((v) => Math.abs(Number(v) - 1))
+    const maxDev = Math.max(...devs, 1e-9)
+    return Math.max(12, Math.round((Math.abs(Number(norm) - 1) / maxDev) * 100))
+}
+
+// 成分腿颜色：>1 表示该腿跑赢（红），<1 表示跑输（绿）
+const avLegColor = (norm) => {
+    if (norm == null) return '#909399'
+    if (norm > 1) return 'var(--color-up)'
+    if (norm < 1) return 'var(--color-down)'
+    return 'var(--color-flat)'
+}
+
+const getPctColorClass = (value) => {
+    if (value > 0) return 'text-up'
+    if (value < 0) return 'text-down'
+    return 'text-flat'
+}
+
+// 容器在 v-if 内，数据到位后 DOM 才存在，必须懒初始化；用 ResizeObserver 跟随尺寸
+// （不挂 window.resize：盯盘页开一天会产生上万次无意义 resize）。
+const ensureAvChart = () => {
+    if (typeof ResizeObserver !== 'undefined' && !avResizeObserver) {
+        avResizeObserver = new ResizeObserver(() => { avChart?.resize() })
+    }
+    if (avChart || !avChartRef.value) return avChart
+    if (!avChartRef.value.clientWidth || !avChartRef.value.clientHeight) return null
+    avChart = echarts.init(avChartRef.value)
+    if (avChartRef.value) avResizeObserver?.observe(avChartRef.value)
+    return avChart
+}
+
+const disconnectAvChart = () => {
+    avResizeObserver?.disconnect()
+    avResizeObserver = null
+}
+
+const fetchA500Sp500 = async (silent = false, bust = false) => {
+    if (!silent) a500_sp500_loading.value = true
+    try {
+        const params = {days: A500_SP500_DAYS}
+        if (bust) params.bust = Date.now()
+        const res = await axios.get('/api/v1/market/a500_sp500', {params})
+        a500_sp500.value = res.data || null
+        renderA500Sp500Chart()
+    } catch (e) {
+        // 静默刷新失败不清空已有数据
+        if (!silent) {
+            a500_sp500.value = null
+            toast.add({severity: 'error', summary: '加载失败', detail: 'A股/美股比值数据获取失败', life: 4000})
+        }
+    } finally {
+        a500_sp500_loading.value = false
+    }
+}
+
+const renderA500Sp500Chart = async () => {
+    await nextTick()
+    const chart = ensureAvChart()
+    if (!chart) return
+
+    const rows = a500_sp500.value?.points || []
+    if (!rows.length) {
+        chart.clear()
+        return
+    }
+    const dates = rows.map((r) => r.trade_date)
+    const ratio = rows.map((r) => r.ratio)
+    const aNorm = rows.map((r) => r.a500_norm)
+    const sNorm = rows.map((r) => r.sp500_norm)
+
+    // 比值线颜色跟随「相对起点」方向：>1 A股占优，<1 美股占优
+    const lastRatio = ratio[ratio.length - 1]
+    const mainColor = lastRatio > 1 ? '#ef4444' : (lastRatio < 1 ? '#12783c' : '#909399')
+
+    chart.setOption({
+        grid: {left: 34, right: 42, top: 16, bottom: 22},
+        tooltip: tooltipBase({
+            formatter: (params) => {
+                const i = params[0].dataIndex
+                const d = rows[i]
+                return `${d.trade_date}<br/>`
+                    + `比值: <b>${d.ratio.toFixed(4)}</b><br/>`
+                    + `中证A500: ${d.a500_close}（${((d.a500_norm - 1) * 100).toFixed(2)}%）<br/>`
+                    + `标普500: ${d.sp500_close}（${((d.sp500_norm - 1) * 100).toFixed(2)}%）`
+            }
+        }),
+        xAxis: {
+            type: 'category',
+            data: dates,
+            show: false
+        },
+        yAxis: [
+            {
+                type: 'value',
+                scale: true,
+                splitNumber: 2,
+                axisLabel: axisLabel({formatter: (v) => v.toFixed(2)}),
+                splitLine: splitLine()
+            },
+            {
+                type: 'value',
+                min: (v) => Math.min(v.min, 1) - (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
+                max: (v) => Math.max(v.max, 1) + (Math.max(v.max, 1) - Math.min(v.min, 1)) * 0.1,
+                splitNumber: 2,
+                axisLabel: axisLabel({color: COLORS.axisLabelThin, formatter: (v) => v.toFixed(2)}),
+                splitLine: splitLine({show: false})
+            }
+        ],
+        series: [
+            {
+                name: 'A股/美股',
+                type: 'line',
+                yAxisIndex: 0,
+                data: ratio,
+                smooth: true,
+                showSymbol: false,
+                ...lineSeriesStyle({color: mainColor, shadow: false}),
+                areaStyle: {
+                    color: areaGradient(mainColor, 0.22, 0.02)
+                },
+                // 1.0 = 区间起点，比值在此之上为 A股占优
+                markLine: markLevels([1], {color: COLORS.guideStrong})
+            },
+            {
+                name: '中证A500',
+                type: 'line',
+                yAxisIndex: 1,
+                data: aNorm,
+                smooth: true,
+                showSymbol: false,
+                ...lineSeriesStyle({color: '#ef4444', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+            },
+            {
+                name: '标普500',
+                type: 'line',
+                yAxisIndex: 1,
+                data: sNorm,
+                smooth: true,
+                showSymbol: false,
+                ...lineSeriesStyle({color: '#12783c', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+            }
+        ]
+    })
 }
 
 onMounted(async () => {
     await fetchCards()
+    await fetchA500Sp500()
     startTimer()
 })
 
-onUnmounted(stopTimer)
+onUnmounted(() => {
+    stopTimer()
+    disconnectAvChart()
+    avChart?.dispose()
+    avChart = null
+})
 </script>
 
 <template>
@@ -152,6 +367,91 @@ onUnmounted(stopTimer)
             <div v-if="failed_hint">{{ failed_hint }}</div>
         </div>
 
+        <!-- A股 vs 美股（中证A500 ÷ 标普500，起点归一）；复用沪深大盘页「成长 vs 价值」卡片结构 -->
+        <Card class="fear-greed-card a500-sp500-card">
+            <template #title>
+                <div class="card-title-row">
+                    <span>A股 vs 美股（中证A500 ÷ 标普500，起点归一）</span>
+                    <span v-if="avMeta" class="av-window">
+                        {{ avMeta.start_date }} ~ {{ avMeta.end_date }}（{{ avMeta.trade_days }} 个交易日）
+                    </span>
+                </div>
+            </template>
+            <template #content>
+                <div v-if="avLatest" class="fear-greed-body">
+                    <!-- 左：当前比值 + 区间涨跌幅 -->
+                    <div class="fg-current">
+                        <div class="fg-value" :style="{ color: avRatioColor }">
+                            {{ avLatest.ratio.toFixed(4) }}
+                        </div>
+                        <div class="fg-label" :style="{ color: avRatioColor }">
+                            {{ avLatest.ratio > 1 ? 'A股占优' : (avLatest.ratio < 1 ? '美股占优' : '相对均衡') }}
+                        </div>
+                        <div class="fg-date">{{ avLatest.trade_date }}</div>
+
+                        <div class="fg-scores">
+                            <!-- 分量拆解：三条「相对强度」条，都按窗口首日归一化为 1.0，
+                                 >1 红（跑赢）、<1 绿（跑输），与全站红涨绿跌一致。
+                                 条宽按「三条里最大偏离度」做相对归一，再留 12% 下限。 -->
+                            <div class="fg-score">
+                                <span class="score-name">A股/美股</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: avBarWidth(avLatest.ratio), background: avRatioColor }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: avRatioColor }">
+                                    {{ avLatest.ratio.toFixed(4) }}
+                                </span>
+                            </div>
+                            <div class="fg-score">
+                                <span class="score-name">中证A500</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: avBarWidth(avLatest.a500_norm), background: avLegColor(avLatest.a500_norm) }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: avLegColor(avLatest.a500_norm) }">
+                                    {{ ((avLatest.a500_norm - 1) * 100).toFixed(1) }}%
+                                </span>
+                            </div>
+                            <div class="fg-score">
+                                <span class="score-name">标普500</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: avBarWidth(avLatest.sp500_norm), background: avLegColor(avLatest.sp500_norm) }"></span>
+                                </span>
+                                <span class="score-val" :style="{ color: avLegColor(avLatest.sp500_norm) }">
+                                    {{ ((avLatest.sp500_norm - 1) * 100).toFixed(1) }}%
+                                </span>
+                            </div>
+                            <!-- 区间比值涨跌幅：>0 说明该窗口内 A股跑赢美股 -->
+                            <div v-for="p in avPeriods" :key="p.days" class="fg-score">
+                                <span class="score-name">近 {{ p.days }} 日</span>
+                                <span class="score-track">
+                                    <span class="score-fill"
+                                          :style="{ width: avBarWidth(p.change_pct) + '%', background: p.change_pct >= 0 ? 'var(--color-up)' : 'var(--color-down)' }"></span>
+                                </span>
+                                <span class="score-val"
+                                      :class="getPctColorClass(p.change_pct)">
+                                    {{ p.change_pct == null ? '--' : (p.change_pct > 0 ? '+' : '') + p.change_pct.toFixed(1) + '%' }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 右：近一年比值走势（副轴叠两条成分指数归一化净值） -->
+                    <div class="fg-chart-wrap">
+                        <div class="fg-chart-title">
+                            近一年走势（比值上行 = A股跑赢；点线为两条成分指数归一化涨幅）
+                        </div>
+                        <div ref="avChartRef" class="fg-chart"
+                             :class="{'is-loading': a500_sp500_loading}"></div>
+                    </div>
+                </div>
+                <div v-else class="empty-tip">
+                    {{ a500_sp500_loading ? '加载中…' : '暂无 A股/美股比值数据' }}
+                </div>
+            </template>
+        </Card>
+
         <!-- 指数卡片：一行平铺，不分组（与沪深大盘页一致，共用 IndexCard 组件） -->
         <div class="indices-row">
             <IndexCard
@@ -163,6 +463,7 @@ onUnmounted(stopTimer)
         </div>
 
         <div v-if="!loading && !cards.length" class="empty-tip">暂无美股指数数据</div>
+
     </div>
 </template>
 
@@ -174,6 +475,147 @@ onUnmounted(stopTimer)
     background: #f5f7fb;
     min-height: 100vh;
 }
+
+/* ========================
+   A股 vs 美股（复用沪深大盘页「成长 vs 价值」恐惧贪婪卡片的结构与样式）
+   ======================== */
+.fear-greed-card {
+    margin-bottom: 1.5rem;
+    background: #fff;
+
+    .card-title-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    // 标题右侧的区间说明，弱化显示
+    .av-window {
+        font-size: 0.8rem;
+        color: #94a3b8;
+        font-weight: 400;
+    }
+}
+
+.fear-greed-body {
+    display: flex;
+    gap: 1.5rem;
+    align-items: stretch;
+
+    .fg-current {
+        flex: 0 0 300px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 0.5rem 0;
+
+        .fg-value {
+            font-size: 3rem;
+            font-weight: 700;
+            line-height: 1;
+        }
+
+        .fg-label {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-top: 0.4rem;
+        }
+
+        .fg-date {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 0.25rem;
+        }
+
+        .fg-scores {
+            display: flex;
+            flex-direction: column;
+            gap: 0.45rem;
+            margin-top: 1rem;
+            width: 100%;
+
+            .fg-score {
+                display: flex;
+                align-items: center;
+                gap: 0.4rem;
+                font-size: 0.9rem;
+                color: #64748b;
+
+                .score-name {
+                    flex: 0 0 3.6rem;
+                    white-space: nowrap;
+                }
+
+                // 迷你进度条：0~100 分项得分
+                .score-track {
+                    flex: 1;
+                    height: 5px;
+                    background: #eef1f6;
+                    border-radius: 3px;
+                    overflow: hidden;
+
+                    .score-fill {
+                        display: block;
+                        height: 100%;
+                        border-radius: 3px;
+                        transition: width 0.3s ease;
+                    }
+                }
+
+                .score-val {
+                    flex: 0 0 3.2rem;
+                    text-align: right;
+                    font-weight: 600;
+                    color: #0f172a;
+                    font-variant-numeric: tabular-nums;
+                }
+            }
+        }
+    }
+
+    .fg-chart-wrap {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+
+        .fg-chart-title {
+            font-size: 0.85rem;
+            color: #94a3b8;
+            margin-bottom: 0.3rem;
+        }
+
+        .fg-chart {
+            flex: 1;
+            min-height: 200px;
+            width: 100%;
+            transition: opacity 0.2s ease;
+            // 与沪深大盘页同一条约定：挡住 ECharts 根 div 的显式宽度漏到页面级滚动
+            overflow-x: clip;
+
+            &.is-loading {
+                opacity: 0.45;
+            }
+        }
+    }
+}
+
+// 颜色工具类（--color-up/down/flat 定义在全局 :root）
+.text-up {
+    color: var(--color-up);
+}
+
+.text-down {
+    color: var(--color-down);
+}
+
+.text-flat {
+    color: var(--color-flat);
+}
+
 
 .header {
     display: flex;

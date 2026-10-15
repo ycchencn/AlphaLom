@@ -173,6 +173,8 @@ docker-compose up -d           # 或一键编排全部服务
 
 `./docker.sh` 管理镜像与服务：`all` / `base` / `build` / `up` / `down` / `restart` / `status` / `logs` / `clean` / `help`，无参数默认「构建并启动」。
 
+`docker-compose.yaml` **内置 Redis 服务**（`redis:7-alpine`，数据持久化到 `redis-data` 卷）：五个业务服务（web / scheduler / job_server / news_server / log_comsumer）默认连接它，`docker compose up` 即可一键起全栈，**无需预先准备外部 Redis**。如需改用外部 Redis，在 `.env` 中设置 `REDIS_HOST=<外部地址>`（compose 默认值 `redis` 会被覆盖；服务名只在容器内有效，本机直跑开发请保持 `127.0.0.1`）。
+
 ## 🖼 界面预览
 
 <table>

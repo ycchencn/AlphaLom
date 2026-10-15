@@ -10,6 +10,7 @@ from app.fastapi_app import api_prefix, json_resp
 from service import MarketNewsService, NewsDigestService
 from service.news_digest_service import REFRESH_HOUR_END, REFRESH_HOUR_START, REFRESH_MINUTE
 from service.growth_value_service import GrowthValueError, GrowthValueService
+from service.a500_sp500_service import A500Sp500Error, A500Sp500Service
 from service.sector_daily_service import SectorDailyService, normalize_sector_type
 from service.sector_rotation_service import SectorRotationService
 from utils.auth import get_current_user, require_admin
@@ -221,6 +222,32 @@ def get_market_growth_value(
     try:
         return GrowthValueService.get_series(days=days)
     except GrowthValueError as e:
+        # 入参问题 → 422；取数失败 → 503。都不打栈给前端。
+        msg = str(e)
+        status = 422 if 'days' in msg else 503
+        raise HTTPException(status_code=status, detail=msg)
+
+
+@market_router.get('/market/a500_sp500')
+@cache(expire=1800)
+def get_market_a500_sp500(
+    days: int = Query(250, ge=20, le=2000, description='返回最近 N 个交易日（1 个点/日）'),
+):
+    """A股 vs 美股风格强弱：中证A500(000510) ÷ 标普500(GSPC)
+
+    比值上行 = A股跑赢美股，下行 = 美股跑赢 A股。返回的 `points` 里同时带
+    两条成分指数的**归一化净值**（起点 1.0），前端叠在副轴上就能区分
+    「比值上行是中证A500涨出来的、还是标普500跌出来的」。
+
+    ⚠️ 中证A500 用 **000510** 而不是官方 CSI 代码 931337：上游 `get_index_history`
+    对中证自编号段（930/931/932/92xxxx/.CSI）全返 0 行，而 000510 有完整日线，
+    详见 service/a500_sp500_service.py 顶部说明。标普500 走 `get_us_index_history`。
+
+    缓存 30 分钟：这是日线数据，只有最新一根会随盘中变动，刷太勤没意义。
+    """
+    try:
+        return A500Sp500Service.get_series(days=days)
+    except A500Sp500Error as e:
         # 入参问题 → 422；取数失败 → 503。都不打栈给前端。
         msg = str(e)
         status = 422 if 'days' in msg else 503

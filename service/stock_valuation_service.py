@@ -86,10 +86,19 @@ class StockValuationService:
 
         只对 A 股调用（非 A 股上游无 PE-TTM，会写 null，列表据此不展示）。
         单条 UPDATE 语句，不加载整行 ORM 对象，全池几百只也只多几百次轻量 UPDATE。
+
+        ⚠️ 写侧防御：pe_ttm **缺失或 <= 0 一律不写、不覆盖**。PE-TTM 物理恒为正，
+        <= 0 必为无效值（上游当日未更新 / 暂缺 / 亏损股常返回 0 或负值）。历史版本
+        曾把负值原样写进 stocks.pe_ratio，造成监控列表把脏值显示成「亏损」（详见
+        commit a293bb2 的修复说明）。此处做最后一道闸：宁可不更新、保留上次有效值，
+        也绝不让脏值进入列表数据源。
         """
         try:
+            valid = _to_float(pe_ttm)
+            if valid is None or valid <= 0:
+                return False
             db_session.query(Stock).filter(Stock.symbol == symbol).update(
-                {'pe_ratio': _to_float(pe_ttm), 'last_update': func.now()},
+                {'pe_ratio': valid, 'last_update': func.now()},
                 synchronize_session=False,
             )
             db_session.commit()
