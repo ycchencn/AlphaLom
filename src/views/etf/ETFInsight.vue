@@ -10,6 +10,7 @@ import EtfSearchDialog from '@/components/EtfSearchDialog.vue';
 import EtfRotation from '@/views/etf/EtfRotation.vue';
 import {
     formatStockTradeAmount,
+    fearGreedLevel,
 } from '@/utils/function.js';
 
 // 组件名与 AppLayout <KeepAlive :include> 名单一致（列表页缓存，返回不重建）
@@ -32,6 +33,19 @@ const searchDialog = ref(null);
 
 // 已在监控列表中的代码列表，用于在搜索结果里标记「已添加」
 const watchedSymbols = computed(() => etfList.value.map(e => String(e.symbol)));
+
+// 贪婪恐惧进度条的着色 class（与股票列表 StockMonitor 一致，全站唯一分档入口 fearGreedLevel）
+const FG_LEVEL_CLASS = {
+    '极度恐惧': 'fg-extreme-fear',
+    '恐惧': 'fg-fear',
+    '中性': 'fg-neutral',
+    '贪婪': 'fg-greed',
+    '极度贪婪': 'fg-extreme-greed',
+};
+
+function getFearGreedClass(value) {
+    return FG_LEVEL_CLASS[fearGreedLevel(value).text] || 'fg-neutral';
+}
 
 function loadETFList() {
     loading1.value = true;
@@ -221,6 +235,18 @@ onBeforeMount(() => {
                     />
                 </template>
             </Column>
+            <Column field="fear_greed" filterField="fear_greed" header="贪婪&恐惧指标" sortable>
+                <template #body="{ data }">
+                    <ProgressBar
+                        v-if="data.fear_greed != null"
+                        :class="getFearGreedClass(data.fear_greed)"
+                        :value="data.fear_greed"
+                        :showValue="false"
+                        style="height: 8px; width: 100px"
+                    />
+                    <span v-else class="etf-fg-empty">—</span>
+                </template>
+            </Column>
             <Column header="操作" :style="{ width: '5rem' }">
                 <template #body="{ data }">
                     <Button
@@ -251,24 +277,31 @@ onBeforeMount(() => {
     font-weight: bold;
 }
 
+/* 恐惧贪婪进度条配色（与股票列表 StockMonitor 一致，对应 utils/function.js 的
+   FEAR_GREED_LEVELS，A 股口径：恐惧绿、贪婪红）。改这里务必同步那个常量。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 极度恐惧 - 柔和红 */
+    background: #12783c !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 恐惧 - 深橙 */
+    background: #4a9e6b !important; /* 恐惧 - 浅绿 */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {
-    background: #9ccc65 !important; /* 中性 - 金黄 */
+    background: #909399 !important; /* 中性 - 灰 */
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 贪婪 - 浅绿 */
+    background: #e8874a !important; /* 贪婪 - 橙 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 极度贪婪 - 绿 */
+    background: #ef4444 !important; /* 极度贪婪 - 红 */
+}
+
+.etf-fg-empty {
+    font-size: 11px;
+    color: #9ca3af;
 }
 
 :deep(.p-progressbar) {
