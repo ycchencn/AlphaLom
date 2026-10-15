@@ -201,26 +201,26 @@ onBeforeMount(() => {
                     <br/>{{ data.name }}
                 </template>
             </Column>
-            <Column header="近60日走势" :style="{ width: '9rem' }">
+            <Column header="近60日走势" :style="{ width: '15rem' }">
                 <template #body="{ data }">
                     <EtfTrendSparkline :symbol="data.symbol" :days="60"/>
                 </template>
             </Column>
-            <Column field="close" filterField="close" header="最新净值" sortable>
-                <template #body="{ data }">
-                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
-                        {{ data.ohlc_last.lastPrice != null ? data.ohlc_last.lastPrice.toFixed(3) : '--' }}
-                    </b>
-                </template>
-            </Column>
-            <Column field="chg_pct" filterField="chg_pct" header="涨跌幅" sortable>
+            <Column field="ohlc_last.chg_pct" filterField="ohlc_last.chg_pct" header="涨跌幅" sortable dataType="numeric">
                 <template #body="{ data }">
                     <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
                         {{ data.ohlc_last.chg_pct != null ? data.ohlc_last.chg_pct.toFixed(2) + '%' : '--' }}
                     </b>
                 </template>
             </Column>
-            <Column field="amount" filterField="amount" header="成交">
+            <Column field="ohlc_last.lastPrice" filterField="ohlc_last.lastPrice" header="最新净值" sortable dataType="numeric">
+                <template #body="{ data }">
+                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
+                        {{ data.ohlc_last.lastPrice != null ? data.ohlc_last.lastPrice.toFixed(3) : '--' }}
+                    </b>
+                </template>
+            </Column>
+            <Column field="ohlc_last.amount" filterField="ohlc_last.amount" header="成交" dataType="numeric">
                 <template #body="{ data }">
                     {{ formatStockTradeAmount(data.ohlc_last.amount) }}
                 </template>
