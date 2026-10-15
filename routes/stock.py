@@ -5,6 +5,8 @@
 """
 
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
+from pydantic import BaseModel
+from typing import Optional
 from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
@@ -53,7 +55,7 @@ def _clean_group_name(raw) -> 'str | None':
     return name
 
 
-def _dispatch_stock_analysis(symbol: str) -> None:
+def _dispatch_stock_analysis(symbol: str, agent_id=None, user_id=None) -> None:
     """把「个股分析」任务投递到任务队列（异步执行，实现见 job/job_stock_analysis.py）。
 
     分析链路：恐惧贪婪走势 → 技术因子 → DCF 估值 → 技术信号 → 最新报价。
@@ -62,23 +64,23 @@ def _dispatch_stock_analysis(symbol: str) -> None:
     所以**新入池的票必须立刻单独跑一次**，否则在第二天日更前页面上一片空白。
 
     注意两点：
-    1. job_args 刻意与线上「重新分析」接口保持完全一致（只传 stock_code），
-       不新增键 —— 新增键会要求 web 与 job_server 同时部署，否则消费者 TypeError；
+    1. job_args 刻意只新增 agent_id / user_id 两个**带默认值的可选键**（job 函数签名已
+       兼容），web 与 job_server 同时部署即可；未传时走原分支，行为不变。
        send_notification 走 job 函数默认值 False。
     2. 队列是 Redis Stream 消费组、prefetch=1 串行消费（job/job_server.py），
        这里只保证「已入队」，不保证何时算完。
     """
     JobService.send_job({
         'job_func': 'job_stock_analysis',
-        'job_args': {'stock_code': symbol}
+        'job_args': {'stock_code': symbol, 'agent_id': agent_id, 'user_id': user_id}
     })
 
 
-def _stock_reanalysis(symbol):
+def _stock_reanalysis(symbol, agent_id=None, user_id=None):
     """对已在库的个股重新投递一次分析（语义见 _dispatch_stock_analysis）"""
     if StockService.get_stock_by_symbol(symbol) is None:
         return
-    _dispatch_stock_analysis(symbol)
+    _dispatch_stock_analysis(symbol, agent_id=agent_id, user_id=user_id)
 
 
 async def _write_latest_quote(symbol: str) -> None:
@@ -505,23 +507,39 @@ def get_stock_history(
     return securities_data_dict
 
 
+class ReAnalysisRequest(BaseModel):
+    """「重新分析（全链路）」请求体。agent_id 可选：指定后 DCF 末步用该智能体驱动。"""
+    agent_id: Optional[int] = None
+
+
 @stock_router.put('/stock/re_analysis/{symbol}')
-def stock_re_analysis(symbol: str, user_id: int = Depends(get_current_user_id)):
+def stock_re_analysis(symbol: str, req: ReAnalysisRequest, user_id: int = Depends(get_current_user_id)):
     """重新分析个股
 
     ⚠️ 需要登录：该操作会向任务队列派发一次完整分析（恐贪 → 技术因子 → DCF 估值
     → 信号 → 报价），其中 DCF 是真实的大模型调用、单只实测约 6 分钟 ——
     不设门槛等于任何人都能无限触发 LLM 成本。这里至少要求是登录用户。
+
+    ⚠️ user_id 仅由鉴权注入（绝不取自重 body）；agent_id 若提供，会写进 job_args，
+    由 job 内 AgentService.get_agent(agent_id, user_id) 再校验归属，杜绝跨用户读取他人智能体。
     """
-    _stock_reanalysis(symbol)
+    _stock_reanalysis(symbol, agent_id=req.agent_id, user_id=user_id)
     return {'code': 0, 'message': 'Stock updated successfully!'}
 
 
+class ReAnalysisDcfRequest(BaseModel):
+    """「重新分析 DCF」请求体。agent_id 可选：指定后用该智能体驱动 DCF 研报。"""
+    agent_id: Optional[int] = None
+
+
 @stock_router.put('/stock/re_analysis_dcf/{symbol}')
-def stock_re_analysis_dcf(symbol: str, user_id: int = Depends(get_current_user_id)):
+def stock_re_analysis_dcf(symbol: str, req: ReAnalysisDcfRequest, user_id: int = Depends(get_current_user_id)):
     """重新分析个股DCF
 
     ⚠️ 需要登录：直接派发 DCF 估值任务（大模型调用，成本与上面的 re_analysis 相当）。
+
+    ⚠️ user_id 仅由鉴权注入（绝不取自重 body）；agent_id 若提供，会写进 job_args，
+    由 job 内 AgentService.get_agent(agent_id, user_id) 再校验归属。
     """
     if not validate_stock_code(symbol):
         raise HTTPException(status_code=400, detail="Invalid stock code")
@@ -529,7 +547,8 @@ def stock_re_analysis_dcf(symbol: str, user_id: int = Depends(get_current_user_i
         raise HTTPException(status_code=404, detail="Stock not found")
     JobService.send_job({
         'job_func': 'job_stock_dcf_model_analysis',
-        'job_args': {'_stock_code': symbol, 'send_notification': False}
+        'job_args': {'_stock_code': symbol, 'send_notification': False,
+                     'agent_id': req.agent_id, 'user_id': user_id}
     })
     return {'code': 0, 'message': 'Stock updated successfully!'}
 

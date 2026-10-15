@@ -6,7 +6,8 @@
 import json
 import re
 
-from llms import get_model_by_setting
+from llms import get_model_by_setting, get_llm_from_agent
+from service.agent_service import AgentService
 from utils.logger import logger
 from utils.common import get_today, get_date_by_n
 from service import StockService, FactorValueService, MarketNewsService
@@ -23,13 +24,51 @@ CURRENT_DIR = Path(__file__).parent
 prompt_template = Path(CURRENT_DIR / './prompt_stock_dcf_analysis.md').read_text(encoding='utf-8')
 
 
+# 未指定智能体时，DCF 分析用的默认分析师人格（与历史硬编码提示词一致）。
+_DCF_DEFAULT_ROLE = (
+    '你是一位拥有20年经验的资深证券分析师与量化估值专家。'
+    '请使用系统挂载的 MCP 工具主动获取实时行情、财务与新闻数据后再做分析，'
+    '使用 Markdown 输出，重点数据加粗。'
+)
+
+
+def _resolve_dcf_llm(agent_id=None, user_id=None):
+    """构建 DCF 分析用的 LLM。
+
+    优先用「指定且归属本人的智能体」(agent_id + user_id)；否则回退管理员配的
+    stock_dcf_analysis 场景。返回 (staff, role_base, broker_label)：
+
+    - role_base:   发送给大模型的 system prompt；指定 agent 时取其 system_prompt，
+                   为空则回退默认人格。
+    - broker_label: 落库到 broker_name 的展示文案（agent 名 + 模型，或仅模型名）。
+
+    ⚠️ 安全：agent 必须通过 AgentService.get_agent(agent_id, user_id) 取出（带 user_id
+    隔离），杜绝跨用户读取他人 agent、也杜绝任意伪造 platform / model。
+    """
+    if agent_id and user_id:
+        try:
+            agent = AgentService.get_agent(int(agent_id), int(user_id))
+        except Exception as e:
+            logger.warning(f"解析 DCF 智能体失败 (agent_id={agent_id}, user_id={user_id})，回退场景：{e}")
+            agent = None
+        if agent and agent.get('platform') and agent.get('model'):
+            staff = get_llm_from_agent(agent, scene='stock_dcf_analysis')
+            agent_prompt = (agent.get('system_prompt') or '').strip()
+            role_base = agent_prompt if agent_prompt else _DCF_DEFAULT_ROLE
+            broker_label = f"{agent.get('name')}({staff.model})"
+            return staff, role_base, broker_label
+    staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
+    return staff, _DCF_DEFAULT_ROLE, staff.model
+
+
 def get_stock_detail(_stock_code, market):
     """取公司概况。SDK 返回 {code, data} 信封，这里只把内层 data 交给大模型。"""
     resp = databull.get_company_profile(_stock_code, market)
     return resp.get('data') if isinstance(resp, dict) else resp
 
 
-def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notification=False):
+def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notification=False,
+                                 agent_id=None, user_id=None):
     # 分析间隔控制：非强制(force)时，若该股票近 interval_days 天内已生成过同类型深度研报，
     # 则跳过整段分析，避免重复消耗大模型算力（默认每月仅分析一次）。
     if not skip_interval and ResearchReportService.has_recent_report(_stock_code, report_type=1, days=dcf_report_date_limit):
@@ -39,12 +78,8 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         )
         return False
 
-    staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
-    staff.role_base = (
-        '你是一位拥有20年经验的资深证券分析师与量化估值专家。'
-        '请使用系统挂载的 MCP 工具主动获取实时行情、财务与新闻数据后再做分析，'
-        '使用 Markdown 输出，重点数据加粗。'
-    )
+    # 构建 LLM：指定且归属本人的智能体优先，否则回退 stock_dcf_analysis 场景。
+    staff, role_base, broker_label = _resolve_dcf_llm(agent_id, user_id)
     staff.set_response_text()
 
     trade_date = FactorValueService.get_latest_trading_date()
@@ -98,7 +133,7 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
     content = ''
     try:
         resp = staff.create_completion_with_tools(messages=[
-            {'role': 'system', 'content': staff.role_base},
+            {'role': 'system', 'content': role_base},
             {'role': 'user', 'content': prompt},
         ])
         content = (resp.get('final_answer') or '').strip()
@@ -131,7 +166,7 @@ def job_stock_dcf_model_analysis(_stock_code, skip_interval=False, send_notifica
         "stock_code": _stock_code,
         "stock_name": stock_name,
         "title": f"{_stock_code}-{stock_name}-dcf-report.md",
-        "broker_name": staff.model,
+        "broker_name": broker_label,
         "analyst_name": "llm",
         "publish_time": get_today(),
         "content_text": content,
