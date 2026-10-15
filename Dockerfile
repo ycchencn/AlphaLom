@@ -2,7 +2,6 @@
 FROM alphalom-fe-base as frontend-builder
 WORKDIR /build
 COPY . .
-RUN npx update-browserslist-db@latest
 RUN npm run build
 
 # ===== 阶段二：构建 Python 后端 =====
