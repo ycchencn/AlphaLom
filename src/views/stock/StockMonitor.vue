@@ -349,9 +349,12 @@ const PE_TTM_BANDS = [
  *   1) 非 A 股（market !== 'cn'）：上游 databull get_stock_info 对港股/美股/ETF 直接 500，
  *      PE-TTM **永远**不会有值 → 显示 '–'（浅灰）；
  *   2) A 股但 pe_ratio 为空：只是日更（每日盘后）还没跑到，比如刚加进池子的票 → 显示「暂无」；
- *   3) 亏损股（PE ≤ 0）：显示「亏损」。**绝不能直接显示 -12.34** —— 负 PE 在字面上
- *      像「很便宜」，是这一列最容易被信以为真的误读；上游异常返回 0 也一并按亏损处理
- *      （价格为正时真实 PE 不可能为 0）。
+ *   3) A 股但 pe_ratio <= 0：显示「暂无」并注明原因。**绝不显示「亏损」也绝不显示负数** ——
+ *      列表数据源 stocks.pe_ratio 的语义是「最新有效 PE 快照」，日更只在 PE>0 时回写
+ *      （见 StockValuationService.sync_latest_to_stocks 的写侧防御），所以这里的 <= 0
+ *      只可能是历史脏数据 / 上游异常值，**不是真实亏损**：真实亏损时上游返回的 PE<=0
+ *      会在日更被跳过、不写任何值，列表应显示「暂无」等数据。负 PE 字面上像「很便宜」，
+ *      是这一列最容易被信以为真的误读。
  *
  * @param {object} row - 列表行（含 market / pe_ratio）
  * @returns {{text: string, cls: string, title: string}}
@@ -366,7 +369,11 @@ function peTtmCell(row) {
         return { text: '暂无', cls: 'text-gray-400', title: 'PE-TTM 每日盘后更新，该股暂未落库' };
     }
     if (v <= 0) {
-        return { text: '亏损', cls: 'text-gray-400', title: `PE-TTM ${v.toFixed(2)}（净利润为负，不适用估值分档）` };
+        return {
+            text: '暂无',
+            cls: 'text-gray-400',
+            title: 'PE-TTM 数据异常（历史脏值/上游异常），每日盘后更新后自动恢复'
+        };
     }
     const band = PE_TTM_BANDS.find(b => v < b.upper) || PE_TTM_BANDS[PE_TTM_BANDS.length - 1];
     return { text: v.toFixed(2), cls: band.cls, title: `PE-TTM ${v.toFixed(2)}（${band.label}）` };
