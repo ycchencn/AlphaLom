@@ -5,6 +5,7 @@ import {useNotification} from '@/composables/useNotification';
 import {computed, onBeforeMount, ref} from 'vue';
 import axios from 'axios';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
+import EtfTrendSparkline from '@/components/EtfTrendSparkline.vue';
 import EtfSearchDialog from '@/components/EtfSearchDialog.vue';
 import EtfRotation from '@/views/etf/EtfRotation.vue';
 import {
@@ -184,6 +185,11 @@ onBeforeMount(() => {
                                  :to="{ name: 'etf-detail', params: { symbol: data.symbol } }">{{ data.symbol }}
                     </router-link>
                     <br/>{{ data.name }}
+                </template>
+            </Column>
+            <Column header="近60日走势" :style="{ width: '9rem' }">
+                <template #body="{ data }">
+                    <EtfTrendSparkline :symbol="data.symbol" :days="60"/>
                 </template>
             </Column>
             <Column field="close" filterField="close" header="最新净值" sortable>
