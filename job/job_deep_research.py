@@ -7,7 +7,8 @@
 import re
 import json
 
-from llms import get_model_by_setting
+from llms import get_model_by_setting, get_llm_from_agent
+from service.agent_service import AgentService
 from utils.logger import logger
 from utils.common import get_today, get_date_by_n, extract_html
 from service import FactorValueService, MarketNewsService
@@ -31,7 +32,34 @@ deep_research_template = Path(CURRENT_DIR / './template_deep_research.html').rea
 deep_research_skeleton = Path(CURRENT_DIR / './template_deep_research_skeleton.md').read_text(encoding='utf-8')
 
 
-def job_deep_research(_stock_code, save_local_html=False, force=False, interval_days=30):
+# 未指定智能体时，深度研报用的默认提示词（与历史硬编码一致）。
+_DEEP_RESEARCH_DEFAULT_ROLE = '你需要根据客户提供的资料对股票进行分析'
+
+
+def _resolve_deep_research_llm(agent_id=None, user_id=None):
+    """构建深度研报分析用的 LLM（语义同 job_stock_dcf_model_analysis._resolve_dcf_llm）。
+
+    返回 (staff, role_base, broker_label)：指定且归属本人的智能体优先（取其 system_prompt），
+    否则回退 stock_dcf_analysis 场景。
+    """
+    if agent_id and user_id:
+        try:
+            agent = AgentService.get_agent(int(agent_id), int(user_id))
+        except Exception as e:
+            logger.warning(f"解析深度研报智能体失败 (agent_id={agent_id}, user_id={user_id})，回退场景：{e}")
+            agent = None
+        if agent and agent.get('platform') and agent.get('model'):
+            staff = get_llm_from_agent(agent, scene='stock_dcf_analysis')
+            agent_prompt = (agent.get('system_prompt') or '').strip()
+            role_base = agent_prompt if agent_prompt else _DEEP_RESEARCH_DEFAULT_ROLE
+            broker_label = f"{agent.get('name')}({staff.model})"
+            return staff, role_base, broker_label
+    staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
+    return staff, _DEEP_RESEARCH_DEFAULT_ROLE, staff.model
+
+
+def job_deep_research(_stock_code, save_local_html=False, force=False, interval_days=30,
+                      agent_id=None, user_id=None):
     # 分析间隔控制：非强制(force)时，若该股票近 interval_days 天内已生成过同类型深度研报，
     # 则跳过整段分析，避免重复消耗大模型算力（默认每月仅分析一次）。
     if not force and ResearchReportService.has_recent_report(_stock_code, report_type=3, days=interval_days):
@@ -41,8 +69,9 @@ def job_deep_research(_stock_code, save_local_html=False, force=False, interval_
         )
         return False
 
-    staff = get_model_by_setting(_setting_name='stock_dcf_analysis')
-    staff.role_base = '你需要根据客户提供的资料对股票进行分析'
+    # 构建 LLM：指定且归属本人的智能体优先，否则回退 stock_dcf_analysis 场景。
+    staff, role_base, broker_label = _resolve_deep_research_llm(agent_id, user_id)
+    staff.role_base = role_base
     staff.set_response_text()
     # 深度研究研报：模型需输出 TL;DR + 六大章节 + 财务趋势 + 免责声明（含 5 个 data-chart），
     # 给到 24K 输出预算，避免长研报被截断在章节中途。
@@ -109,7 +138,7 @@ def job_deep_research(_stock_code, save_local_html=False, force=False, interval_
         "stock_code": _stock_code,
         "stock_name": stock_name,
         "title": f"{_stock_code}-{stock_name}_deep_research.md",
-        "broker_name": staff.model,
+        "broker_name": broker_label,
         "analyst_name": "llm",
         "publish_time": get_today(),
         "content_text": report_html,

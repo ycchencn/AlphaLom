@@ -62,7 +62,7 @@ def _run_step(label, fn, *args, **kwargs):
         return None
 
 
-def job_stock_analysis(stock_code, send_notification=False):
+def job_stock_analysis(stock_code, send_notification=False, agent_id=None, user_id=None):
     # 不在数据库则自动添加（从 API 补全名称 + 公司概况）。
     # 这一步**不隔离**：后面所有步骤都依赖「这一行存在」。所有投递路径都保证它已在库
     # （web 路由先 ensure_stock_from_api、批量脚本先 upsert_stock），此处实际是幂等空操作。
@@ -85,8 +85,10 @@ def job_stock_analysis(stock_code, send_notification=False):
 
     # DCF 模型分析（重：调大模型）—— 放最后：估值报告相对没那么急，且其结论只是
     # 技术面信号的可选上下文，前置不会拖慢主力行为 / 概念题材的落库。
+    # agent_id / user_id 透传：手动「重新分析」指定了智能体时，DCF 末步也用该智能体。
     _run_step('DCF 估值分析', job_stock_dcf_model_analysis,
-              stock_code, send_notification=send_notification)
+              stock_code, send_notification=send_notification,
+              agent_id=agent_id, user_id=user_id)
 
 
 if __name__ == '__main__':

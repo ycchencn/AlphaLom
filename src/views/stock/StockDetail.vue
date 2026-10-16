@@ -29,7 +29,8 @@ import {useNotification} from '@/composables/useNotification';
 import PriceRange52Week from '@/components/PriceRange52Week.vue';
 import FactorPanel from '@/components/FactorPanel.vue';
 import router from '@/router'
-import NavSidePanel from '@/components/NavSidePanel.vue';
+import NavSidePanel from '@/components/NavSidePanel.vue'
+import StockAgentChat from '@/components/stock/StockAgentChat.vue';
 import * as echarts from 'echarts'
 import {
     COLORS, LINE, FONT, PALETTE,
@@ -593,6 +594,7 @@ const dcf_research_report = ref({
 })
 const tech_report = ref(null)
 const dcf_research_report_drawer = ref(false)
+const agentChatVisible = ref(false)
 const fundamental_scores = ref(null)
 const research_reports = ref([])
 const selected_report = ref(null)
@@ -661,10 +663,42 @@ const verdictSeverity = computed(() => {
 })
 const fmtPrice = (v) => (v ? '¥' + Number(v).toFixed(2) : '—')
 
+// ==================== 个股分析可选智能体 ====================
+// 「重新分析 / 重新分析 DCF」时可指定一个「属于当前用户」的智能体来驱动大模型分析
+// （persona = 该智能体的 system_prompt，模型 = 其 platform/model）。不指定则走系统默认场景。
+// 选择用 localStorage 记忆（会话级偏好，契合项目现有的偏好持久化模式）。
+const agents = ref([])
+const agentsLoading = ref(false)
+const STORAGE_AGENT_KEY = 'stock_analysis_agent_id'
+const selectedAgentId = ref(
+    localStorage.getItem(STORAGE_AGENT_KEY)
+        ? Number(localStorage.getItem(STORAGE_AGENT_KEY))
+        : null
+)
+
+function fetchAgents() {
+    agentsLoading.value = true
+    return axios.get('/api/v1/agents')
+        .then((response) => {
+            agents.value = response.data?.data || []
+        })
+        .catch(() => {
+            agents.value = []
+        })
+        .finally(() => {
+            agentsLoading.value = false
+        })
+}
+
+watch(selectedAgentId, (v) => {
+    if (v) localStorage.setItem(STORAGE_AGENT_KEY, String(v))
+    else localStorage.removeItem(STORAGE_AGENT_KEY)
+})
+
 const reAnalyze = () => {
     if (reAnalyzing.value) return
     reAnalyzing.value = true
-    axios.put(`/api/v1/stock/re_analysis/${stock_code}`, {})
+    axios.put(`/api/v1/stock/re_analysis/${stock_code}`, {agent_id: selectedAgentId.value || null})
         .then(() => showSuccess('已提交重新分析任务'))
         .catch(() => showError('操作失败，请重试'))
         .finally(() => { reAnalyzing.value = false })
@@ -973,6 +1007,8 @@ onMounted(async () => {
     //    用户要先点一次弹窗才「变成对的」。
     // 不 await：与首屏取数并行，不拖慢标题/行情渲染。
     loadGroupState();
+    // 拉取当前用户的智能体列表（供「重新分析」指定 agent 驱动大模型）。
+    fetchAgents();
     stock_info.value = await fetchStockInfo(stock_code);
     stock_profile.value = await fetchStockProfile(stock_code)
     // PE-TTM 估值（仅 A 股）。不 await：与首屏取数并行，标题/行情先出，
@@ -1191,7 +1227,7 @@ const showDcfDrawer = function () {
 
 const reanalysisDcf = function () {
     try {
-        axios.put(`/api/v1/stock/re_analysis_dcf/${stock_code}`, {});
+        axios.put(`/api/v1/stock/re_analysis_dcf/${stock_code}`, {agent_id: selectedAgentId.value || null});
         showSuccess('已提交重新分析任务');
     } catch (error) {
         let message = '操作失败，请重试';
@@ -1300,7 +1336,18 @@ onUnmounted(() => {
                 <div class="text-xs text-gray-400">
                     最近更新：{{ formatDaysAgo(dcf_research_report?.created_at) || '加载中...' }}
                 </div>
-                <div class="flex gap-3">
+                <div class="flex gap-3 items-center">
+                    <label class="text-xs text-gray-500 whitespace-nowrap">分析智能体</label>
+                    <select
+                        v-model="selectedAgentId"
+                        :disabled="agentsLoading"
+                        class="text-sm border border-gray-300 rounded px-2 py-1 bg-white max-w-[12rem]"
+                    >
+                        <option :value="null">系统默认</option>
+                        <option v-for="a in agents" :key="a.id" :value="a.id">
+                            {{ a.emoji || '🤖' }} {{ a.name }}
+                        </option>
+                    </select>
                     <!-- 重新分析按钮 -->
                     <Button
                         @click="reanalysisDcf"
@@ -1348,12 +1395,28 @@ onUnmounted(() => {
             </div>
 
             <!-- 底部操作栏 -->
-            <div class="border-t border-gray-300 p-4 flex justify-between items-center shrink-0">
-                <div class="text-xs text-gray-400">
-                    发布时间：{{ formatDaysAgo(selected_report.publish_time) || '加载中...' }}
+                <div class="border-t border-gray-300 p-4 flex justify-between items-center shrink-0">
+                    <div class="text-xs text-gray-400">
+                        发布时间：{{ formatDaysAgo(selected_report.publish_time) || '加载中...' }}
+                    </div>
                 </div>
-            </div>
         </div>
+    </Drawer>
+
+    <!-- 个股内嵌智能体对话抽屉 -->
+    <Drawer
+        v-model:visible="agentChatVisible"
+        header="智能体对话"
+        position="right"
+        class="!w-full md:!w-[40rem] lg:!w-[52rem]"
+        :footer="false"
+        body-class="p-0"
+    >
+        <StockAgentChat
+            v-if="agentChatVisible"
+            :stock-code="stock_code"
+            :stock-name="stock_info?.name || ''"
+        />
     </Drawer>
 
     <!-- 设置分组：分组是 user_stock_pool.group_name 标签，与个股监控页共用同一套接口 -->
@@ -1452,6 +1515,7 @@ onUnmounted(() => {
                     label="快速回测" icon="pi pi-chart-line" size="small" severity="secondary"
                     class="whitespace-nowrap" @click="goQuickBacktest()"></Button>
             <Button label="AI 估值分析" size="small" class="whitespace-nowrap" @click="showDcfDrawer()" :loading="loading"></Button>
+            <Button label="智能体对话" icon="pi pi-comments" size="small" severity="secondary" class="whitespace-nowrap" @click="agentChatVisible = true"></Button>
             <!-- <Button :label="watched ? '已关注' : '关注'" size="small" @click="toggleLike()" :severity="watched ? '' : 'secondary'"></Button>-->
             <SplitButton label="操作" :model="items" size="small" severity="secondary"/>
         </div>
@@ -1671,8 +1735,20 @@ onUnmounted(() => {
                                     <i class="pi pi-chart-pie text-green-500"></i>
                                     <span>基本面评分</span>
                                 </div>
-                                <Button label="重新分析" size="small" severity="secondary" text
-                                        :loading="reAnalyzing" @click="reAnalyze" />
+                                <div class="flex items-center gap-2">
+                                    <select
+                                        v-model="selectedAgentId"
+                                        :disabled="agentsLoading"
+                                        class="text-xs border border-gray-300 rounded px-1.5 py-0.5 bg-white max-w-[10rem]"
+                                    >
+                                        <option :value="null">系统默认</option>
+                                        <option v-for="a in agents" :key="a.id" :value="a.id">
+                                            {{ a.emoji || '🤖' }} {{ a.name }}
+                                        </option>
+                                    </select>
+                                    <Button label="重新分析" size="small" severity="secondary" text
+                                            :loading="reAnalyzing" @click="reAnalyze" />
+                                </div>
                             </div>
                         </template>
                         <template #content>

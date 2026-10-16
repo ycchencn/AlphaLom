@@ -1,5 +1,4 @@
 import {createApp} from 'vue';
-import {watch} from 'vue';
 import App from './App.vue';
 import router from './router';
 import axios from 'axios';
@@ -130,64 +129,10 @@ if (store.state.token) {
         });
 }
 
-// ==================== 网站统计代码注入 ====================
-// 管理员在「系统管理 → 通用设置 → 网站统计代码」粘贴的 <script> 片段（百度统计 /
-// CNZZ / Google Analytics 等）。这里在启动后拉一次并注入页面执行。
-//
-// 两个时机都要覆盖（否则登录后才加载的会话里统计会丢）：
-//   1) 刷新进入（localStorage 里已有令牌）—— mount 后立即试一次；
-//   2) 登录后进入（首屏是登录页，拿到令牌时再注入）—— watch store token。
-// ⚠️ 注入容器用 display:none：挡住代码里可能夹带的可见内容（统计平台偶尔会带
-//    个小图标）。代价是 noscript 像素不加载 —— 本应用禁用 JS 本就无法运行，
-//    这个代价可以忽略。
-// ⚠️ innerHTML 里的 <script> **不会执行**：必须逐个 createElement 重建后再入
-//    DOM（<script src> 外链与内联脚本都走这条路）。
-// 模块级状态：
-//   done    —— 已拿到一次明确答复（成功拿到代码/确认无代码），不再注入；
-//   pending —— 请求在途（避免登录与首屏两次触发并发双注入）；
-//   retry   —— 在途期间又来了触发（登录），请求结束后补一次。
-const _analytics = {done: false, pending: false, retry: false};
-
-function injectAnalyticsCode() {
-    if (_analytics.done) return;
-    if (_analytics.pending) {
-        _analytics.retry = true;
-        return;
-    }
-    _analytics.pending = true;
-    axios.get('/api/v1/settings/general/analytics')
-        .then((response) => {
-            const code = response?.data?.code;
-            if (typeof code === 'string' && code.trim()) {
-                const container = document.createElement('div');
-                container.setAttribute('data-analytics', 'injected');
-                container.style.display = 'none';
-                container.innerHTML = code;
-                container.querySelectorAll('script').forEach((oldScript) => {
-                    const fresh = document.createElement('script');
-                    for (const attr of oldScript.attributes) {
-                        fresh.setAttribute(attr.name, attr.value);
-                    }
-                    fresh.text = oldScript.text;
-                    oldScript.replaceWith(fresh);
-                });
-                document.body.appendChild(container);
-            }
-            // 拿到明确答复（有码注入完 / 确认无码）→ 标记完成，同一页面加载不再注入
-            _analytics.done = true;
-        })
-        .catch(() => {
-            // 未登录（401）/ 接口不存在 / 网络异常：静默跳过，**不标记 done** ——
-            // 登录成功后 watch 会再触发一次（见下方）。统计代码绝不允许影响主流程。
-        })
-        .finally(() => {
-            _analytics.pending = false;
-            if (!_analytics.done && _analytics.retry) {
-                _analytics.retry = false;
-                injectAnalyticsCode();
-            }
-        });
-}
+// ==================== 网站统计代码 ====================
+// 统计代码改由后端在 serve index.html 时注入 </body> 之前（见 run_fastapi.py 的
+// _serve_index_html），对所有访客（含未登录）原生生效，不再依赖前端 fetch + 令牌。
+// 前端不再注入，避免与后端重复注入导致统计重复计数。
 
 app.config.globalProperties.$echarts = echarts;
 
@@ -195,10 +140,3 @@ app.config.globalProperties.$echarts = echarts;
 app.directive('tooltip', Tooltip);
 
 app.mount('#app');
-
-// 登录后（或刷新后令牌本就在）注入统计代码；未登录时 watch 不触发，
-// 登录成功 setToken 后补上 —— 见 Login.vue 的 setToken 提交。
-watch(() => store.state.token, (token) => {
-    if (token) injectAnalyticsCode();
-});
-injectAnalyticsCode();

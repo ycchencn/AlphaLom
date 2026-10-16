@@ -100,6 +100,48 @@ def get_model_by_setting(_setting_name: str = 'stock_dcf_analysis', _setting: Op
     return staff
 
 
+def get_llm_from_agent(agent: Dict[str, Any], scene: str = 'stock_dcf_analysis'):
+    """
+    根据「智能体」(LlmAgent.to_dict()) 构建 LLM 实例。
+
+    与 get_model_by_setting 的区别：模型 / 平台来自用户自建的智能体，而非管理员配的
+    stock_dcf_analysis 场景。role_base（system prompt）由调用方负责设置。
+
+    ⚠️ 调用方必须先通过 AgentService.get_agent(agent_id, user_id) 取出 agent 并校验归属，
+    本函数只相信传入的 dict，不联网查库、也不做越权检查 —— 这样避免 LLM 构建层耦合 DB。
+    agent 缺 platform / model 或平台不支持时直接抛 ValueError，交由调用方降级。
+
+    :param agent: AgentService.get_agent 返回的 dict，必须含 platform / model
+    :param scene: 仅用于用量统计归集的场景名，不影响模型选择
+    :return: LLM 实例（已 set_model 并写 scene / platform）
+    :raises ValueError: agent 缺 platform / model 或平台不支持
+    """
+    platform = (agent.get('platform') or '').strip()
+    model = agent.get('model')
+    if not platform:
+        raise ValueError(f"智能体缺少 platform 字段：{agent.get('name')!r}")
+    if not model:
+        raise ValueError(f"智能体缺少 model 字段：{agent.get('name')!r}")
+
+    llm_cls = _PLATFORM_REGISTRY.get(platform)
+    if not llm_cls:
+        supported = ', '.join(sorted(_PLATFORM_REGISTRY.keys()))
+        raise ValueError(f"不支持的平台：{platform}，支持的平台：{supported}")
+
+    staff = llm_cls()
+    # 支持单模型（字符串）或多模型随机选择（列表）
+    if isinstance(model, list) and model:
+        staff.set_model(random.choice(model))
+    else:
+        staff.set_model(model)
+
+    staff.scene = scene
+    staff.platform = platform
+
+    logger.debug(f"通过智能体创建 LLM 实例：name={agent.get('name')!r}, platform={platform}, model={staff.model}")
+    return staff
+
+
 def list_platform_models(platform: str, timeout: float = 15.0) -> List[str]:
     """
     实时拉取指定平台可用的模型列表（调用各平台 OpenAI 兼容的 GET /models）

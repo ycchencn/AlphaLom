@@ -101,6 +101,9 @@ def get_etfs(user_id: int = Depends(get_current_user_id)):
     是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
     """
     rows = EtfService.list_watchlist(user_id)
+    # 批量取每只 ETF 最新的恐惧贪婪值（一次查询，避免 N+1）。该表与个股共用
+    # stocks_fear_greed，按 index_code（即 symbol）自然落入，不需要单独建表。
+    greed_map = StockFearGreedService.get_latest_by_index_codes([r.symbol for r in rows])
     result = []
     for row in rows:
         symbol = row.symbol
@@ -132,6 +135,10 @@ def get_etfs(user_id: int = Depends(get_current_user_id)):
         if last_price is not None and last_close:
             ohlc['chg_pct'] = (last_price - last_close) / last_close * 100
         etf['ohlc_last'] = ohlc
+        # 贪婪恐惧指标：与股票列表一致挂在 fear_greed 字段，供前端进度条渲染与按该列排序。
+        # 无数据（尚未计算/刚入池）时置 None，前端显示占位、不报错。
+        _g = greed_map.get(symbol)
+        etf['fear_greed'] = (_g or {}).get('fear_greed')
         result.append(etf)
 
     return result

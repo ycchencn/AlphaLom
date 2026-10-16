@@ -205,7 +205,7 @@ onBeforeMount(loadSettings);
 
 <template>
 
-    <div class="gs-page mt-5 flex flex-col gap-4">
+    <div class="gs-page mt-5 flex flex-col">
 
         <!-- 区块 1：展示时区（页面标题整合在卡片顶部，避免标题悬浮在卡片外造成多余间距） -->
         <div class="card">
@@ -309,11 +309,17 @@ onBeforeMount(loadSettings);
             </div>
         </div>
 
+        <Divider class="gs-divider"/>
+
         <!-- 区块 2：网站统计代码（子组件，整段统计脚本注入） -->
         <AnalyticsSetting/>
 
+        <Divider class="gs-divider"/>
+
         <!-- 区块 3：图表显示（子组件，详情页各图表区块显隐） -->
         <ChartDisplaySetting/>
+
+        <Divider class="gs-divider"/>
 
         <!-- 区块 4：API Key 管理（子组件，对外开放 API 的调用凭证） -->
         <ApiKeyManage/>
@@ -326,6 +332,17 @@ onBeforeMount(loadSettings);
 .gs-page {
     display: flex;
     flex-direction: column;
+}
+
+/* 分区之间的分割线：`.card` 无边框/圆角/阴影，四个设置块只是白块靠间距堆叠，
+   看起来容易糊在一起；用一条收紧、可见的浅灰线把「展示时区 / 统计代码 / 图表显示 / API Key」
+   四个设置项清晰隔开。行内覆盖 PrimeVue Divider 默认 1rem 上下外边距与主题线色。 */
+.gs-divider {
+    margin: 0.5rem 0;
+}
+
+.gs-divider::before {
+    border-block-start-color: #e2e8f0;
 }
 
 .gs-list {
