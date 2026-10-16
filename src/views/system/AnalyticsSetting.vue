@@ -9,12 +9,12 @@ import {useNotification} from '@/composables/useNotification';
  *
  * 站长粘贴的第三方统计代码（百度统计 / CNZZ / Google Analytics / umami 等），
  * 整段原文存后端 system_setting 表（分组 general_setting，键 analytics_code），
- * 前端启动时注入页面执行。
+ * 由后端在渲染 index.html（SPA 兜底）时注入 </body> 之前，对所有访客（含未登录）生效。
  *
- * ⚠️ 「保存」≠ 立即注入：统计代码只在**页面加载时**注入一次（main.js 启动逻辑），
+ * ⚠️ 「保存」≠ 立即注入：统计代码由后端在**每次页面加载**时从配置读取并写进 HTML，
  *    所以保存 / 清除后要**刷新页面**才看得到效果 —— 这也是统计平台的通用行为
- *    （重复注入同一段代码会导致数据重复计数）。
- * ⚠️ 注入是**全站**的：对所有已登录用户生效，不是只对管理员。
+ *    （重复注入同一段代码会导致数据重复计数，后端注入保证了每个页面只注入一次）。
+ * ⚠️ 注入是**全站**的：对所有访客生效，不是只对管理员。
  */
 const {showSuccess, showError} = useNotification();
 

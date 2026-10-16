@@ -8,8 +8,10 @@
 """
 
 import uvicorn
+import time
+import logging
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.openapi.docs import (
     get_redoc_html,
     get_swagger_ui_html,
@@ -18,6 +20,8 @@ from app.fastapi_app import create_app
 from config import server_setting
 from models.init_db import init_database
 import os
+
+logger = logging.getLogger(__name__)
 
 # 创建 FastAPI 应用
 # docs_url=None / redoc_url=None：Swagger UI / ReDoc 的静态资源默认走 jsdelivr CDN，
@@ -121,19 +125,88 @@ STATIC_ASSET_SUFFIXES = (
 )
 
 if os.path.isdir(static_dir):
+    # ==================== 网站统计代码（后端注入） ====================
+    # 管理员在「系统管理 → 通用设置 → 网站统计代码」粘贴的第三方统计片段
+    # （百度统计 / CNZZ / Google Analytics / umami 等），由后端在服务 index.html
+    # 时直接注入 </body> 之前，对所有访客（含未登录）生效。
+    #
+    # 为什么改成后端注入：原先靠前端 main.js 在启动 / 登录后 fetch 接口再注入，
+    # 既要求已登录令牌（未登录访客统计不到），又只在特定时机触发，极易「没效果」。
+    # 后端把代码写进 HTML 源，浏览器原生执行其中的 <script>，最稳。
+    from service.system_setting_service import SystemSettingService
+    from routes.system_setting import GENERAL_SETTING_GROUP, GENERAL_ANALYTICS_KEY
+
+    _analytics_cache = {"value": None, "at": 0.0}
+    _ANALYTICS_TTL = 300  # 秒：统计代码读取缓存，避免每个页面请求都打一次 DB
+    _index_cache = {"path": None, "mtime": 0.0, "content": ""}
+
+    def _read_index_html():
+        """读 dist/index.html 原文并按文件 mtime 缓存（重新构建后自动刷新）。"""
+        path = os.path.join(static_dir, 'index.html')
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            return None
+        if _index_cache["path"] == path and _index_cache["mtime"] == mtime:
+            return _index_cache["content"]
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except OSError as e:
+            logger.error(f"读取 index.html 失败: {e}")
+            return None
+        _index_cache["path"] = path
+        _index_cache["mtime"] = mtime
+        _index_cache["content"] = content
+        return content
+
+    def _get_analytics_code():
+        """读取统计代码（带短时缓存；失败回落到上次成功值，不刷新时间戳以便尽快重试）。"""
+        now = time.time()
+        if _analytics_cache["value"] is not None and (now - _analytics_cache["at"]) < _ANALYTICS_TTL:
+            return _analytics_cache["value"]
+        try:
+            code = SystemSettingService.get_value(
+                f"{GENERAL_SETTING_GROUP}.{GENERAL_ANALYTICS_KEY}", default=""
+            ) or ""
+            if not isinstance(code, str):
+                code = ""
+        except Exception as e:
+            logger.warning(f"读取统计代码失败，暂用上次缓存值: {e}")
+            return _analytics_cache["value"] or ""
+        _analytics_cache["value"] = code
+        _analytics_cache["at"] = now
+        return code
+
+    def _serve_index_html():
+        """返回注入了统计代码的 index.html（无统计代码时原样返回）。"""
+        html = _read_index_html()
+        if html is None:
+            raise HTTPException(status_code=503, detail="index.html not found")
+        code = (_get_analytics_code() or "").strip()
+        if code:
+            # 直接把代码片段放进 HTML 源，浏览器会原生执行其中的 <script>，
+            # 无需前端 innerHTML 重建。display:none 容器挡住代码里可能夹带的可见图标。
+            injection = f'<div data-analytics="server-injected" style="display:none">{code}</div>'
+            if "</body>" in html:
+                html = html.replace("</body>", f"{injection}\n</body>", 1)
+            else:
+                html = f"{html}{injection}"
+        return HTMLResponse(content=html, media_type="text/html; charset=utf-8")
+
     @app.get('/')
-    async def serve_index():
-        return FileResponse(os.path.join(static_dir, 'index.html'))
+    def serve_index():
+        return _serve_index_html()
 
     @app.get('/{full_path:path}')
-    async def serve_spa(full_path: str):
+    def serve_spa(full_path: str):
         file_path = os.path.join(static_dir, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         if full_path.lower().endswith(STATIC_ASSET_SUFFIXES):
             raise HTTPException(status_code=404, detail=f'Static asset not found: /{full_path}')
-        # SPA fallback: 所有非 API 路径返回 index.html
-        return FileResponse(os.path.join(static_dir, 'index.html'))
+        # SPA fallback: 所有非 API 路径返回注入了统计代码的 index.html
+        return _serve_index_html()
 
 
 # ==================== 启动 ====================
