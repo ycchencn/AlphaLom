@@ -158,7 +158,7 @@ onBeforeMount(() => {
             :showGridlines="false"
             style="font-size: 11px"
             size="medium"
-            sortField="fear_greed"
+            sortField="ohlc_last.chg_pct"
             sortOrder="-1"
         >
             <template #header>
