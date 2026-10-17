@@ -4,9 +4,14 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
 """
 
+import csv
+import io
+from urllib.parse import quote
+
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
+from fastapi.responses import Response
 from pydantic import BaseModel
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
@@ -41,17 +46,24 @@ MONITORED_STOCKS_NS = 'stocks_monitored'
 GROUP_NAME_MAX_LEN = 50
 
 
-def _clean_group_name(raw) -> 'str | None':
+def _clean_group_name(raw, strict: bool = True) -> 'str | None':
     """规范化分组名：去首尾空白；空串/None 统一成 None（= 未分组）。
 
     ⚠️ 必须去空白：分组是「字符串标签」而不是独立实体，`'金融'` 与 `'金融 '` 会被当成
     两个不同的分组，监控页左侧面板就会多出一个肉眼分不出差别的条目。
     ⚠️ 长度必须挡在入库前：超长在严格模式下是 1406（500），不是自动截断。
+
+    Args:
+        strict: True（默认，单只写接口）→ 超长直接抛 400；
+                False（批量导入）→ 抛 ValueError，由调用方降级为「该行不设分组 + 告警」，
+                不能因为一行脏数据让整个文件导入失败。
     """
     name = (raw or '').strip() or None
     if name and len(name) > GROUP_NAME_MAX_LEN:
-        raise HTTPException(status_code=400,
-                            detail=f"分组名称不能超过 {GROUP_NAME_MAX_LEN} 个字符")
+        msg = f"分组名称不能超过 {GROUP_NAME_MAX_LEN} 个字符"
+        if strict:
+            raise HTTPException(status_code=400, detail=msg)
+        raise ValueError(msg)
     return name
 
 
@@ -400,6 +412,320 @@ async def delete_stock_group(
     StockService.delete_user_group(user_id, group_name)
     await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
     return {'code': 0, 'message': 'ok'}
+
+
+# ---------- 股票池导入 / 导出（CSV）----------
+
+# 导出文件的列 = 模板的 4 列 + 3 列只读行情。回导时多出来的列会被忽略，
+# 于是「导出 → 在 Excel 里改分组 → 再导入」是闭环的，不必让用户手工删列。
+POOL_EXPORT_HEADERS = ['股票代码', '股票名称', '市场', '分组', '加入时间', '最新价', '涨跌幅(%)']
+POOL_IMPORT_HEADERS = POOL_EXPORT_HEADERS[:4]
+
+# 表头别名 → 内部字段名。以模板的中文表头为准，同时兼容从券商 / 其它系统导出的英文表头，
+# 免得用户每次导入都要手工改列名。key 一律小写匹配。
+POOL_HEADER_ALIASES = {
+    '股票代码': 'symbol', '代码': 'symbol', '证券代码': 'symbol',
+    '股票名称': 'name', '名称': 'name', '简称': 'name', '证券名称': 'name',
+    '市场': 'market',
+    '分组': 'group_name', '分组名称': 'group_name', '自定义分组': 'group_name',
+    'symbol': 'symbol', 'code': 'symbol', 'ticker': 'symbol',
+    'name': 'name',
+    'market': 'market',
+    'group_name': 'group_name', 'group': 'group_name',
+}
+
+# 市场列的常见写法 → 内部取值。留空 / 认不出时不猜：已在库的标的一律沿用库里的 market，
+# 只有新标的才兜底 cn —— 把港股记成 cn 之后，按市场分段查询就再也查不到它了。
+POOL_MARKET_ALIASES = {
+    'cn': 'cn', 'a': 'cn', 'a股': 'cn', '沪深': 'cn', '沪深a股': 'cn',
+    'sh': 'cn', 'sz': 'cn', 'shanghai': 'cn', 'shenzhen': 'cn',
+    'hk': 'hk', '港股': 'hk', '香港': 'hk', 'hongkong': 'hk',
+    'us': 'us', '美股': 'us', '美国': 'us', 'usa': 'us', 'nasdaq': 'us', 'nyse': 'us',
+}
+
+POOL_IMPORT_MAX_BYTES = 2 * 1024 * 1024   # 2MB：够装两万行纯文本，再大基本是传错文件了
+POOL_IMPORT_MAX_ROWS = 2000               # 行数上限（整文拒绝，避免一次请求锁库太久）
+POOL_IMPORT_MAX_ENRICH = 200              # 单次最多向上游补全多少只本地没有的标的
+POOL_IMPORT_MAX_ANALYSIS = 30             # 单次最多投递多少个异步分析任务，理由见导入函数注释
+
+
+def _csv_bytes(header_rows, data_rows) -> bytes:
+    """拼 CSV 字节流（CRLF 换行 + UTF-8 BOM）。
+
+    ⚠️ BOM 不能省：Excel 按系统 ANSI 代码页（中文 Windows = GBK）解析无 BOM 的 UTF-8 CSV，
+    中文表头会整片乱码。`utf-8-sig` 编出的 EF BB BF 前缀能让 Excel 认出这是 UTF-8。
+    ⚠️ 换行必须是 CRLF：裸 LF 在 Excel 里兼容不稳定（老版本会把整个文件当成一行）。
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator='\r\n')
+    for row in header_rows:
+        writer.writerow(row)
+    for row in data_rows:
+        writer.writerow(row)
+    return buf.getvalue().encode('utf-8-sig')
+
+
+def _csv_disposition(filename: str) -> str:
+    """Content-Disposition：ASCII 兜底名 + RFC 5987 中文名（filename*=UTF-8''...）。
+
+    ⚠️ 必须两种都给：只用中文名时部分老浏览器会忽略整个头（文件名退化成下载路径），
+    只用 ASCII 名则用户拿到的是看不出内容的 stock_pool.csv。
+    """
+    quoted = quote(filename)
+    return f"attachment; filename=\"stock_pool.csv\"; filename*=UTF-8''{quoted}"
+
+
+def _decode_csv_bytes(raw: bytes) -> str:
+    """解码上传字节：UTF-8（含 BOM）优先，失败回退 GB18030（Excel「另存为 CSV」的默认编码）。
+
+    ⚠️ 顺序不能反：GB18030 几乎能把任意字节序列「解」出来（解成一串乱码且不报错），
+    先试它会让 UTF-8 文件被静默解坏，报错症状变成一堆莫名汉字、极难定位。
+    """
+    for enc in ('utf-8-sig', 'gb18030'):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode('utf-8', errors='replace')
+
+
+def _build_header_alias(cells) -> 'list | None':
+    """表头行 → 字段序列；一列都认不出时返回 None（表示这一行其实是数据行）。
+
+    判据取「认得出股票代码列」而不是「认得出任意一列」：随便一个含 name/market 的文件
+    都会被误判成表头，反而丢数据。
+    """
+    keys = [POOL_HEADER_ALIASES.get((c or '').strip().lower()) for c in cells]
+    return keys if 'symbol' in keys else None
+
+
+def _parse_pool_csv(raw: bytes) -> 'List[Dict[str, Any]]':
+    """解析 CSV → [{symbol, name, market, group_name, row}]，`row` 为原始行号（报错定位用）。
+
+    容错四点，都是为了承接「用户手工 / 从别处另存的 CSV」：
+      1. `#` 开头的说明行（模板自带）跳过；
+      2. 空行跳过；
+      3. 认不出的列忽略（导出文件里的最新价/涨跌幅就是这一类）；
+      4. 没有表头时按「第一列即代码」兜底。
+    """
+    reader = csv.reader(io.StringIO(_decode_csv_bytes(raw)))
+    items: List[Dict[str, Any]] = []
+    alias = None
+    for lineno, cells in enumerate(reader, start=1):
+        if not cells or not any((c or '').strip() for c in cells):
+            continue
+        if (cells[0] or '').strip().startswith('#'):
+            continue
+        if alias is None:
+            mapped = _build_header_alias(cells)
+            if mapped:
+                alias = mapped
+                continue          # 确认是表头 → 这一行不当数据用
+            alias = ['symbol', 'name', 'market', 'group_name']   # 无表头：按前四列的位置取
+        record = {'symbol': '', 'name': '', 'market': '', 'group_name': '', 'row': lineno}
+        for idx, key in enumerate(alias):
+            if key and idx < len(cells):
+                record[key] = (cells[idx] or '').strip()
+        if not record['symbol']:
+            continue              # 代码为空（多半是表格末尾的空单元格），不算失败
+        items.append(record)
+
+    if len(items) > POOL_IMPORT_MAX_ROWS:
+        raise ValueError(f"文件行数超过单次上限 {POOL_IMPORT_MAX_ROWS} 行（当前 {len(items)} 行），请拆分后分批导入")
+    return items
+
+
+def _do_import_stock_pool(user_id: int, raw: bytes) -> 'Dict[str, Any]':
+    """执行导入（同步；由路由丢进线程池）。返回逐行统计报告。
+
+    设计取舍：
+      - **先解析全部、最后一次性 bulk 入库**：逐行 add_to_user_pool 是每条 4 次 DB 往返，
+        2000 行时请求必然超时（见 StockService.bulk_add_to_user_pool 的注释）。
+      - **本地没有的标的同步调上游补全**（用户选定的策略）：这一步是真正的耗时大头，
+        所以用 POOL_IMPORT_MAX_ENRICH 封顶；超出的部分**仍然入库**（代码本身足够
+        建立关系），留青山给日更任务补，不因为一次上游抖动就丢用户数据。
+      - **异步分析只投递前 N 只**：新增的票本来没有恐贪 / 因子 / 估值数据，不跑一次
+        分析页面上是空的；但队列 prefetch=1 串行消费、单只链路实测约 6 分钟，一次性塞几百条
+        等于把别的任务（含别的用户手动加自选）堵在后面几小时。这里取前
+        POOL_IMPORT_MAX_ANALYSIS 只投递（排在队尾，天然是低优先级），其余交给
+        20:10 的日更任务按股票池全量重算 —— 最迟第二天数据齐备。
+    """
+    items = _parse_pool_csv(raw)
+    report: Dict[str, Any] = {
+        'total': len(items), 'added': 0, 'updated': 0, 'unchanged': 0,
+        'enriched': 0, 'invalid': [], 'failed': [], 'warnings': [],
+        'analysis_dispatched': 0, 'analysis_pending': 0,
+        'new_symbols': [],
+    }
+    if not items:
+        return report
+
+    known = StockService.get_stocks_brief([it['symbol'] for it in items])
+    todo: List[Dict[str, Any]] = []
+
+    for it in items:
+        symbol = it['symbol']
+        hinted = POOL_MARKET_ALIASES.get((it.get('market') or '').strip().lower())
+        base = known.get(symbol)
+
+        if base:
+            # 已在库 → 市场以CSV显式值为准，其次沿用库里的，绝不兜底成 cn 把它盖掉
+            market = hinted or base.get('market') or 'cn'
+        else:
+            market = hinted or 'cn'
+            # 港股代码必须补零到 5 位（databull 要求，700→404、00700✅）；补零后可能命中库存赈。
+            if market == 'hk' and symbol.isdigit() and len(symbol) < 5:
+                symbol = symbol.zfill(5)
+                base = known.get(symbol)
+
+        if not validate_stock_code(symbol):
+            report['invalid'].append({'row': it['row'], 'symbol': it['symbol'],
+                                      'reason': '股票代码格式不正确'})
+            continue
+        it['symbol'] = symbol
+
+        enriched_ok = bool(base)     # 已在库 = 数据齐全；下面补全成功也会置 True
+        if base is None:
+            # 本地没有 → 尝试从上游补全名称 / 行业 / 公司概况
+            if report['enriched'] >= POOL_IMPORT_MAX_ENRICH:
+                report['warnings'].append({
+                    'row': it['row'], 'symbol': symbol,
+                    'reason': f'超过单次补全上限（{POOL_IMPORT_MAX_ENRICH} 只），已入池但暂不拉取名称'})
+            else:
+                report['enriched'] += 1
+                try:
+                    if StockService.ensure_stock_from_api(
+                            symbol, market=market, securities_type='stock',
+                            extra={'monitor_by': 'csv_import'}):
+                        enriched_ok = True
+                    else:
+                        report['warnings'].append({
+                            'row': it['row'], 'symbol': symbol,
+                            'reason': '未能从数据源获取到该标的信息，已入池但名称暂缺'})
+                except Exception as e:
+                    logger.warning(f"import enrich failed ({symbol}, market={market}): {e}")
+                    report['failed'].append({'row': it['row'], 'symbol': symbol,
+                                             'reason': f'数据源查询失败：{e}'})
+
+        try:
+            group_name = _clean_group_name(it.get('group_name'), strict=False)
+        except ValueError as e:
+            report['warnings'].append({'row': it['row'], 'symbol': symbol, 'reason': str(e)})
+            group_name = None
+
+        # 「这只票此前没有任何人在监控」= 它的分析数据必然不存在，需要补一次分析。
+        # ⚠️ 上游补全失败的票不投递：连基本信息都取不回来的标的，投进去大概率也是跑一次
+        #    失败的分析（队列串行，白占别的任务的时间），不如留给日更重试。
+        if enriched_ok and (not base or not base.get('monitoring')):
+            report['new_symbols'].append(symbol)
+        todo.append({'symbol': symbol, 'market': market, 'group_name': group_name})
+
+    if not todo:
+        return report
+
+    bulk = StockService.bulk_add_to_user_pool(user_id, todo, monitor_by='csv_import')
+    report['added'] = bulk['added']
+    report['updated'] = bulk['updated']
+    report['unchanged'] = bulk['unchanged']
+
+    # 异步补分析：只投前 N 只，其余留给日更（理由见本函数 docstring 第三条）
+    dispatched, pending = report['new_symbols'][:POOL_IMPORT_MAX_ANALYSIS], report['new_symbols'][POOL_IMPORT_MAX_ANALYSIS:]
+    for symbol in dispatched:
+        try:
+            _dispatch_stock_analysis(symbol, user_id=user_id)
+        except Exception as e:
+            logger.warning(f"import: 投递异步分析失败 ({symbol}): {e}")
+    report['analysis_dispatched'] = len(dispatched)
+    report['analysis_pending'] = len(pending)
+    return report
+
+
+@stock_router.get('/stock/pool/template')
+def download_pool_import_template():
+    """下载股票池导入模板（CSV）。
+
+    带 3 行 `#` 说明 + 4 行示例（沪深 / 港股 / 美股各一）。说明行以 `#` 开头，
+    导入时会被忽略，所以用户直接在模板上填、或者拿导出文件改完再导回来都可以。
+    """
+    header_rows = [
+        ['# 说明：每行一只标的，「股票代码」为必填，其余列均可留空'],
+        ['# 市场取值：cn=沪深 / hk=港股 / us=美股（留空按 cn；已在库中的标的保留其原有市场）'],
+        ['# 分组留空表示未分组；以 # 开头的行不会被导入'],
+        POOL_IMPORT_HEADERS,
+        ['600519', '贵州茅台', 'cn', '核心池'],
+        ['601318', '中国平安', 'cn', ''],
+        ['00700', '腾讯控股', 'hk', '港股'],
+        ['AAPL', '苹果', 'us', '美股'],
+    ]
+    return Response(
+        content=_csv_bytes(header_rows, []),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': _csv_disposition('股票池导入模板.csv')},
+    )
+
+
+@stock_router.get('/stock/pool/export')
+def export_stock_pool(
+    market: str = Query(None, description='市场筛选：cn/hk/us；不传则导出全部市场'),
+    user_id: int = Depends(get_current_user_id),
+):
+    """导出**当前用户**的股票池为 CSV（UTF-8 BOM，Excel 直接打开不乱码）。
+
+    同步 `def`：读库 + 拼字符串量不大，但仍是阻塞实现，丢线程池才不占事件循环
+    （本文件顶部已说明这条规矩）。
+
+    ⚠️ user_id 来自鉴权，导出的永远是自己的池子；`(user_id, symbol)` 唯一约束保证
+    导出的行不会重复。
+    """
+    entries = StockService.get_user_pool_entries(user_id, market=market)
+    rows = []
+    for e in entries:
+        rows.append([
+            e['symbol'], e['name'], e['market'], e['group_name'], e['created_at'],
+            '' if e['close'] is None else e['close'],
+            '' if e['chg_pct'] is None else round(e['chg_pct'], 2),
+        ])
+    return Response(
+        content=_csv_bytes([POOL_EXPORT_HEADERS], rows),
+        media_type='text/csv; charset=utf-8',
+        headers={'Content-Disposition': _csv_disposition(f'股票池_{get_today(_format="%Y-%m-%d")}.csv')},
+    )
+
+
+@stock_router.post('/stock/pool/import')
+async def import_stock_pool(request: Request, user_id: int = Depends(get_current_user_id)):
+    """批量导入 CSV 到**当前用户**的股票池。
+
+    ⚠️ 刻意用 `await request.body()` 读原始字节、前端直传二进制 body，而**不是**
+    `UploadFile` —— 后者依赖 `python-multipart`，为一个一次性导入接口往生产环境里加依赖、
+    还要同步改 Dockerfile 和所有已部署环境的安装包，代价远大于收益。
+
+    返回结构（前端据此展示分行的导入报告）：
+        total / added / updated / unchanged / enriched / analysis_dispatched /
+        analysis_pending / new_symbols / invalid[] / failed[] / warnings[]
+    """
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=400, detail="文件内容为空")
+    if len(raw) > POOL_IMPORT_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=(
+            f"文件过大（{len(raw)} 字节），单次上限 {POOL_IMPORT_MAX_BYTES // 1024 // 1024}MB"))
+
+    try:
+        # 解析 + 补全上游信息（含网络调用）全是阻塞实现 → 丢线程池，别占死事件循环
+        report = await run_in_threadpool(_do_import_stock_pool, user_id, raw)
+    except ValueError as e:
+        # 行数超限等「文件本身不合格」的错误，原文回给用户
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # 池子变了：列表缓存必须失效，否则导入完用户看到的还是旧列表
+    if report.get('added') or report.get('updated'):
+        await FastAPICache.clear(namespace=MONITORED_STOCKS_NS)
+
+    message = f"导入完成：新增 {report['added']} 只，更新 {report['updated']} 只"
+    if report['invalid'] or report['failed']:
+        message += f"，{len(report['invalid']) + len(report['failed'])} 行未通过"
+    return {'code': 0, 'message': message, **report}
 
 
 @stock_router.get('/stock/greed_data/{stock_code}')

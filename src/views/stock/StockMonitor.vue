@@ -545,6 +545,144 @@ async function removeStock(symbol) {
     }
 }
 
+// ==================== 股票池导入 / 导出（CSV）====================
+// 走后端三个接口：GET /stock/pool/template（模板）、GET /stock/pool/export（导出）、
+// POST /stock/pool/import（导入）。三条互为闭环：导出带 4 列可回导 + 3 列只读行情，
+// 所以「导出 → Excel 里改分组 → 再导入」不必删列。
+
+const importVisible = ref(false);
+const importFile = ref(null);
+const importing = ref(false);
+const importReport = ref(null);
+const exporting = ref(false);
+const fileInputEl = ref(null);   // 隐藏的原生 file input
+
+/**
+ * 下载后端返回的 CSV。
+ *
+ * ⚠️ 必须走 axios + Blob + 临时 `<a download>`：**不能**用 `location.href = url`，
+ *    那样发不出 Authorization 头会被 401（令牌是挂在 axios 拦截器上的）。
+ * ⚠️ 文件名优先取响应头的 RFC 5987 编码名（后端给的是中文名），取不到才用兜底名。
+ */
+async function downloadCsv(url, fallbackName, params = {}) {
+    const res = await axios.get(url, { responseType: 'blob', params });
+    const disposition = String(res.headers?.['content-disposition'] || '');
+    let name = fallbackName;
+    const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+    if (utf8) {
+        name = decodeURIComponent(utf8[1]);
+    } else {
+        const plain = /filename="?([^";]+)"?/i.exec(disposition);
+        if (plain) name = plain[1];
+    }
+    const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+    const href = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = href;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // ⚠️ 立刻 revoke 会让个别浏览器还没开始写盘就把对象 URL 废掉，推迟一拍释放
+    setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
+async function downloadTemplate() {
+    try {
+        await downloadCsv('/api/v1/stock/pool/template', '股票池导入模板.csv');
+    } catch (error) {
+        handleGroupErr(error);
+    }
+}
+
+async function exportPool() {
+    exporting.value = true;
+    try {
+        // 跟随当前的市场筛选一起导出：列表看着是 A 股，导出就不该混着港股
+        const params = filter_market.value ? { market: filter_market.value } : {};
+        await downloadCsv('/api/v1/stock/pool/export', '股票池导出.csv', params);
+        const opt = marketFilterOptions.find(o => o.value === (filter_market.value || ''));
+        showSuccess(`已导出股票池（${opt ? opt.label : '全部市场'}）`);
+    } catch (error) {
+        handleGroupErr(error);
+    } finally {
+        exporting.value = false;
+    }
+}
+
+function openImportDialog() {
+    importVisible.value = true;
+    importFile.value = null;
+    importReport.value = null;
+}
+
+function pickFile() {
+    fileInputEl.value?.click();
+}
+
+function setImportFile(file) {
+    importReport.value = null;
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+        showError('文件超过 2MB，请拆分后再导入');
+        importFile.value = null;
+        return;
+    }
+    importFile.value = file;
+}
+
+function onFilePicked(event) {
+    setImportFile(event.target?.files?.[0]);
+    // 清空 input 的值：否则再选同一个文件不会触发 change（看起来像「点了没反应」）
+    event.target.value = '';
+}
+
+function onFileDrop(event) {
+    setImportFile(event.dataTransfer?.files?.[0]);
+}
+
+async function submitImport() {
+    if (!importFile.value) {
+        showError('请先选择 CSV 文件');
+        return;
+    }
+    importing.value = true;
+    importReport.value = null;
+    try {
+        // ⚠️ 直传二进制 body（Content-Type: text/csv）而不是 multipart：后端刻意用
+        //    request.body() 读原始字节，避开 python-multipart 依赖。
+        const res = await axios.post('/api/v1/stock/pool/import', importFile.value, {
+            headers: { 'Content-Type': 'text/csv' },
+            params: { filename: importFile.value.name },
+            // 本地缺失的标的要同步向上游补全信息，几百行时可能超过默认超时
+            timeout: 300000,
+        });
+        importReport.value = res.data;
+        if (res.data.added || res.data.updated) {
+            await loadStockList();
+            await loadGroups();
+        }
+        showSuccess(res.data.message || '导入完成');
+    } catch (error) {
+        handleGroupErr(error);
+    } finally {
+        importing.value = false;
+    }
+}
+
+// 报告里的「有问题的行」统一整理成一份列表（错误 / 失败 / 提示），最多展示 50 条，
+// 免得一份三百行的脏文件把弹窗撑到几屏高。
+const importIssues = computed(() => {
+    const d = importReport.value;
+    if (!d) return [];
+    const rows = [
+        ...(d.invalid || []).map(r => ({ ...r, level: '错误' })),
+        ...(d.failed || []).map(r => ({ ...r, level: '失败' })),
+        ...(d.warnings || []).map(r => ({ ...r, level: '提示' })),
+    ];
+    return { rows: rows.slice(0, 50), total: rows.length };
+});
+
 function onGroupAction({ key, type }) {
     if (type === 'rename') startRename(key);
     else if (type === 'delete') deleteGroup(key);
@@ -829,6 +967,25 @@ async function deleteGroup(groupName) {
                         />
                         <Button
                             type="button"
+                            icon="pi pi-upload"
+                            size="small"
+                            label="导入"
+                            severity="secondary"
+                            @click="openImportDialog"
+                            class="whitespace-nowrap"
+                        />
+                        <Button
+                            type="button"
+                            icon="pi pi-download"
+                            size="small"
+                            label="导出"
+                            severity="secondary"
+                            :loading="exporting"
+                            @click="exportPool"
+                            class="whitespace-nowrap"
+                        />
+                        <Button
+                            type="button"
                             icon="pi pi-refresh"
                             size="small"
                             label="刷新"
@@ -958,6 +1115,62 @@ async function deleteGroup(groupName) {
         <div class="flex justify-end gap-2">
           <Button label="取消" severity="secondary" @click="createGroupVisible = false" />
           <Button label="确定" @click="confirmCreateGroup" />
+        </div>
+      </template>
+    </Dialog>
+
+    <!-- 股票池导入（CSV）：模板下载 + 文件选择 + 逐行结果报告 -->
+    <Dialog v-model:visible="importVisible" modal header="导入股票池" :style="{ width: '34rem' }">
+      <div class="flex flex-col gap-3">
+        <!-- 点击 / 拖拽选文件。原生 input 藏起来由这整块代触发，才能自定义拖拽外形 -->
+        <div
+          class="border border-dashed rounded-md p-4 text-center cursor-pointer hover:bg-gray-50"
+          @click="pickFile"
+          @dragover.prevent
+          @drop.prevent="onFileDrop"
+        >
+          <i class="pi pi-file-import block mb-2" style="font-size: 1.5rem; opacity: .45" />
+          <div v-if="importFile" class="font-semibold whitespace-nowrap overflow-hidden text-ellipsis">{{ importFile.name }}</div>
+          <div v-else>点击选择文件，或将 CSV 拖到这里</div>
+          <div class="mt-1" style="opacity: .55">仅支持 .csv，单次最多 2000 行 / 2MB</div>
+        </div>
+        <input ref="fileInputEl" type="file" accept=".csv,text/csv" style="display: none" @change="onFilePicked" />
+
+        <!-- 模板入口：不确定格式时最省事的一条路 -->
+        <div class="flex items-center justify-between gap-2">
+          <span style="opacity: .6">不确定格式？下载模板照着填即可。</span>
+          <Button type="button" label="下载模板" icon="pi pi-download" size="small" text @click="downloadTemplate" />
+        </div>
+
+        <!-- 导入结果报告：report 为空时不渲染任何 DOM，避免空框占位 -->
+        <div v-if="importReport" class="rounded-md border p-3 flex flex-col gap-2">
+          <div class="flex flex-wrap gap-x-4 gap-y-1">
+            <span>总行数：<b>{{ importReport.total }}</b></span>
+            <span>新增：<b class="text-green-600">{{ importReport.added }}</b></span>
+            <span>更新：<b>{{ importReport.updated }}</b></span>
+            <span>无变化：<b>{{ importReport.unchanged }}</b></span>
+          </div>
+          <div v-if="importReport.analysis_dispatched || importReport.analysis_pending" style="opacity: .7">
+            已为 {{ importReport.analysis_dispatched }} 只新标的提交后台分析（任务队列串行执行，请稍后刷新查看）；
+            <template v-if="importReport.analysis_pending">其余 {{ importReport.analysis_pending }} 只留待每日例行更新补齐。</template>
+          </div>
+          <div v-if="importIssues.total">
+            <div class="font-semibold mb-1">有问题的行（{{ importIssues.total }} 条<template v-if="importIssues.total > 50">，显示前 50 条</template>）</div>
+            <div class="flex flex-col gap-1 overflow-y-auto" style="max-height: 10rem">
+              <div v-for="(r, i) in importIssues.rows" :key="i" class="flex items-start gap-2">
+                <span class="shrink-0" style="opacity: .55">第{{ r.row }}行</span>
+                <span class="shrink-0">{{ r.symbol }}</span>
+                <span class="min-w-0" style="opacity: .85">{{ r.reason }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <Button label="关闭" severity="secondary" @click="importVisible = false" />
+          <Button label="开始导入" icon="pi pi-check" :loading="importing" :disabled="!importFile" @click="submitImport" />
         </div>
       </template>
     </Dialog>

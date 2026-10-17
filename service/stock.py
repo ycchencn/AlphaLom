@@ -209,6 +209,31 @@ class StockService:
             return []
 
     @staticmethod
+    def get_stocks_brief(symbols) -> Dict[str, Dict[str, Any]]:
+        """按代码批量取轻量字段（symbol / name / market / securities_type / monitoring）。
+
+        给「一次要看很多只票是否存在、各自什么市场」的场景用（如 CSV 导入）：
+        逐只 get_stock_by_symbol 是 N 次往返（和 N 大小成正比），这里压缩成一次 IN 查询。
+        查不到的代码不出现在返回的 dict 里；空 / 重复入参会去重后再查（避免拼出超长 SQL）。
+        """
+        wanted = sorted({s for s in (symbols or []) if s})
+        if not wanted:
+            return {}
+        try:
+            rows = db_session.query(
+                Stock.symbol, Stock.name, Stock.market,
+                Stock.securities_type, Stock.monitoring,
+            ).filter(Stock.symbol.in_(wanted)).all()
+        except Exception as e:
+            logger.error(f"get_stocks_brief failed ({len(wanted)} symbols): {e}")
+            return {}
+        return {
+            r[0]: {'symbol': r[0], 'name': r[1], 'market': r[2],
+                   'securities_type': r[3], 'monitoring': r[4]}
+            for r in rows if r[0]
+        }
+
+    @staticmethod
     def is_in_user_pool(user_id, symbol) -> bool:
         """某用户的池子里是否有这只票（ETF 详情页判断成分股「是否已加入」用）。"""
         try:
@@ -311,6 +336,148 @@ class StockService:
             db_session.rollback()
             logger.error(f"remove_from_user_pool failed (user_id={user_id}, {symbol}): {e}")
             return False
+
+    # ---------- 批量入池 / 明细导出（CSV 导入导出专用）----------
+
+    @staticmethod
+    def bulk_add_to_user_pool(user_id, items, monitor_by=None) -> Dict[str, Any]:
+        """批量加入指定用户的池子（幂等，CSV 导入专用）。
+
+        Args:
+            user_id: 用户 id
+            items: [{'symbol', 'market', 'group_name', 'monitor_by'}]
+            monitor_by: 兜底的来源标签（行内带了以行内为准）
+
+        Returns:
+            {'added': 新增数, 'updated': 有变更数, 'unchanged': 无变化数, 'symbols': [...]}
+
+        为什么不直接循环 `add_to_user_pool`：后者每条要 select + commit +
+        sync_monitoring_flag(select + update + commit) 共 4 次往返，导入上限 2000 行时
+        是近万次往返（实测单次请求打不住）。这里压成「一次查重 + 一次 commit +
+        一次批量补并集标记」，往返数从 O(4N) 降到 O(N)。
+
+        ⚠️ 分组语义与 `add_to_user_pool` 保持一致：**非空才覆盖**，空值表示「保留原分组」
+        而不是清空 —— CSV 里分组列留空是很常见的写法，不能被解释成「把这票移出分组」。
+        """
+        result: Dict[str, Any] = {'added': 0, 'updated': 0, 'unchanged': 0, 'symbols': []}
+        if not user_id or not items:
+            return result
+
+        # 同一份 CSV 里重复出现同一代码 → 保留最后一条（后写的分组才可能是用户想要的）
+        deduped: Dict[str, Dict[str, Any]] = {}
+        for it in items or []:
+            symbol = (it or {}).get('symbol')
+            if symbol:
+                deduped[symbol] = it
+        if not deduped:
+            return result
+
+        symbols = list(deduped.keys())
+        result['symbols'] = symbols
+        existing = {
+            row.symbol: row for row in db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id),
+                UserStockPool.symbol.in_(symbols),
+            ).all()
+        }
+        try:
+            for symbol, it in deduped.items():
+                market = it.get('market') or 'cn'
+                group_name = (it.get('group_name') or '').strip() or None
+                tag = it.get('monitor_by') or monitor_by
+                item = existing.get(symbol)
+                if item is not None:
+                    changed = False
+                    if market and item.market != market:
+                        item.market = market
+                        changed = True
+                    if tag and item.monitor_by != tag:
+                        item.monitor_by = tag
+                        changed = True
+                    if group_name and item.group_name != group_name:
+                        item.group_name = group_name
+                        changed = True
+                    result['updated' if changed else 'unchanged'] += 1
+                else:
+                    db_session.add(UserStockPool(
+                        user_id=int(user_id), symbol=symbol,
+                        market=market, monitor_by=tag, group_name=group_name,
+                    ))
+                    result['added'] += 1
+            db_session.commit()
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"bulk_add_to_user_pool failed (user_id={user_id}): {e}")
+            return {'added': 0, 'updated': 0, 'unchanged': 0, 'symbols': []}
+
+        # 一次补齐所有涉及标的的 stocks.monitoring 并集标记（不再逐只 sync）
+        StockService.sync_monitoring_flags(symbols)
+        return result
+
+    @staticmethod
+    def sync_monitoring_flags(symbols) -> None:
+        """`sync_monitoring_flag` 的批量版：语义完全一致，只是把 N 次往返压成 3 次。
+
+        必须复用以 ensures「有人引用=1 / 无人引用=0」这条唯一口径，不能在批量路径上
+        另写一套判定 —— 两套迟早漂移，漂移的结果是某只票悄悄退出日更。
+        """
+        wanted = sorted({s for s in (symbols or []) if s})
+        if not wanted:
+            return
+        try:
+            referenced = {row[0] for row in db_session.query(UserStockPool.symbol).filter(
+                UserStockPool.symbol.in_(wanted)).all() if row[0]}
+            turned_on = [s for s in wanted if s in referenced]
+            turned_off = [s for s in wanted if s not in referenced]
+            if turned_on:
+                db_session.query(Stock).filter(Stock.symbol.in_(turned_on)).update(
+                    {'monitoring': 1}, synchronize_session=False)
+            if turned_off:
+                db_session.query(Stock).filter(Stock.symbol.in_(turned_off)).update(
+                    {'monitoring': 0}, synchronize_session=False)
+            db_session.commit()
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"sync_monitoring_flags failed ({len(wanted)} symbols): {e}")
+
+    @staticmethod
+    def get_user_pool_entries(user_id, market=None) -> List[Dict[str, Any]]:
+        """股票池全量明细（导出 CSV 用）：池内行 + 名字/最新价，按「分组 → 代码」排序。
+
+        ⚠️ 同样不 JOIN（见 `get_monitoring_stock_pool` 的排序规则说明）：
+        先取池内行，再用代码列表 IN 查 stocks，两张表各一次查询。
+        """
+        try:
+            query = db_session.query(UserStockPool).filter(
+                UserStockPool.user_id == int(user_id))
+            if market:
+                query = query.filter(UserStockPool.market == market)
+            pool = {row.symbol: row for row in query.all() if row.symbol}
+            if not pool:
+                return []
+            stock_map = {
+                s.symbol: s for s in db_session.query(Stock).filter(
+                    Stock.symbol.in_(list(pool.keys()))).all()
+            }
+        except Exception as e:
+            logger.error(f"get_user_pool_entries failed (user_id={user_id}): {e}")
+            return []
+
+        entries = []
+        for symbol in sorted(pool, key=lambda s: (pool[s].group_name or '', s)):
+            pool_row = pool[symbol]
+            stock = stock_map.get(symbol)
+            ohlc = (stock.ohlc_last if stock else None) or {}
+            entries.append({
+                'symbol': symbol,
+                'name': (stock.name if stock else None) or '',
+                'market': pool_row.market or (stock.market if stock else None) or 'cn',
+                'group_name': pool_row.group_name or '',
+                'created_at': pool_row.created_at.strftime('%Y-%m-%d') if pool_row.created_at else '',
+                'close': ohlc.get('close'),
+                'chg_pct': ohlc.get('chg_pct'),
+            })
+        return entries
 
     # ---------- 股票池分组（标签式，不独立建表）----------
 
