@@ -1,6 +1,6 @@
 <script setup>
 import {ref, onMounted, onUnmounted, computed, watch, nextTick} from 'vue';
-import {useRoute} from 'vue-router';
+import {useRoute, useRouter} from 'vue-router';
 import * as echarts from 'echarts';
 import {
     COLORS, LINE, FONT,
@@ -30,6 +30,7 @@ const {showSuccess, showError} = useNotification();
 
 // 状态
 const route = useRoute();
+const router = useRouter();
 const portfolioId = route.params.portfolio_id;
 const profInfo = ref(null);
 const profSummary = ref(null);
@@ -732,8 +733,46 @@ const items = [
         command: () => {
             triggerAnalysis();
         }
+    },
+    // 破坏性操作单独隔开：与上面的常规操作之间留一条分隔线，降低误点概率
+    {separator: true},
+    {
+        label: '删除策略',
+        icon: 'pi pi-trash',
+        command: () => {
+            openDelete();
+        }
     }
 ];
+
+// ---------------- 删除策略 ----------------
+const deleteVisible = ref(false);
+const deleting = ref(false);
+
+const openDelete = () => {
+    deleteVisible.value = true;
+};
+
+// 删除后本页的数据源已不存在，继续停留只会到处 404，直接回列表
+const submitDelete = async () => {
+    deleting.value = true;
+    try {
+        const {data} = await axios.delete(
+            `/api/v1/investment_portfolios/${encodeURIComponent(portfolioId)}`);
+        // ⚠️ 业务错误码在响应体里（`{code, msg, data}`），HTTP 仍是 200，必须自己判 code
+        if (data && data.code && data.code !== 200) {
+            showError(data.msg || '删除策略失败');
+            return;
+        }
+        showSuccess(`已删除策略 ${profInfo.value?.name || portfolioId}`);
+        deleteVisible.value = false;
+        await router.push({name: 'portfolio_list'});
+    } catch (error) {
+        showError(error?.response?.data?.msg || error?.response?.data?.detail || '删除策略失败');
+    } finally {
+        deleting.value = false;
+    }
+};
 
 // 触发AI调仓分析
 const analysisLoading = ref(false);
@@ -905,6 +944,26 @@ const reload = () => window.location.reload();
             暂无报告数据
         </div>
     </Drawer>
+
+    <!-- 删除策略确认（物理删除不可恢复，必须让用户先看清楚会连带删掉什么） -->
+    <Dialog v-model:visible="deleteVisible" modal header="删除策略" :style="{ width: '30rem' }">
+        <div class="flex flex-col gap-3">
+            <div>
+                确定要删除策略
+                <b>{{ profInfo?.name }}</b>
+                吗？
+            </div>
+            <div class="del-warn">
+                ⚠️ 删除后该策略的<b>持仓、每日盈亏、每日汇总、交易记录会一并永久清除</b>，不可恢复。
+            </div>
+        </div>
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="deleteVisible = false" :disabled="deleting" />
+                <Button type="button" label="确认删除" icon="pi pi-trash" severity="danger" :loading="deleting" @click="submitDelete" />
+            </div>
+        </template>
+    </Dialog>
 
     <!-- 编辑组合信息弹窗 -->
     <Dialog v-model:visible="editDialogVisible" modal header="编辑组合信息" :style="{ width: '32rem' }">
@@ -1524,6 +1583,15 @@ const reload = () => window.location.reload();
 </template>
 
 <style scoped>
+/* 删除确认里的风险提示条（与 UserManage / ApiKeyManage 同一套写法） */
+.del-warn {
+    background: var(--red-50, #fef2f2);
+    border-left: 3px solid var(--red-500, #ef4444);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
 /* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
 .p-card {
     border: 1px solid #dedede;

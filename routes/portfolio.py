@@ -330,18 +330,23 @@ async def update_portfolio(portfolio_id: str, request: Request,
 
 @portfolio_router.delete('/investment_portfolios/{portfolio_id}')
 async def delete_portfolio(portfolio_id: str, user_id: int = Depends(get_current_user_id)):
-    """删除投资组合（仅限本人组合）
+    """删除投资组合及其全部关联数据（仅限本人组合）
 
     同 update：需要 await 清缓存，故本路由是 async（内部库操作全是同步的）。
+
+    ⚠️ 是**物理删除且不可恢复**，同时清掉 4 张关联子表（持仓 / 每日盈亏 / 每日汇总 /
+    交易记录）—— 这几张表没有外键，只删主表会留下永久孤儿数据。前端必须先弹窗确认。
     """
-    get_owned_portfolio(portfolio_id, user_id)
+    prof = get_owned_portfolio(portfolio_id, user_id)
 
     try:
-        success = InvestmentPortfolioService.delete_by_portfolio_id(portfolio_id)
+        success, stats = InvestmentPortfolioService.delete_with_related(portfolio_id)
         if success:
             await FastAPICache.clear(namespace=PORTFOLIO_LIST_NS)
             await FastAPICache.clear(namespace=PORTFOLIO_DETAIL_NS)
-            return make_response(msg='Deleted successfully')
+            logger.info(f"Deleted portfolio {portfolio_id} ({prof.get('name')}), related: {stats}")
+            return make_response(data={'name': prof.get('name'), 'cleaned': stats},
+                                 msg='Deleted successfully')
         return make_response(msg='Delete failed', code=400)
     except Exception as e:
         logger.error(f"Error deleting portfolio {portfolio_id}: {e}")
