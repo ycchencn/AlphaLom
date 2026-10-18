@@ -228,6 +228,12 @@ llm_model_setting = {
         # 否则会出现「同一任务时好时坏」的诡异现象。
         'model': ['doubao-seed-2-0-mini-260428', 'doubao-seed-2-1-lite-260915']
     },
+    'stock_retail_sentiment': {        # 个股散户情绪（股吧发帖标题，每只票每日一次）
+        # 只做「看多/中性/看空」三分类计数 + 一句话归因，属于短文本分类任务，
+        # mini 档足够；实测 80 条标题约 3k 输入 tokens，500 只/天约 150 万 tokens。
+        'platform': 'volcengine',
+        'model': 'doubao-seed-2-0-mini-260428'
+    },
 }
 
 # ===== 外部数据接口 =====
@@ -236,6 +242,28 @@ databull_host = os.getenv('DATABULL_HOST')
 
 # 数据接口（DataBull）密钥
 databull_key = os.getenv('DATABULL_KEY')
+
+# ===== 东方财富股吧（个股散户情绪）=====
+# ⚠️ 股吧没有公开 API，只能解析列表页内嵌的 `var article_list` JSON。
+#    2026-10 实测：约 80~100 请求 / 10 分钟即触发「身份核实」验证页，
+#    **返回 HTTP 200 + 2826 字节**（不是 403，只看状态码会误判成功），
+#    封锁在 IP 级、全站生效、且 ≥9 分钟不恢复，需人工过验证码才能解。
+#    因此必须有全局最小请求间隔 —— 这是硬约束，不是性能优化。
+#    默认 20 秒（=180 请求/小时，约为触发阈值的 30%）。调小会自动放大被封风险。
+guba_min_interval = int(os.getenv('GUBA_MIN_INTERVAL', 20))
+
+# 单只股票最多翻几页（每页约 80 条；3 页 ≈ 240 条，足够覆盖热门股 24h）
+guba_max_pages = int(os.getenv('GUBA_MAX_PAGES', 3))
+
+# 每日批量任务的股票数上限。单 IP 可持续的量级约 50 只；
+# 要覆盖全监控池（数百只）必须上代理池，否则必然触发封锁。
+guba_max_symbols = int(os.getenv('GUBA_MAX_SYMBOLS', 50))
+
+# 单次送入 LLM 的帖子数上限（超出按互动量分层采样，控制 token 与信噪比）
+guba_max_posts_for_llm = int(os.getenv('GUBA_MAX_POSTS_FOR_LLM', 80))
+
+# 命中验证页后的冷却秒数：冷却期内所有抓取直接跳过，不再发请求（避免越试越封）
+guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))
 
 # ===== MCP 服务 =====
 mcp_host = os.getenv('MCP_HOST')      # MCP 服务器地址

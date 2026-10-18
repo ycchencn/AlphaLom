@@ -265,6 +265,81 @@ export function fearGreedLabel(value) {
 }
 
 /**
+ * 散户情绪档位（股吧文本语义，0~100，50=中性）。
+ *
+ * ⚠️ 与 `FEAR_GREED_LEVELS` **是两套东西，不要互相替代**：
+ *   - 恐惧贪婪：由 OHLCV 价量指标算出，判断的是「价格行为隐含的情绪」；
+ *   - 散户情绪：由股吧发帖的 LLM 语义分析得出，判断的是「散户嘴上在说什么」。
+ * 两者经常背离（股价在涨但散户在骂，或股价在跌但散户在喊抄底），
+ * 背离本身才是有价值的信号，所以文案必须区分，不能让用户以为是同一个指标。
+ *
+ * 设计取向：散户情绪是**反向指标**。极端看多往往对应阶段高点（散户在追高接盘），
+ * 极端看空往往对应恐慌底部。因此档位文案刻意带上这层提示，而不是简单说「乐观/悲观」。
+ */
+const RETAIL_SENTIMENT_LEVELS = {
+    EXTREME_BEARISH: {
+        range: [0, 20], text: '极度看空', color: '#12783c',
+        advice: '散户情绪极度悲观，常伴随恐慌抛售 —— 反向指标意义下需留意超跌反弹',
+    },
+    BEARISH: {
+        range: [20, 40], text: '偏空', color: '#4a9e6b',
+        advice: '散户以看空、抱怨为主，情绪偏谨慎',
+    },
+    NEUTRAL_SENT: {
+        range: [40, 60], text: '中性', color: '#909399',
+        advice: '散户多空分歧不大，无明显一致预期',
+    },
+    BULLISH: {
+        range: [60, 80], text: '偏多', color: '#e8874a',
+        advice: '散户以看多、加仓讨论为主，情绪偏乐观',
+    },
+    EXTREME_BULLISH: {
+        range: [80, 100], text: '极度看多', color: '#ef4444',
+        advice: '散户情绪过热，常出现在阶段高点附近 —— 反向指标意义下需警惕追高风险',
+    },
+};
+
+/**
+ * 按散户情绪分取档位。null/越界一律夹到合法区间（null 视为 50 中性，
+ * 与恐惧贪婪那边「null 视为 0」不同：本指标缺失时「中性」比「极度看空」更不容易误导）。
+ *
+ * @param {number|null} value
+ * @returns {{range: number[], text: string, color: string, advice: string}}
+ */
+export function retailSentimentLevel(value) {
+    let v = Number(value);
+    if (value === null || value === undefined || Number.isNaN(v)) v = 50;
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+
+    if (v < 20) return RETAIL_SENTIMENT_LEVELS.EXTREME_BEARISH;
+    if (v < 40) return RETAIL_SENTIMENT_LEVELS.BEARISH;
+    if (v < 60) return RETAIL_SENTIMENT_LEVELS.NEUTRAL_SENT;
+    if (v < 80) return RETAIL_SENTIMENT_LEVELS.BULLISH;
+    return RETAIL_SENTIMENT_LEVELS.EXTREME_BULLISH;
+}
+
+/**
+ * 置信度分档（用于前端视觉降级）。
+ *
+ * 低置信度（样本不足 / 立场分散）不能和正常数据同样醒目地展示，
+ * 否则用户会把「4 条帖子猜出来的结论」当成「300 条帖子的共识」。
+ *
+ * @param {number|null} value 0~100
+ * @returns {{text: string, color: string, weak: boolean}}
+ */
+export function sentimentConfidenceLevel(value) {
+    const v = Number(value);
+    if (value === null || value === undefined || Number.isNaN(v)) {
+        return {text: '无数据', color: '#909399', weak: true};
+    }
+    if (v < 25) return {text: '证据不足', color: '#909399', weak: true};
+    if (v < 50) return {text: '置信度低', color: '#e8874a', weak: true};
+    if (v < 75) return {text: '置信度中', color: '#4a9e6b', weak: false};
+    return {text: '置信度高', color: '#12783c', weak: false};
+}
+
+/**
  * 格式化个股成交金额（对齐券商APP通用显示标准）
  * @param {Number} value - 原始成交金额（单位：元）
  * @returns {String} 格式化后的字符串，如"123.45万"、"2.34亿"

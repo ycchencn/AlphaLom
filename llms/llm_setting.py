@@ -56,6 +56,12 @@ LLM_SETTING_SCENES: List[Dict[str, Any]] = [
         'description': '事件驱动页顶部「AI 推荐」前三条头条总结（job_news_digest，每小时一次）',
         'in_use': True,
     },
+    {
+        'name': 'stock_retail_sentiment',
+        'label': '个股散户情绪',
+        'description': '东方财富股吧发帖的看多/看空三分类与归因（job_stock_guba_sentiment，每只票每日一次）',
+        'in_use': True,
+    },
 ]
 
 _SCENE_NAMES = [s['name'] for s in LLM_SETTING_SCENES]

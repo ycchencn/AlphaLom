@@ -142,3 +142,16 @@ jobs:
       hour: 23
       minute: 5
     replace_existing: true
+
+  # 个股散户情绪（东财股吧 24h 发帖 + LLM 三分类；19:10，避开 18:50/18:55 恐贪任务）
+  # ⚠️ 只在交易日跑：周末帖子量只有交易日的一成左右，且不交易、无决策价值，
+  #    少跑 2/7 的请求量可以显著降低触发反爬的概率。
+  # ⚠️ 任务内部单只票之间串行 + 20 秒全局限速（见 service/eastmoney_guba.py），
+  #    50 只约需 17 分钟，属正常耗时，不要误判为卡死。
+  - id: job_stock_guba_sentiment_daily
+    func: job.job_stock_guba_sentiment:job_stock_guba_sentiment_daily
+    cron:
+      day_of_week: mon-fri
+      hour: 19
+      minute: 10
+    replace_existing: true

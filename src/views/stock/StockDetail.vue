@@ -17,6 +17,8 @@ import {
     fearGreedLevel,
     fearGreedColor,
     fearGreedLabel,
+    retailSentimentLevel,
+    sentimentConfidenceLevel,
     formatCurrency,
     formatPercentage,
     calcDcfScore,
@@ -184,6 +186,199 @@ const renderFearGreedChart = async (attempt = 0) => {
 
 const resizeFgChart = () => {
     fgChart?.resize();
+};
+
+// ========================
+// 散户情绪（tab7）—— 东财股吧发帖 + LLM 三分类
+// ========================
+// 数据源：GET /api/v1/stock/retail_sentiment/{symbol}
+//   { symbol, latest, history:[...按 trade_date 倒序], meta }
+//
+// ⚠️ 与上方「恐惧贪婪」不是同一个指标，绝不能共用文案：
+//   恐惧贪婪 = 价量指标算出的技术性情绪；散户情绪 = 股吧文本的语义倾向。
+//   两者背离才是有效信号，所以这里单独画一条线、单独一套档位。
+//
+// ⚠️ 该接口刻意未加服务端缓存（数据每日一条，查询很轻），
+//   但**只能靠每日 job 更新**，页面不会自动触发抓取 —— 手动刷新走 PUT 接口。
+const sentimentData = ref([]);
+const sentimentLoading = ref(false);
+const sentimentLoaded = ref(false);
+const sentimentLatest = computed(() => sentimentData.value[0] || null);
+/** 置信度分档（前端视觉降级：证据不足时不把结论显示得像确定的事实）。 */
+const sentimentConf = computed(() => sentimentConfidenceLevel(sentimentLatest.value?.confidence));
+/** 收盘价映射 date -> close，用于双轴叠加看背离。数据复用 tab1 已取的 `ohlc_data`
+ *  （来自 /stock_history，字段 date='YYYY-MM-DD' + close），不再额外发请求。 */
+const closeByDate = ref({});
+
+const sentimentChartRef = ref(null);
+let sentimentChart = null;
+
+/**
+ * 取（或重建）ECharts 实例。
+ * 容器在 v-if 分支内，切 tab 才进 DOM；被销毁后旧实例的 getDom() 已脱离文档，
+ * 必须 dispose 重建，否则图表挂在不存在的 DOM 上（页面上表现为空白）。
+ */
+const ensureSentimentChart = () => {
+    if (!sentimentChartRef.value) return null;
+    if (sentimentChart && sentimentChart.getDom() !== sentimentChartRef.value) {
+        sentimentChart.dispose();
+        sentimentChart = null;
+    }
+    if (!sentimentChart) {
+        // v-show 隐藏时 clientWidth/Height 为 0，init 会得到 0x0 画布 → 图空白
+        if (!sentimentChartRef.value.clientWidth || !sentimentChartRef.value.clientHeight) return null;
+        sentimentChart = echarts.init(sentimentChartRef.value);
+    }
+    return sentimentChart;
+};
+
+/** 取「不晚于 date 的最近一个交易日收盘价」。
+ *  情绪数据按自然日采（周末也有），而行情只有交易日 —— 直接按日期字符串配对会大片落空，
+ *  必须向前回溯到最近的交易日。
+ *  `ohlc_data` 定义在本文件靠后位置，此处只在函数体内引用（调用时早已初始化）。 */
+const closeOnOrBefore = (date) => {
+    if (!date) return null;
+    const rows = ohlc_data.value || [];
+    let hit = null;
+    for (const r of rows) {
+        const d = String(r.date || '').slice(0, 10);
+        if (d && d <= date) {
+            if (!hit || d > hit.date) hit = {date: d, close: r.close};
+        }
+    }
+    return hit && hit.close != null ? Number(hit.close) : null;
+};
+
+const renderSentimentChart = async (attempt = 0) => {
+    await nextTick();
+    const chart = ensureSentimentChart();
+    if (!chart) {
+        if (attempt < 30) requestAnimationFrame(() => renderSentimentChart(attempt + 1));
+        return;
+    }
+
+    // 后端 desc → 画图需升序，否则 X 轴时间整体镜像
+    const rows = [...(sentimentData.value || [])].reverse();
+    if (!rows.length) {
+        chart.clear();
+        return;
+    }
+
+    const dates = rows.map((r) => String(r.trade_date || '').slice(5));
+    const scores = rows.map((r) => (r.sentiment_score == null ? null : Number(r.sentiment_score)));
+    const closes = rows.map((r) => closeOnOrBefore(String(r.trade_date || '').slice(0, 10)));
+
+    const lastScore = scores[scores.length - 1];
+    const mainColor = lastScore == null ? '#909399' : retailSentimentLevel(lastScore).color;
+
+    chart.setOption({
+        grid: {left: 36, right: 52, top: 26, bottom: 22},
+        legend: {
+            top: 0, itemWidth: 12, itemHeight: 8,
+            textStyle: {fontSize: FONT.legend, color: COLORS.secondary},
+        },
+        tooltip: tooltipBase({
+            valueFormatter: (v) => (v == null ? '--' : Number(v).toFixed(2)),
+        }),
+        xAxis: {
+            type: 'category',
+            data: dates,
+            axisLabel: axisLabel({fontSize: FONT.label}),
+            axisLine: {lineStyle: {color: COLORS.axis}},
+        },
+        yAxis: [
+            {
+                type: 'value', name: '情绪', min: 0, max: 100,
+                axisLabel: axisLabel({fontSize: FONT.label}),
+                splitLine: splitLine(),
+            },
+            {
+                // 价格量纲与情绪分差两个数量级，必须 scale 自适应，否则价格线被压成直线
+                type: 'value', name: '收盘价', scale: true,
+                axisLabel: axisLabel({fontSize: FONT.label}),
+                splitLine: {show: false},
+            },
+        ],
+        series: [
+            {
+                name: '散户情绪分',
+                type: 'line',
+                smooth: true,
+                showSymbol: rows.length <= 40,
+                symbolSize: 4,
+                connectNulls: true,
+                data: scores,
+                ...lineSeriesStyle({color: mainColor, width: LINE.primary}),
+                areaStyle: areaGradient(mainColor, 0.16),
+                // 20/40/60/80 是「极度看空 / 偏空 / 中性 / 偏多 / 极度看多」的分界
+                markLine: {
+                    silent: true,
+                    symbol: 'none',
+                    lineStyle: {color: COLORS.axis, type: 'dashed', opacity: 0.5},
+                    label: {show: false},
+                    data: [{yAxis: 40}, {yAxis: 60}, {yAxis: 80}],
+                },
+            },
+            {
+                name: '收盘价',
+                type: 'line',
+                yAxisIndex: 1,
+                smooth: true,
+                showSymbol: false,
+                connectNulls: true,
+                data: closes,
+                lineStyle: {color: '#909399', width: LINE.secondary, type: 'dotted', opacity: 0.65},
+                itemStyle: {color: '#909399'},
+            },
+        ],
+    }, true);
+    chart.resize();
+};
+
+/** 拉取情绪数据。
+ *  收盘价直接复用 tab1 已取的 `ohlc_data`（K 线数据，即便关闭 K 线显示也会照常加载）；
+ *  仅当它为空时才补取一次 /stock_history。行情失败不影响情绪曲线展示。 */
+const loadSentiment = async () => {
+    if (!stock_code) return;
+    sentimentLoading.value = true;
+    try {
+        const res = await axios.get(`/api/v1/stock/retail_sentiment/${stock_code}`, {params: {limit: 60}});
+        const payload = res.data || {};
+        sentimentData.value = Array.isArray(payload.history) ? payload.history : [];
+
+        if (!(ohlc_data.value || []).length) {
+            try {
+                const his = await axios.get(`/api/v1/stock_history/${stock_code}`);
+                if (Array.isArray(his.data)) ohlc_data.value = his.data;
+            } catch (e) {
+                // 行情取不到只影响双轴里的收盘价线，情绪曲线本身仍然可看
+            }
+        }
+    } catch (e) {
+        sentimentData.value = [];
+    } finally {
+        sentimentLoading.value = false;
+        sentimentLoaded.value = true;
+    }
+};
+
+/** 手动触发重算（走 PUT 接口 → 投递队列 → 抓取 + LLM，约 5~25 秒）。 */
+const sentimentRefreshing = ref(false);
+const refreshSentiment = async () => {
+    if (sentimentRefreshing.value) return;
+    sentimentRefreshing.value = true;
+    try {
+        await axios.put(`/api/v1/stock/retail_sentiment/${stock_code}`);
+        showSuccess('已提交分析任务', '股吧抓取与大模型分析约需 5~25 秒，稍后刷新查看');
+    } catch (e) {
+        showError('提交失败', '请稍后重试');
+    } finally {
+        sentimentRefreshing.value = false;
+    }
+};
+
+const resizeSentimentChart = () => {
+    sentimentChart?.resize();
 };
 
 // ========================
@@ -449,6 +644,8 @@ const tabItems = [
     { key: 'tab6', label: '因子分析' },
     { key: 'tab2', label: '基本面分析' },
     { key: 'tab3', label: '新闻动态' },
+    // 散户情绪：东财股吧发帖的 LLM 语义分析（与「恐惧贪婪」是两个不同指标，见卡片说明）
+    { key: 'tab7', label: '散户情绪' },
     { key: 'tab4', label: '财务分析' },
     { key: 'tab5', label: '研报数据' },
 ];
@@ -1001,6 +1198,7 @@ onMounted(async () => {
 
     window.addEventListener('resize', resizeFgChart);
     window.addEventListener('resize', resizeFinChart);
+    window.addEventListener('resize', resizeSentimentChart);
     // ⚠️ 必须在这里就拉分组状态：菜单项要显示「设置分组 · 当前分组」、并在未入池时
     //    换成「加入监控」，这些判定全依赖它。只在打开弹窗时拉的话，首次进入页面
     //    菜单永远是默认态（不显示当前分组、未入池的票还挂着「关闭监控」），
@@ -1170,6 +1368,16 @@ watch(activeTab, (val) => {
         // PE-TTM 走势图也在 v-show 的 tab2 里，切到该 tab 时容器才可见，需重绘
         nextTick(() => renderPeTtmChart());
     }
+    if (val === 'tab7') {
+        // 散户情绪做懒加载：多数用户不看这个 tab，没必要首屏就发请求。
+        // ⚠️ 顺序不能反：先 await 数据（容器由 v-if/v-else 决定是否进 DOM），
+        //    再等一帧画图；直接画会因容器还是 loading 态而拿到 null。
+        nextTick(async () => {
+            if (!sentimentLoaded.value) await loadSentiment();
+            await nextTick();
+            renderSentimentChart();
+        });
+    }
 });
 
 const chartFilterOptions = [
@@ -1293,10 +1501,13 @@ onUnmounted(() => {
     dispose('chart');
     window.removeEventListener('resize', resizeFgChart);
     window.removeEventListener('resize', resizeFinChart);
+    window.removeEventListener('resize', resizeSentimentChart);
     fgChart?.dispose();
     fgChart = null;
     finChart?.dispose();
     finChart = null;
+    sentimentChart?.dispose();
+    sentimentChart = null;
 });
 
 </script>
@@ -1894,6 +2105,126 @@ onUnmounted(() => {
                 </DataTable>
             </div>
 
+            <!-- 散户情绪：东方财富股吧发帖 → LLM 三分类 → 后端公式算分
+                 ⚠️ 与 tab1 的「恐惧&贪婪」是两个不同指标（文本语义 vs 价量技术），
+                 文案、档位、配色体系都独立，不能让用户以为是同一个东西。 -->
+            <div v-show="activeTab === 'tab7'">
+                <div class="rs-head mt-5">
+                    <div class="font-semibold text-lg">
+                        <i class="pi pi-comments text-blue-500"></i> 股吧散户情绪
+                    </div>
+                    <Button label="重新分析" icon="pi pi-refresh" size="small"
+                            severity="secondary" text
+                            :loading="sentimentRefreshing"
+                            @click="refreshSentiment"/>
+                </div>
+                <Divider/>
+
+                <div v-if="sentimentLoading" class="fg-loading">
+                    <i class="pi pi-spin pi-spinner"></i> 散户情绪数据加载中...
+                </div>
+
+                <template v-else-if="sentimentLatest">
+                    <div class="rs-body">
+                        <!-- 左：当前读数 -->
+                        <div class="rs-current">
+                            <div class="rs-value"
+                                 :style="{ color: retailSentimentLevel(sentimentLatest.sentiment_score).color }">
+                                {{ Number(sentimentLatest.sentiment_score ?? 50).toFixed(1) }}
+                            </div>
+                            <div class="rs-label"
+                                 :style="{ color: retailSentimentLevel(sentimentLatest.sentiment_score).color }">
+                                {{ retailSentimentLevel(sentimentLatest.sentiment_score).text }}
+                            </div>
+                            <div class="rs-date">{{ sentimentLatest.trade_date }}</div>
+
+                            <!-- 置信度：低于 50 时视觉降级（虚线边框 + 灰字），提醒结论不可尽信 -->
+                            <div class="rs-conf" :class="{ weak: sentimentConf.weak }"
+                                 :style="{ color: sentimentConf.color, borderColor: sentimentConf.color }">
+                                {{ sentimentConf.text }} {{ Number(sentimentLatest.confidence ?? 0).toFixed(0) }}
+                            </div>
+
+                            <div class="rs-advice">
+                                {{ retailSentimentLevel(sentimentLatest.sentiment_score).advice }}
+                            </div>
+
+                            <!-- 多空占比条：一段式堆叠，和为 100% -->
+                            <div class="rs-ratio">
+                                <div class="rs-ratio-bar">
+                                    <span class="seg bull"
+                                          :style="{ width: Number(sentimentLatest.bullish_ratio ?? 0) + '%' }"></span>
+                                    <span class="seg neut"
+                                          :style="{ width: Number(sentimentLatest.neutral_ratio ?? 0) + '%' }"></span>
+                                    <span class="seg bear"
+                                          :style="{ width: Number(sentimentLatest.bearish_ratio ?? 0) + '%' }"></span>
+                                </div>
+                                <div class="rs-ratio-legend">
+                                    <span class="bull">看多 {{ Number(sentimentLatest.bullish_ratio ?? 0).toFixed(0) }}%</span>
+                                    <span class="neut">中性 {{ Number(sentimentLatest.neutral_ratio ?? 0).toFixed(0) }}%</span>
+                                    <span class="bear">看空 {{ Number(sentimentLatest.bearish_ratio ?? 0).toFixed(0) }}%</span>
+                                </div>
+                            </div>
+
+                            <div class="rs-meta">
+                                <div>24h 发帖 <b>{{ sentimentLatest.post_count ?? 0 }}</b> 条 ·
+                                    送入分析 <b>{{ sentimentLatest.sample_size ?? 0 }}</b> 条
+                                </div>
+                                <div>模型判定有效自发帖 <b>{{ sentimentLatest.effective_count ?? 0 }}</b> 条 ·
+                                    活跃度 <b>{{ sentimentLatest.heat_level || '--' }}</b>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 右：情绪走势（副轴叠收盘价，用于看背离） -->
+                        <div class="rs-chart-wrap">
+                            <div class="rs-chart-title">
+                                情绪走势（实线 = 散户情绪分 0~100；点线 = 收盘价，右轴）
+                            </div>
+                            <div ref="sentimentChartRef" class="rs-chart"></div>
+                        </div>
+                    </div>
+
+                    <!-- 语义结论：话题 / 理由 / 关键词 / 代表性帖子 -->
+                    <div class="rs-detail">
+                        <div class="rs-detail-head">
+                            <span class="rs-detail-label">当期焦点</span>
+                            <span class="rs-topic">{{ sentimentLatest.dominant_topic || '--' }}</span>
+                        </div>
+
+                        <div class="rs-reasoning" v-if="sentimentLatest.reasoning">
+                            {{ sentimentLatest.reasoning }}
+                        </div>
+
+                        <div class="rs-keywords" v-if="(sentimentLatest.keywords || []).length">
+                            <span v-for="kw in sentimentLatest.keywords" :key="kw" class="kw-chip">{{ kw }}</span>
+                        </div>
+
+                        <div class="rs-posts" v-if="(sentimentLatest.notable_posts || []).length">
+                            <div class="rs-posts-title">代表性帖子</div>
+                            <div v-for="(p, i) in sentimentLatest.notable_posts" :key="i" class="rs-post">
+                                <span class="stance"
+                                      :class="p.stance === '看多' ? 'bull' : (p.stance === '看空' ? 'bear' : 'neut')">
+                                    {{ p.stance || '中性' }}
+                                </span>
+                                <span class="post-title">{{ p.title }}</span>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div v-else class="empty-tip">
+                    该股票暂无散户情绪数据。系统每个交易日 19:10 自动采集，
+                    也可点右上角「重新分析」立即触发（首次约 5~25 秒）。
+                </div>
+
+                <div class="rs-footnote">
+                    本指标由东方财富股吧发帖经大模型语义分析得出，反映散户<strong>主观表达</strong>的情绪；
+                    与「技术面分析」中的恐惧&amp;贪婪（由价量指标计算）是两个不同指标，不可互相替代。
+                    散户情绪更适合作为<strong>反向参考</strong>：极度看多常出现在阶段高点附近，
+                    极度看空常伴随恐慌抛售。样本不足时置信度会自动降低，此时结论仅供参考。
+                </div>
+            </div>
+
             <!-- 财务分析：报表切换 + 核心指标卡片 + 趋势图 -->
             <div v-show="activeTab === 'tab4'">
                 <div class="mt-5">
@@ -2421,6 +2752,248 @@ onUnmounted(() => {
     }
 }
 
+/* ===== 散户情绪（tab7）===== */
+/* 布局刻意与上方「恐惧&贪婪」卡片同构（左读数 + 右走势），但配色体系独立：
+   恐贪用恐惧绿/贪婪红，散户情绪用「看空绿/中性灰/看多红」——A 股涨跌色口径不变，
+   只是语义从「市场情绪」变成「散户立场」，文案必须能一眼区分。 */
+.rs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.rs-body {
+    display: flex;
+    gap: 1rem;
+    align-items: stretch;
+}
+
+.rs-current {
+    flex: 0 0 260px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+}
+
+.rs-value {
+    font-size: 2.4rem;
+    font-weight: 700;
+    line-height: 1.1;
+}
+
+.rs-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+}
+
+.rs-date {
+    font-size: 0.75rem;
+    color: #909399;
+}
+
+/* 置信度徽标：weak（置信度 < 50）用虚线边框，视觉上明确「这条结论不硬」 */
+.rs-conf {
+    font-size: 0.7rem;
+    padding: 0.05rem 0.4rem;
+    border: 1px solid;
+    border-radius: 0.75rem;
+
+    &.weak {
+        border-style: dashed;
+        opacity: 0.9;
+    }
+}
+
+.rs-advice {
+    font-size: 0.75rem;
+    color: #606266;
+    line-height: 1.55;
+}
+
+.rs-ratio {
+    width: 100%;
+    margin-top: 0.35rem;
+}
+
+.rs-ratio-bar {
+    display: flex;
+    height: 8px;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #eee;
+
+    .seg {
+        display: block;
+        height: 100%;
+    }
+
+    .bull {
+        background: #ef4444;
+    }
+
+    .neut {
+        background: #c8c9cc;
+    }
+
+    .bear {
+        background: #12783c;
+    }
+}
+
+.rs-ratio-legend {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.25rem;
+    font-size: 0.68rem;
+
+    .bull {
+        color: #ef4444;
+    }
+
+    .neut {
+        color: #909399;
+    }
+
+    .bear {
+        color: #12783c;
+    }
+}
+
+.rs-meta {
+    font-size: 0.68rem;
+    color: #909399;
+    line-height: 1.7;
+}
+
+.rs-chart-wrap {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.rs-chart-title {
+    font-size: 0.72rem;
+    color: #909399;
+    margin-bottom: 0.25rem;
+}
+
+.rs-chart {
+    width: 100%;
+    height: 260px;
+}
+
+.rs-detail {
+    margin-top: 1rem;
+    padding: 0.85rem 1rem;
+    background: #fafafa;
+    border: 1px solid #f0f0f0;
+    border-radius: 0.5rem;
+}
+
+.rs-detail-head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.rs-detail-label {
+    font-size: 0.7rem;
+    color: #909399;
+}
+
+.rs-topic {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #303133;
+}
+
+.rs-reasoning {
+    margin-top: 0.4rem;
+    font-size: 0.78rem;
+    color: #606266;
+    line-height: 1.7;
+}
+
+.rs-keywords {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-top: 0.5rem;
+}
+
+.kw-chip {
+    font-size: 0.68rem;
+    padding: 0.05rem 0.45rem;
+    border-radius: 0.6rem;
+    background: #eef2f7;
+    color: #5a6b82;
+}
+
+.rs-posts {
+    margin-top: 0.6rem;
+}
+
+.rs-posts-title {
+    font-size: 0.7rem;
+    color: #909399;
+    margin-bottom: 0.3rem;
+}
+
+.rs-post {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-size: 0.76rem;
+    color: #303133;
+    line-height: 1.7;
+
+    .stance {
+        flex: 0 0 auto;
+        font-size: 0.65rem;
+        padding: 0 0.3rem;
+        border-radius: 0.25rem;
+
+        &.bull {
+            background: #fdeeee;
+            color: #ef4444;
+        }
+
+        &.bear {
+            background: #e8f5ee;
+            color: #12783c;
+        }
+
+        &.neut {
+            background: #f2f3f5;
+            color: #909399;
+        }
+    }
+
+    .post-title {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+}
+
+.rs-footnote {
+    margin-top: 1rem;
+    padding: 0.6rem 0.8rem;
+    font-size: 0.7rem;
+    line-height: 1.7;
+    color: #909399;
+    background: #fbfbfb;
+    border-left: 2px solid #dcdfe6;
+    border-radius: 2px;
+}
+
 /* 窄屏：右上角动作区改为普通流；恐惧贪婪卡片由「左值 + 右图」改为上下堆叠
    （300px 定宽左栏在手机上会把图表挤没），图表给一个保底高度。 */
 @media (max-width: 768px) {
@@ -2440,6 +3013,21 @@ onUnmounted(() => {
 
         .fg-chart-wrap .fg-chart {
             min-height: 180px;
+        }
+    }
+
+    /* 散户情绪同样是「左值 + 右图」，窄屏下改为上下堆叠 */
+    .rs-body {
+        flex-direction: column;
+        gap: 0.75rem;
+
+        .rs-current {
+            flex: 0 0 auto;
+            width: 100%;
+        }
+
+        .rs-chart-wrap .rs-chart {
+            min-height: 200px;
         }
     }
 

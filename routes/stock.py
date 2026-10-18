@@ -21,6 +21,7 @@ from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
+from service.stock_guba_sentiment_service import StockGubaSentimentService
 from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
@@ -743,6 +744,54 @@ def get_stocks_greed_data(
     """
     greed_data = StockFearGreedService.get_by_index_all(index_code=stock_code, limit=limit)
     return greed_data
+
+
+@stock_router.get('/stock/retail_sentiment/{symbol}')
+def get_stock_retail_sentiment(
+    symbol: str,
+    limit: int = Query(60, ge=1, le=365, description='返回最近 N 个采集日'),
+):
+    """个股散户情绪（股吧文本语义）—— 最新读数 + 历史序列。
+
+    ⚠️ 与 `/stock/greed_data/{symbol}`（恐惧贪婪）是**两个不同指标**：
+    恐贪由价量指标算出，本接口是股吧发帖的 LLM 语义分析结果。前端不要混用文案。
+
+    ⚠️ 刻意**不加 `@cache`**：数据写入频率低（每只票每天一条），单股历史最多几十行，
+    查询本身很轻；而加了缓存会导致「手动刷新后仍看到旧值」，排查成本高于收益。
+
+    返回的 history 按 trade_date **倒序**（与 greed_data 一致），前端画图前需 reverse。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+
+    history = StockGubaSentimentService.get_history(symbol, limit=limit)
+    return {
+        'symbol': symbol,
+        'latest': history[0] if history else None,
+        'history': history,
+        'meta': {
+            'total': len(history),
+            # 历史深度上限约 8~10 天（股吧列表页翻页深度有限），趋势要靠上线后逐日积累
+            'note': '数据自功能上线日起逐日积累，早期样本天数较少',
+        },
+    }
+
+
+@stock_router.put('/stock/retail_sentiment/{symbol}')
+def refresh_stock_retail_sentiment(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """手动触发某只股票的散户情绪重算（投递队列，异步执行）。
+
+    ⚠️ 需要登录：该操作会真实抓取东方财富股吧并发起一次大模型调用。
+    抓取层有全局 20 秒限速与反爬冷却（见 service/eastmoney_guba.py），
+    因此这里只投递任务、不阻塞 HTTP 请求 —— 单只实测约 5~25 秒。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+    JobService.send_job({
+        'job_func': 'job_stock_guba_sentiment',
+        'job_args': {'_stock_code': symbol},
+    })
+    return {'code': 0, 'message': '已提交分析任务，请稍后刷新查看'}
 
 
 @stock_router.get('/stock_search')
