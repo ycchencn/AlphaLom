@@ -5,6 +5,7 @@ import * as echarts from 'echarts';
 import {
     COLORS, LINE, FONT,
     axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    registerThemeRedraw,
 } from '@/utils/echartsTheme'
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -125,8 +126,9 @@ const renderEquityChart = async () => {
     const last = assets[assets.length - 1];
     const up = last >= first;
     const mainColor = up ? UP_COLOR : DOWN_COLOR;
-    const areaFrom = up ? 'rgba(239,68,68,0.20)' : 'rgba(18,120,60,0.20)';
-    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+    // ⚠️ 原先这里还声明过 areaFrom/areaTo 两个 rgba 字面值，但下面实际用的是
+    // areaGradient(mainColor, ...) —— 声明后从未被引用，是死代码，且那组 rgba
+    // 与全站涨跌色（#dc2626/#16a34a）本来就不是一套色。已删。
 
     // 极值标注：最大 / 最小净资产（只看纵轴看不出「我在哪」，标出来才有体感）
     let maxIdx = 0, minIdx = 0;
@@ -189,10 +191,13 @@ const renderEquityChart = async () => {
             markPoint: {
                 symbol: 'pin',
                 symbolSize: 30,
+                // pin 是实心色块，上面压白字才看得清；这个 #fff 是「反色底上的字」，
+                // 不是正文色，两套主题通用，不参与涨跌/明暗语义。
                 label: {fontSize: FONT.axis, color: '#fff', formatter: (p) => compactMoney(p.value)},
                 data: [
-                    {type: 'max', name: '最高', itemStyle: {color: '#94a3b8'}},
-                    {type: 'min', name: '最低', itemStyle: {color: '#cbd5e1'}}
+                    // 最高/最低两个 pin 是灰蓝中性色，不借用涨跌红绿（否则会读成「涨/跌信号」）
+                    {type: 'max', name: '最高', itemStyle: {color: COLORS.axisLabel}},
+                    {type: 'min', name: '最低', itemStyle: {color: COLORS.axisLabelThin}}
                 ]
             }
         }]
@@ -214,8 +219,7 @@ const renderReturnChart = async () => {
     const last = pct[pct.length - 1];
     const up = (last ?? 0) >= 0;
     const mainColor = up ? UP_COLOR : DOWN_COLOR;
-    const areaFrom = up ? 'rgba(239,68,68,0.22)' : 'rgba(18,120,60,0.22)';
-    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+    // 同 renderEquityChart：原先的 areaFrom/areaTo 是死代码，已删。
 
     returnChart.setOption({
         grid: {left: 46, right: 20, top: 16, bottom: 26},
@@ -314,12 +318,14 @@ const renderIndustryPie = async () => {
             radius: ['42%', '62%'],
             center: ['50%', '44%'],
             avoidLabelOverlap: true,
-            itemStyle: { borderColor: '#fff', borderWidth: 2 },
+            // 扇区描边是**分隔相邻扇区**的，不是文字色：原先写死 '#fff'，暗色下
+            // 每个扇区外圈一圈刺眼白边。用 dotBg 跟随主题（暗色为深灰白 #27272a）。
+            itemStyle: { borderColor: COLORS.dotBg, borderWidth: 2 },
             label: { show: false },
             labelLine: { show: false },
             emphasis: {
                 label: { show: false },
-                itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' }
+                itemStyle: { shadowBlur: 10, shadowColor: COLORS.shadow }
             },
             data: dist.data
         }]
@@ -703,8 +709,23 @@ watch(industryDistribution, () => {
     renderIndustryPie();
 });
 
+// 切主题后重画三个图：ECharts 的 setOption 是快照，不重跑会留着旧主题的
+// 坐标轴 / 网格线 / 扇区描边色。各 render 函数内部已做容器判空（ensureChart）。
+// registerThemeRedraw 返回取消订阅函数，卸载时必须调 stop，否则 KeepAlive 下会累积。
+let stopThemeRedraw = null;
+
+onMounted(() => {
+    stopThemeRedraw = registerThemeRedraw(() => {
+        renderEquityChart();
+        renderReturnChart();
+        renderIndustryPie();
+    });
+});
+
 onUnmounted(() => {
     window.removeEventListener('resize', resizeCharts);
+    stopThemeRedraw?.();
+    stopThemeRedraw = null;
     equityChart?.dispose();
     equityChart = null;
     returnChart?.dispose();
@@ -1593,12 +1614,11 @@ const reload = () => window.location.reload();
     line-height: 1.5;
 }
 
-/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
+/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框。
+   ⚠️ 原先额外写了 `:global(html.app-dark) .p-card { border-color: #334155 }` 做暗色覆盖，
+   语义变量 --app-border-weak 两套主题取值本就不同，这段局部覆盖已属多余，删掉。 */
 .p-card {
-    border: 1px solid #dedede;
-}
-:global(html.app-dark) .p-card {
-    border-color: #334155;
+    border: 1px solid var(--app-border-weak);
 }
 
 /* ===== 走势卡片布局（与全站 fear-greed / growth-value 卡片同构：左读数 + 右图）===== */
@@ -1615,12 +1635,12 @@ const reload = () => window.location.reload();
     justify-content: center;
     gap: 8px;
     padding-right: 20px;
-    border-right: 1px solid #eef1f6;
+    border-right: 1px solid var(--app-border-weak);
 }
 
 .pv-side-label {
     font-size: 11px;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     /* ⚠️ 读数区与图表贴太近时，"区间累计收益" 会被折线压过去（视觉重叠）——
        这里靠 line-height 与 margin 把它和数值成组，和右侧图表拉开呼吸感 */
     line-height: 1.4;
@@ -1643,7 +1663,7 @@ const reload = () => window.location.reload();
 }
 
 .pv-side-k {
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .pv-side-v {
@@ -1670,14 +1690,12 @@ const reload = () => window.location.reload();
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 12px;
 }
 
-/* 深色模式：分隔线换成深色，避免一条亮线特别扎眼 */
-:global(html.app-dark) .pv-chart-side {
-    border-right-color: #334155;
-}
+/* 原先这里有一段 `:global(html.app-dark) .pv-chart-side { border-right-color: #334155 }`，
+   语义变量 --app-border-weak 暗色下会自动取深色值，局部覆盖已删。 */
 
 @media (max-width: 768px) {
     .pv-chart-wrap {
@@ -1693,7 +1711,7 @@ const reload = () => window.location.reload();
         padding-right: 0;
         padding-bottom: 10px;
         border-right: 0;
-        border-bottom: 1px solid #eef1f6;
+        border-bottom: 1px solid var(--app-border-weak);
     }
 
     .pv-side-value {
