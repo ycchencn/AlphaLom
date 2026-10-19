@@ -20,6 +20,10 @@
 import {computed, onMounted, onUnmounted, ref, watch, nextTick} from 'vue';
 import axios from 'axios';
 import * as echarts from 'echarts';
+import Button from 'primevue/button';
+import Dialog from 'primevue/dialog';
+import SelectButton from 'primevue/selectbutton';
+import {useNotification} from '@/composables/useNotification';
 import {
     COLORS, LINE, FONT, axisLabel, splitLine, tooltipBase, areaGradient,
 } from '@/utils/echartsTheme';
@@ -78,6 +82,116 @@ const quadRef = ref(null);
 const seriesRef = ref(null);
 const heatRef = ref(null);
 let charts = [];
+
+// ==================== 一键重算因子 ====================
+// 后端只保证「已入队」（队列 prefetch=1 串行，单只 full 重算约 1 分钟），
+// 完成后要靠轮询 recalc_status 让看板自动刷新 —— 否则用户点完还是看到旧值。
+// ⚠️ 轮询定时器必须在 unmount / 换标的时清掉，否则会在离开页面后继续打接口。
+const recalcVisible = ref(false);
+const recalcSubmitting = ref(false);
+const recalcFull = ref(false);
+const recalcRunning = ref(false);
+const recalcStatus = ref(null);
+let pollTimer = null;
+const POLL_INTERVAL_MS = 5000;
+// 轮询上限：约 6 分钟。full 重算实测 ~1 分钟，队列积压时才可能更久；
+// 到点仍未完成就停止轮询并提示「可稍后刷新」，不要无限打接口。
+const POLL_MAX_TIMES = 72;
+
+const {showSuccess, showInfo, showError} = useNotification();
+
+const recalcTarget = computed(() => `${props.symbol}（${props.assetType === 'etf' ? 'ETF' : '个股'}）`);
+
+// 重算范围选项。默认选「只算最新一天」——它是幂等且不改历史的操作，
+// 用户点「重算」的直觉预期也是「刷新一下数值」；整段重写会清空历史，属高风险，
+// 放在需要主动切换的第二项而不是默认项上。
+const recalcScopeOptions = [
+    { label: '仅最新交易日', value: false },
+    { label: '整段重写（3年）', value: true },
+];
+
+function stopPolling() {
+    if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+    }
+}
+
+async function fetchRecalcStatus() {
+    try {
+        const {data} = await axios.get(`/api/v1/factor/stock/${props.symbol}/recalc_status`);
+        return data?.data ?? data;
+    } catch (e) {
+        return null;
+    }
+}
+
+function startPolling() {
+    stopPolling();
+    let times = 0;
+    pollTimer = setInterval(async () => {
+        times += 1;
+        const st = await fetchRecalcStatus();
+        if (st) recalcStatus.value = st;
+        // 完成判定由后端给出（库里的 update_time 是否晚于入队时刻）
+        if (st?.done) {
+            stopPolling();
+            recalcRunning.value = false;
+            showSuccess('因子重算完成，已刷新看板');
+            await loadAll();
+            return;
+        }
+        if (times >= POLL_MAX_TIMES) {
+            stopPolling();
+            recalcRunning.value = false;
+            showInfo('重算仍在后台进行，稍后手动刷新本页即可看到结果');
+        }
+    }, POLL_INTERVAL_MS);
+}
+
+async function submitRecalc() {
+    if (recalcSubmitting.value) return;
+    recalcSubmitting.value = true;
+    try {
+        await axios.put(`/api/v1/factor/stock/${props.symbol}/recalc`, {
+            asset_type: props.assetType,
+            full: recalcFull.value,
+        });
+        recalcVisible.value = false;
+        recalcRunning.value = true;
+        showInfo(recalcFull.value ? '已提交整段重算（约 1 分钟）' : '已提交重算最新交易日');
+        startPolling();
+    } catch (e) {
+        const status = e?.response?.status;
+        // 429 = 冷却期内重复触发（后端已用 Redis NX 做互斥），把等待秒数如实回显
+        if (status === 429) {
+            showError(e?.response?.data?.detail || '触发过于频繁，请稍后再试');
+        } else if (e?.isSpaFallback) {
+            showError('后端尚未部署该接口，请重启后端服务');
+        } else {
+            showError(e?.response?.data?.detail || '重算任务提交失败，请重试');
+        }
+    } finally {
+        recalcSubmitting.value = false;
+    }
+}
+
+// 页面加载时先探一次：若上一次重算还没跑完，按钮要显示「计算中」而不是「可点」。
+// ⚠️ 只在渲染因子看板的实例上探（dashboard 实例不显示按钮，探了纯属白打接口）。
+async function checkRecalcState() {
+    if (!wantsFactors.value) return;
+    const st = await fetchRecalcStatus();
+    if (!st) return;
+    recalcStatus.value = st;
+    if (st.dispatched_at && !st.done) {
+        recalcRunning.value = true;
+        startPolling();
+    }
+}
+
+function openRecalc() {
+    recalcVisible.value = true;
+}
 
 // 图表实例统一管理，卸载时销毁
 function disposeAll() {
@@ -327,6 +441,9 @@ const maState = computed(() => dashboard.value?.ma_status || null);
 const levels = computed(() => dashboard.value?.key_levels || null);
 const phase = computed(() => dashboard.value?.phase_series || null);
 
+/** 本实例是否渲染因子看板区块（与 loadAll 里请求哪些接口的口径保持一致）。 */
+const wantsFactors = computed(() => props.mode !== 'dashboard');
+
 /**
  * 52 周区间位置（位置条用）。
  *
@@ -386,14 +503,27 @@ function onResize() {
 
 onMounted(() => {
     loadAll();
+    checkRecalcState();
     window.addEventListener('resize', onResize);
 });
 onUnmounted(() => {
     window.removeEventListener('resize', onResize);
+    // ⚠️ 轮询必须随组件一起停：否则在详情页之间来回切换时会留下一串后台定时器，
+    // 持续打 recalc_status 且回调里 loadAll() 会把**别的标的**的数据写进当前组件。
+    stopPolling();
+    recalcRunning.value = false;
     disposeAll();
 });
 // symbol 或 assetType 变化都要重取：同一代码在个股/ETF 下走的是不同行情接口。
-watch(() => [props.symbol, props.assetType], () => { disposeAll(); loadAll(); });
+watch(() => [props.symbol, props.assetType], () => {
+    // 换标的 = 上一个标的的「重算中」状态与轮询都不再适用
+    stopPolling();
+    recalcRunning.value = false;
+    recalcStatus.value = null;
+    disposeAll();
+    loadAll();
+    checkRecalcState();
+});
 // 容器从隐藏（v-show 非激活）变可见时，之前 0x0 画布上的图要重画：
 // 数据早已取好（组件常驻），只差尺寸到位。重走渲染函数即可（内部会 getInstanceByDom + setOption + resize）。
 watch(() => props.active, (v) => {
@@ -536,6 +666,12 @@ watch(() => props.active, (v) => {
                 <div class="fp-title"><i class="pi pi-th-large text-blue-500"></i> 因子看板
                     <span class="fp-sub">共 {{ board.groups.reduce((s, g) => s + g.items.length, 0) }} 个因子 ·
                         截至 {{ board.asof }}</span>
+                    <!-- ⚠️ 只挂在「因子看板」这一块（mode='factors' / 'all'），不挂到
+                         mode='dashboard' 的实例上：那是技术面分析 tab，不需要重算入口。
+                         两个实例同时挂着时按钮只出现一次，不会让用户以为是两个功能。 -->
+                    <Button size="small" severity="secondary" outlined class="fp-recalc-btn"
+                            :loading="recalcRunning" :disabled="recalcRunning"
+                            icon="pi pi-refresh" label="重算因子" @click="openRecalc"/>
                 </div>
 
                 <!-- 历史分位要有足够样本才有意义：新纳入日更的标的往往只落了一两天，
@@ -584,6 +720,21 @@ watch(() => props.active, (v) => {
                 </div>
             </div>
 
+            <!-- 因子尚未入库（新入池标的）时上面的看板块整块不渲染，这里补一个空态 + 重算入口。
+                 没有它，用户看到的只是一句「暂无因子数据」，不知道自己能重算。
+                 ⚠️ 必须与看板块**同级**：放进看板块内部会变成它的子节点，
+                 v-else 挂在别的元素后 Vue 编译期直接报错。 -->
+            <div v-else-if="wantsFactors" class="fp-block">
+                <div class="fp-title"><i class="pi pi-th-large text-blue-500"></i> 因子看板</div>
+                <div class="fp-note fp-note-empty">
+                    <i class="pi pi-info-circle"></i>
+                    该标的暂无因子数据（可能未纳入因子计算，或因子任务尚未运行），可手动触发一次重算。
+                    <Button size="small" severity="secondary" outlined class="fp-recalc-btn"
+                            :loading="recalcRunning" :disabled="recalcRunning"
+                            icon="pi pi-refresh" label="一键重算" @click="openRecalc"/>
+                </div>
+            </div>
+
             <!-- ============ L2 · 雷达 + 横向对比（个股=行业 / ETF=全站 ETF） ============ -->
             <div class="fp-block" v-if="radar || peerRank">
                 <div class="fp-title"><i class="pi pi-chart-pie text-blue-500"></i> 因子雷达与横向对比</div>
@@ -614,9 +765,53 @@ watch(() => props.active, (v) => {
                 </div>
             </div>
 
-            <div v-if="!loading && !board && !dashboard" class="fp-empty">
+            <!-- ⚠️ 因子模式（wantsFactors）下「空」已经由上面的「因子看板空态块」表达了，
+                 这里只在 dashboard 模式（技术面 tab、无看板区块）兜底，否则两条文案会同时出现。 -->
+            <div v-if="!loading && !board && !dashboard && !wantsFactors" class="fp-empty">
                 暂无因子数据（该标的可能未纳入因子计算，或因子任务尚未运行）
-            </div>        </template>
+            </div>
+        </template>
+
+        <!-- 一键重算确认框。full 模式会先清空该标的的全部历史因子再整段重写，
+             这是有风险的操作（行情取不到时会把已有数据清空），所以必须显式确认。 -->
+        <Dialog v-model:visible="recalcVisible" modal header="重算因子"
+                :style="{ width: '30rem' }">
+            <div class="flex flex-col gap-3">
+                <div>
+                    将重新计算 <b>{{ recalcTarget }}</b> 的全部技术因子。
+                    当前已积累 <b>{{ recalcStatus?.history_days ?? 0 }}</b> 个交易日
+                    的因子历史。
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-sm font-medium">重算范围</label>
+                    <SelectButton v-model="recalcFull" :options="recalcScopeOptions"
+                                 optionLabel="label" optionValue="value" :allowEmpty="false"/>
+                </div>
+                <div class="del-warn">
+                    <template v-if="recalcFull">
+                        ⚠️ 整段重算会<b>先删除该标的已有的全部因子历史</b>，再按近 3 年行情重写
+                        （约 1 分钟）。若上游行情取不到，历史会被清空且不恢复。
+                    </template>
+                    <template v-else>
+                        仅重算<b>最新一个交易日</b>，已落库的历史不动（约几秒）。
+                        适合行情刚更新、想刷新当天数值。
+                    </template>
+                </div>
+                <div class="text-xs text-gray-500">
+                    任务提交后进入后台队列串行执行，完成后本页会自动刷新；同一标的 5 分钟内只能触发一次。
+                </div>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <Button label="取消" severity="secondary" text
+                            :disabled="recalcSubmitting" @click="recalcVisible = false"/>
+                    <Button :label="recalcFull ? '确认整段重算' : '确认重算'"
+                            :icon="recalcFull ? 'pi pi-exclamation-triangle' : 'pi pi-refresh'"
+                            :severity="recalcFull ? 'danger' : 'primary'"
+                            :loading="recalcSubmitting" @click="submitRecalc"/>
+                </div>
+            </template>
+        </Dialog>
     </div>
 </template>
 
@@ -649,6 +844,20 @@ watch(() => props.active, (v) => {
 }
 .fp-block { margin-bottom: 1.5rem; }
 .fp-title { font-size: 15px; font-weight: 500; margin-bottom: 4px; display: flex; align-items: baseline; gap: 8px; }
+/* 重算按钮推到标题行最右。⚠️ 用 margin-left:auto 而不是给 .fp-title 加 justify-content:
+   .fp-title 还被另外两个区块（仪表盘 / 雷达）复用，push 到右边会改变它们的排版。 */
+.fp-recalc-btn { margin-left: auto; flex: 0 0 auto; }
+/* 因子看板空态块：复用 .fp-note 的淡底样式，按钮与文字同一行靠 flex 撑开 */
+.fp-note-empty { align-items: center; }
+.fp-note-empty .fp-recalc-btn { margin-left: auto; }
+/* 重算确认框里的高风险提示条（与 UserManage / ApiKeyManage / PortfolioView 的 .del-warn 同款） */
+.del-warn {
+    background: var(--red-50, #fef2f2);
+    border-left: 3px solid var(--red-500, #ef4444);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
 .fp-sub { font-size: 11px; font-weight: 400; color: #9a9a9a; }
 
 /* 仪表盘卡片：两列布局。
