@@ -9,9 +9,28 @@ import { useRouter } from 'vue-router';
 import axios from 'axios';
 import { store } from '@/store';
 import { useNotification } from '@/composables/useNotification';
+import { cycleThemeMode, useTheme, useThemeIcon, THEME_MODE_LABEL } from '@/composables/useTheme';
 
 const router = useRouter();
 const { showSuccess, showError } = useNotification();
+
+// ==================== 配色模式切换 ====================
+// 图标取自 useThemeIcon：显示实际生效的配色。
+// title 里额外带上「当前选择的模式」，auto 时写成「跟随系统（当前为浅色）」，
+// 否则用户点了按钮之后无从判断自己切到哪一档了。
+const { mode } = useTheme();
+const themeIcon = useThemeIcon();
+
+const themeButtonTitle = computed(() => {
+    const current = mode.value === 'auto'
+        ? `跟随系统（当前为${THEME_MODE_LABEL[themeIcon.value.includes('moon') ? 'dark' : 'light']}）`
+        : THEME_MODE_LABEL[mode.value];
+    return `配色模式：${current} · 点击切换`;
+});
+
+function onToggleTheme() {
+    cycleThemeMode();
+}
 
 const userMenu = ref(null);
 
@@ -235,6 +254,19 @@ async function submitChangePassword() {
                     </svg>
                 </a>
             </div>
+
+            <!-- 配色模式切换：一键在 跟随系统 → 浅色 → 深色 之间循环。
+                 图标显示的是「当前实际生效」的配色（而不是当前选择的模式），
+                 这样即使处于 auto，用户也能一眼看出屏幕现在是亮是暗。 -->
+            <button
+                type="button"
+                class="layout-topbar-action theme-toggle"
+                :title="themeButtonTitle"
+                :aria-label="themeButtonTitle"
+                @click="onToggleTheme"
+            >
+                <i :class="themeIcon"></i>
+            </button>
 
             <!-- 当前用户 + 退出登录 -->
             <button

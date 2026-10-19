@@ -68,11 +68,11 @@ const filledSegments = computed(() => {
 }
 
 .bar-segment.filled.bullish {
-    background-color: #f44336;
+    background-color: var(--app-up);
 }
 
 .bar-segment.filled.bearish {
-    background-color: #4caf50;
+    background-color: var(--app-down);
 }
 
 </style>

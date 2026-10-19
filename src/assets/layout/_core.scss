@@ -15,6 +15,24 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+// ==================== 主题切换过渡 ====================
+// 只在用户主动/系统触发切换后启用（.theme-ready 由 useTheme 挂载后添加），
+// 首屏加载时不做过渡，避免「进场动画 + 主题动画」叠加造成的闪烁。
+//
+// ⚠️ 只列具体属性，不写 `*`：全局 transition 会把 width/height/transform 等
+//    布局属性也纳入，表格展开、图表 resize 都会出现肉眼可见的拖影。
+
+:root.theme-ready body,
+:root.theme-ready .layout-wrapper,
+:root.theme-ready .p-component {
+    transition: var(--app-theme-transition);
+}
+
+// 图表容器 / canvas 由 JS 控制像素尺寸，CSS 过渡无意义且可能引起重排抖动
+:root.theme-ready canvas {
+    transition: none;
+}
+
 a {
     text-decoration: none;
 }

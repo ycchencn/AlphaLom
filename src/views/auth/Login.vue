@@ -179,7 +179,12 @@ function handleLogin() {
 
         <!-- Logo -->
         <div class="text-center mb-10">
-          <img src="/images/alphalom-logo.png" alt="AlphaLom" class="login-logo mb-6 mx-auto" />
+          <!-- 亮/暗两版叠放（Lom 段黑字/白字）。原因同 AppMenu：换 src 会在深底上
+               闪一帧空白，叠放两图首屏都下完，主题切换只改 opacity。 -->
+          <div class="login-logo-wrap mb-6">
+            <img src="/images/alphalom-logo.png" alt="AlphaLom" class="login-logo login-logo--light" />
+            <img src="/images/alphalom-logo-dark.png" alt="" aria-hidden="true" class="login-logo login-logo--dark" />
+          </div>
           <div class="text-surface-900 dark:text-surface-0 text-3xl font-medium mb-2">Welcome to AlphaLom!</div>
           <span class="text-muted-color font-medium">Sign in to System</span>
         </div>
@@ -229,13 +234,36 @@ function handleLogin() {
 </template>
 
 <style scoped>
-/* 源图 488×102，按 CSS 定高缩放；原先 w-56(224px) 偏大，收窄到 ~176px */
+/* 源图 488×102（暗版 976×204 同比例 4.83:1），按 CSS 定高缩放；
+   原先 w-56(224px) 偏大，收窄到 ~176px */
+.login-logo-wrap {
+  position: relative;
+  width: fit-content;
+  margin: 0 auto;
+}
+
 .login-logo {
   height: 2.2rem;   /* ≈35px → 渲染宽度约 168px */
   width: auto;
   max-width: 11rem;
   object-fit: contain;
   display: block;
+}
+
+.login-logo--dark {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.app-dark .login-logo--light {
+  opacity: 0;
+}
+
+.app-dark .login-logo--dark {
+  opacity: 1;
 }
 </style>
 

@@ -264,7 +264,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-    <div class="flex bg-gray-50 overflow-hidden">
+    <div class="flex news-page overflow-hidden">
         <!-- 左侧：固定话题导航面板（与股票池分组共用 NavSidePanel 组件） -->
         <NavSidePanel
             title="话题列表"
@@ -276,7 +276,7 @@ onBeforeUnmount(() => {
         />
 
         <!-- 右侧：新闻数据表格 -->
-        <div class="flex-1 p-4 overflow-y-auto flex flex-col bg-white">
+        <div class="flex-1 p-4 overflow-y-auto flex flex-col news-body">
 
             <!-- AI 速览：置顶展示前三条自动总结（后端每小时滚动生成） -->
             <div class="ai-digest">
@@ -420,9 +420,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* 页面外层底 / 右侧内容区底。
+   原先用的是写死的 Tailwind bg-gray-50 / bg-white，暗色下不跟随，
+   已改为语义变量类。 */
+.news-page {
+    background: var(--app-bg-page);
+}
+
+.news-body {
+    background: var(--app-bg-card);
+}
+
 .news-item {
     padding: 4px 0;
-    border-bottom: 1px dashed #f3f4f6;
+    border-bottom: 1px dashed var(--app-border-weak);
 }
 
 .news-item:last-child {
@@ -430,13 +441,13 @@ onBeforeUnmount(() => {
 }
 
 .news-time {
-    color: #6b7280;
+    color: var(--app-text-secondary);
     font-weight: 500;
 }
 
 .news-digest {
     margin: 4px 0;
-    color: #1f2937;
+    color: var(--app-text-primary);
     /* 摘要通常较长，限制为两行，避免单条新闻撑高整页 */
     display: -webkit-box;
     -webkit-line-clamp: 2;
@@ -446,12 +457,12 @@ onBeforeUnmount(() => {
 
 .tag-badge {
     display: inline-block;
-    background-color: #f3f4f6;
-    border: 1px solid #e5e7eb;
+    background-color: var(--app-border-weak);
+    border: 1px solid var(--app-border-base);
     border-radius: 9999px;
     padding: 1px 8px;
     font-size: 0.75rem;
-    color: #374151;
+    color: var(--app-text-primary);
     margin-right: 4px;
 }
 
@@ -459,8 +470,8 @@ onBeforeUnmount(() => {
    配色沿用站内「暖色提示」基调（与恐惧贪婪卡片的暖底一致），
    刻意不加阴影和圆角放大，避免它抢走下面新闻流的注意力。 */
 .ai-digest {
-    border: 1px solid #f0e2d8;
-    background: linear-gradient(180deg, #fffaf5 0%, #ffffff 65%);
+    border: 1px solid var(--app-warm-card-border);
+    background: linear-gradient(180deg, var(--app-warm-card-from) 0%, var(--app-warm-card-to) 65%);
     border-radius: 10px;
     padding: 10px 12px 8px;
     margin-bottom: 12px;
@@ -472,7 +483,7 @@ onBeforeUnmount(() => {
     flex-wrap: wrap;
     gap: 6px;
     padding-bottom: 8px;
-    border-bottom: 1px dashed #f3e4d8;
+    border-bottom: 1px dashed var(--app-warm-divider);
 }
 
 .ai-spark {
@@ -485,19 +496,19 @@ onBeforeUnmount(() => {
     font-size: 0.75rem;
     font-weight: 700;
     letter-spacing: 0.5px;
-    color: #fff;
-    background: linear-gradient(135deg, #ff7a45, #f5222d);
+    color: var(--app-bg-card);
+    background: linear-gradient(135deg, var(--app-grad-hot-a), var(--app-grad-hot-b));
 }
 
 .ai-digest-title {
     font-size: 1rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--app-text-primary);
 }
 
 .ai-digest-sub {
     font-size: 0.85rem;
-    color: #8c8c8c;
+    color: var(--app-text-secondary);
 }
 
 .ai-digest-actions {
@@ -509,7 +520,7 @@ onBeforeUnmount(() => {
 
 .ai-next {
     font-size: 0.75rem;
-    color: #bfbfbf;
+    color: var(--app-text-muted);
 }
 
 .ai-btn {
@@ -517,17 +528,17 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 4px;
     padding: 2px 8px;
-    border: 1px solid #ffd8bf;
+    border: 1px solid var(--app-warm-btn-border);
     border-radius: 4px;
-    background: #fff7f0;
-    color: #d4380d;
+    background: var(--app-warm-btn-bg);
+    color: var(--app-warm-btn-text);
     font-size: 0.75rem;
     line-height: 18px;
     cursor: pointer;
 }
 
 .ai-btn:hover:not(:disabled) {
-    background: #fff1e6;
+    background: var(--app-warm-btn-bg-hover);
 }
 
 .ai-btn:disabled {
@@ -536,13 +547,13 @@ onBeforeUnmount(() => {
 }
 
 .ai-btn-plain {
-    border-color: #e5e7eb;
-    background: #fff;
-    color: #6b7280;
+    border-color: var(--app-border-base);
+    background: var(--app-bg-card);
+    color: var(--app-text-secondary);
 }
 
 .ai-btn-plain:hover {
-    background: #f9fafb;
+    background: var(--app-bg-subtle);
 }
 
 .ai-row {
@@ -556,10 +567,10 @@ onBeforeUnmount(() => {
     flex: none;
     margin-top: 1px;
     padding: 0 5px;
-    border: 1px solid #ffccc7;
+    border: 1px solid var(--app-tag-hot-border);
     border-radius: 3px;
-    background: #fff2f0;
-    color: #cf1322;
+    background: var(--app-tag-hot-bg);
+    color: var(--app-tag-hot-text);
     font-size: 0.75rem;
     font-weight: 600;
     line-height: 18px;
@@ -573,12 +584,12 @@ onBeforeUnmount(() => {
 .ai-keywords {
     font-size: 1rem;
     line-height: 20px;
-    color: #1f2937;
+    color: var(--app-text-primary);
 }
 
 .ai-sep {
     margin: 0 1px;
-    color: #d9d9d9;
+    color: var(--app-text-muted);
 }
 
 /* 关键词可点：点一下筛选下方新闻流，故用链接色区分于普通正文 */
@@ -586,31 +597,31 @@ onBeforeUnmount(() => {
     padding: 0;
     border: none;
     background: none;
-    color: #2563eb;
+    color: var(--app-link);
     font-size: 1rem;
     cursor: pointer;
 }
 
 .ai-kw:hover {
-    color: #f5222d;
+    color: var(--app-grad-hot-b);
     text-decoration: underline;
 }
 
 .ai-kw-empty {
-    color: #d9d9d9;
+    color: var(--app-text-muted);
 }
 
 .ai-summary {
     margin-top: 2px;
     font-size: 0.85rem;
     line-height: 18px;
-    color: #8c8c8c;
+    color: var(--app-text-secondary);
 }
 
 .ai-highlights {
     margin-top: 4px;
     padding-top: 6px;
-    border-top: 1px dashed #f3e4d8;
+    border-top: 1px dashed var(--app-warm-divider);
 }
 
 .ai-highlight {
@@ -618,7 +629,7 @@ onBeforeUnmount(() => {
     gap: 6px;
     font-size: 0.85rem;
     line-height: 20px;
-    color: #595959;
+    color: var(--app-text-secondary);
 }
 
 .ai-dot {
@@ -627,19 +638,19 @@ onBeforeUnmount(() => {
     height: 4px;
     margin-top: 8px;
     border-radius: 50%;
-    background: #ffbb96;
+    background: var(--app-warm-dot);
 }
 
 .ai-foot {
     margin-top: 6px;
     font-size: 0.75rem;
-    color: #bfbfbf;
+    color: var(--app-text-muted);
 }
 
 .ai-empty {
     padding: 10px 0 6px;
     font-size: 0.85rem;
-    color: #bfbfbf;
+    color: var(--app-text-muted);
 }
 
 .ai-filter-bar {
@@ -648,10 +659,10 @@ onBeforeUnmount(() => {
     gap: 8px;
     margin-bottom: 8px;
     padding: 4px 8px;
-    border: 1px solid #e0e7ff;
+    border: 1px solid var(--app-info-border);
     border-radius: 4px;
-    background: #f6f8ff;
+    background: var(--app-info-bg);
     font-size: 0.85rem;
-    color: #4b5563;
+    color: var(--app-text-secondary);
 }
 </style>

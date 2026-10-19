@@ -17,14 +17,20 @@ import 'katex/dist/katex.min.css';
 import Tooltip from 'primevue/tooltip';
 
 import { definePreset } from '@primevue/themes';
+import { initTheme } from '@/composables/useTheme';
 
 import * as echarts from 'echarts';
 
 const app = createApp(App);
 
+// 暗色选择器：与 tailwind.config.js 的 darkMode、`_dark.scss` 的
+// `:root[class*='app-dark']` 三处保持同一个类名 —— 改任何一处都要同步另外两处。
+// ⚠️ preset 和 options 两处都必须放开：历史上两处都写成 false，
+// 导致主题永远只编译亮色那一份，加 app-dark 类也毫无变化。
+const DARK_SELECTOR = '.app-dark';
+
 const MyPreset = definePreset(Aura, {
-    //Your customizations, see the following sections for examples
-    darkModeSelector: false,
+    darkModeSelector: DARK_SELECTOR,
     semantic: {
         primary: {
             50: '{blue.50}',
@@ -47,12 +53,17 @@ app.use(PrimeVue, {
     theme: {
         preset: MyPreset,
         options: {
-            darkModeSelector: false   // 或 'none'，二选一
+            darkModeSelector: DARK_SELECTOR
         }
     }
 })
 app.use(ToastService);
 app.use(ConfirmationService);
+
+// 必须在 mount 之前给 <html> 打上 app-dark 类：PrimeVue 的主题 CSS 是按
+// `.app-dark` 选择器生成两套 token 的，如果首帧还没这个类，暗色用户会先看到
+// 一闪而过的白底（index.html 里已内联脚本兜底，这里是同一逻辑的 JS 版本）。
+initTheme();
 
 // ==================== 登录令牌注入与 401 统一处理 ====================
 // 后端已是多用户：股票池 / 量化策略 / ETF 自选这些「用户私有」接口不带令牌一律 401，

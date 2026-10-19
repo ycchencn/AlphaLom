@@ -7,7 +7,30 @@
       <link rel="icon" type="image/png" href="/images/alphalom-logo-rect.png">
       <link rel="apple-touch-icon" href="/images/alphalom-icon-512.png">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <meta name="color-scheme" content="light dark">
       <title>AlphaLom</title>
+      <!-- 配色模式：必须在首帧渲染前给 <html> 打上 app-dark 类，
+           否则暗色用户会看到一帧白底再变暗（FOUC 闪烁）。
+           这段逻辑与 src/composables/useTheme.js 是同一套规则，两边要同步改。
+           内联在 head 里是为了抢在 CSS/JS 加载之前执行，不引入额外请求。 -->
+      <script>
+          (function () {
+              var KEY = 'alphalom_theme_mode';
+              var mode = 'auto';
+              try {
+                  mode = localStorage.getItem(KEY) || 'auto';
+              } catch (e) {
+                  /* 隐私模式下 localStorage 会抛错，忽略，按 auto 走 */
+              }
+              var dark = mode === 'dark' ||
+                  (mode === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+              var root = document.documentElement;
+              if (dark) {
+                  root.classList.add('app-dark');
+              }
+              root.style.colorScheme = dark ? 'dark' : 'light';
+          })();
+      </script>
       <!-- ALTCHA 人机校验组件（登录页用），自托管不引 CDN。
            ⚠️ 语言包必须排在主包之后：它靠末尾的 globalThis.$altcha.i18n.set(...)
            自注册，主包没执行时 $altcha 还不存在，语言包会直接报错失效。 -->

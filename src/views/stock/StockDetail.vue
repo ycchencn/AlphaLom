@@ -36,7 +36,7 @@ import StockAgentChat from '@/components/stock/StockAgentChat.vue';
 import * as echarts from 'echarts'
 import {
     COLORS, LINE, FONT, PALETTE,
-    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient, registerThemeRedraw,
 } from '@/utils/echartsTheme'
 
 let chart = ref(null)
@@ -114,9 +114,10 @@ const renderFearGreedChart = async (attempt = 0) => {
     const close = rows.map((r) => (r.close == null ? null : Number(r.close)));
 
     const lastFg = fg[fg.length - 1];
+    // ⚠️ ECharts 不吃 CSS 变量，必须走 COLORS（统一涨跌色 + 随暗黑模式切换）
     const mainColor = lastFg == null
-        ? '#909399'
-        : (lastFg >= 55 ? '#ef4444' : (lastFg <= 45 ? '#12783c' : '#f59e0b'));
+        ? COLORS.flat
+        : (lastFg >= 55 ? COLORS.up : (lastFg <= 45 ? COLORS.down : COLORS.warn));
 
     chart.setOption({
         grid: {left: 30, right: 48, top: 14, bottom: 20},
@@ -269,7 +270,7 @@ const renderSentimentChart = async (attempt = 0) => {
     const closes = rows.map((r) => closeOnOrBefore(String(r.trade_date || '').slice(0, 10)));
 
     const lastScore = scores[scores.length - 1];
-    const mainColor = lastScore == null ? '#909399' : retailSentimentLevel(lastScore).color;
+    const mainColor = lastScore == null ? COLORS.flat : retailSentimentLevel(lastScore).color;
 
     chart.setOption({
         grid: {left: 36, right: 52, top: 26, bottom: 22},
@@ -327,8 +328,8 @@ const renderSentimentChart = async (attempt = 0) => {
                 showSymbol: false,
                 connectNulls: true,
                 data: closes,
-                lineStyle: {color: '#909399', width: LINE.secondary, type: 'dotted', opacity: 0.65},
-                itemStyle: {color: '#909399'},
+                lineStyle: {color: COLORS.flat, width: LINE.secondary, type: 'dotted', opacity: 0.65},
+                itemStyle: {color: COLORS.flat},
             },
         ],
     }, true);
@@ -826,9 +827,9 @@ const hasScores = computed(() => scoreDimensions.value.some(d => d.value != null
 
 /** 评分着色：高=红（优）/ 中=橙 / 低=绿（弱），与全站「涨红跌绿、利好=红」一致 */
 const scoreColor = (v) => {
-    if (v == null) return '#9ca3af'
+    if (v == null) return COLORS.secondary
     if (v >= 75) return COLORS.up
-    if (v >= 50) return '#f59e0b'
+    if (v >= 50) return COLORS.warn
     return COLORS.down
 }
 
@@ -847,7 +848,7 @@ const dcfMarginPct = computed(() => {
 })
 const marginColor = computed(() => {
     const m = dcfMarginPct.value
-    if (m == null) return '#9ca3af'
+    if (m == null) return COLORS.secondary
     return m >= 0 ? COLORS.up : COLORS.down
 })
 const valuationVerdict = computed(() => dcf_research_report.value?.content_json?.估值判断 || '—')
@@ -1497,7 +1498,19 @@ const getRatingSeverity = function (rating) {
 
 // 恐惧贪婪走独立的 ECharts 卡片，需要自己管 resize（与基本面雷达图一样）；
 // klinecharts 那边自己按容器尺寸重建画布，不用管。
+// 切主题同样要重画：ECharts 的 setOption 是快照，CSS 变量换了不会改已画的图。
+// 只重画**当前 tab** 的图 —— 其它 tab 用 v-show 隐藏，容器尺寸为 0，
+// 在 0 尺寸上重画会得到空图，等 tab 切过去时不会再重画（tab 切换只改 activeTab）。
+const stopThemeRedraw = registerThemeRedraw(() => {
+    if (activeTab.value === 'tab1') {
+        renderFearGreedChart();
+        renderSentimentChart();
+    } else if (activeTab.value === 'tab4') {
+        renderFinChart();
+    }
+});
 onUnmounted(() => {
+    stopThemeRedraw && stopThemeRedraw();
     dispose('chart');
     window.removeEventListener('resize', resizeFgChart);
     window.removeEventListener('resize', resizeFinChart);
@@ -2235,7 +2248,7 @@ onUnmounted(() => {
                     <Divider/>
 
                     <!-- 报表切换（5 种，与后端白名单一致） -->
-                    <div class="card p-0 mb-3">
+                    <div class="p-0 mb-3">
                         <SelectButton
                             v-model="fin_report_type"
                             :options="FIN_REPORTS"
@@ -2247,7 +2260,7 @@ onUnmounted(() => {
                     </div>
 
                     <!-- 报告期筛选：全部 / 一季报 / 中报 / 三季报 / 年报 -->
-                    <div class="card p-0 mb-3" v-if="!fin_loading && !fin_error">
+                    <div class="p-0 mb-3" v-if="!fin_loading && !fin_error">
                         <SelectButton
                             v-model="fin_period_filter"
                             :options="FIN_PERIOD_FILTERS"
@@ -2259,7 +2272,7 @@ onUnmounted(() => {
                     </div>
 
                     <!-- 时间范围：近3年/近5年/近10年/全部（控制后端取数期数） -->
-                    <div class="card p-0 mb-3" v-if="!fin_loading && !fin_error">
+                    <div class="p-0 mb-3" v-if="!fin_loading && !fin_error">
                         <SelectButton
                             v-model="fin_periods"
                             :options="FIN_PERIOD_OPTIONS"
@@ -2388,7 +2401,7 @@ onUnmounted(() => {
     /* 350px = 蜡烛图主窗格 + VOL 窗格的合计高度（恐惧贪婪已改为下方独立卡片，
        不再占据 K 线内的子窗格，所以高度回到并入前的值）。 */
     height: 350px;
-    border: 1px solid #eee;
+    border: 1px solid var(--app-border-base);
     border-radius: 3px
 }
 
@@ -2398,7 +2411,7 @@ onUnmounted(() => {
 }
 
 .news-time {
-    color: #666;
+    color: var(--app-text-secondary);
     font-weight: bold;
 }
 
@@ -2420,14 +2433,14 @@ onUnmounted(() => {
 
 .tags .tag-badge {
     display: inline-block;
-    background-color: #e9ecef;
-    border: 1px solid #ced4da;
+    background-color: var(--app-bg-active);
+    border: 1px solid var(--app-border-strong);
     border-radius: 4px;
     padding: 2px 6px;
     margin-right: 4px;
     margin-top: 2px;
     font-size: 0.85rem;
-    color: #495057;
+    color: var(--app-text-secondary);
 }
 
 .info-icon {
@@ -2446,8 +2459,8 @@ onUnmounted(() => {
    卡片外壳（白底、圆角、内边距）与大盘页 Card 观感一致。
    ======================== */
 .fg-card {
-    background: #fff;
-    border: 1px solid #eef1f6;
+    background: var(--app-bg-card);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.5rem;
     padding: 0.85rem 1.25rem;
 }
@@ -2479,13 +2492,13 @@ onUnmounted(() => {
 
         .fg-date {
             font-size: 0.8rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-top: 0.25rem;
         }
 
         .fg-advice {
             font-size: 0.8rem;
-            color: #64748b;
+            color: var(--app-text-secondary);
             margin-top: 0.3rem;
             text-align: center;
         }
@@ -2502,7 +2515,7 @@ onUnmounted(() => {
                 align-items: center;
                 gap: 0.4rem;
                 font-size: 0.9rem;
-                color: #64748b;
+                color: var(--app-text-secondary);
 
                 .score-name {
                     flex: 0 0 3.6rem;
@@ -2513,7 +2526,7 @@ onUnmounted(() => {
                 .score-track {
                     flex: 1;
                     height: 5px;
-                    background: #eef1f6;
+                    background: var(--app-track-bg);
                     border-radius: 3px;
                     overflow: hidden;
                     min-width: 30px;
@@ -2530,7 +2543,7 @@ onUnmounted(() => {
                     flex: 0 0 3.2rem;
                     text-align: right;
                     font-weight: 600;
-                    color: #0f172a;
+                    color: var(--app-text-primary);
                     font-variant-numeric: tabular-nums;
                 }
 
@@ -2551,7 +2564,7 @@ onUnmounted(() => {
 
         .fg-chart-title {
             font-size: 0.85rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-bottom: 0.3rem;
         }
 
@@ -2566,7 +2579,7 @@ onUnmounted(() => {
 .empty-tip {
     padding: 2rem 0;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 }
 
@@ -2574,7 +2587,7 @@ onUnmounted(() => {
 .fg-loading {
     padding: 2rem 0;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 
     .pi-spinner {
@@ -2607,27 +2620,27 @@ onUnmounted(() => {
 }
 
 .fin-card {
-    background: #fff;
-    border: 1px solid #eef1f6;
+    background: var(--app-bg-card);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.5rem;
     padding: 0.7rem 0.9rem;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
 
     &:hover {
-        border-color: #93c5fd;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.12);
+        border-color: var(--app-select-border);
+        box-shadow: 0 2px 8px var(--app-info-bg);
     }
 
     /* 选中态：蓝色描边 + 左侧条，强调「当前趋势图指标」 */
     &.fin-card--active {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.18);
+        border-color: var(--app-select-border);
+        box-shadow: 0 0 0 2px var(--app-info-bg);
     }
 
     .fin-card-label {
         font-size: 0.85rem;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         line-height: 1.3;
         min-height: 2.2em; /* 两行标签占位，避免卡片高度参差 */
     }
@@ -2635,7 +2648,7 @@ onUnmounted(() => {
     .fin-card-value {
         font-size: 1.6rem;
         font-weight: 700;
-        color: #1e293b;
+        color: var(--app-text-primary);
         line-height: 1.2;
         margin-top: 0.25rem;
         white-space: nowrap;
@@ -2643,26 +2656,26 @@ onUnmounted(() => {
 
     .fin-card-date {
         font-size: 0.75rem;
-        color: #cbd5e1;
+        color: var(--app-text-muted);
         margin-top: 0.15rem;
     }
 }
 
 .fin-chart-wrap {
     margin-top: 1rem;
-    background: #fff;
-    border: 1px solid #eef1f6;
+    background: var(--app-bg-card);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.5rem;
     padding: 0.75rem 1rem 0.5rem;
 
     .fin-chart-title {
         font-size: 0.9rem;
         font-weight: 600;
-        color: #475569;
+        color: var(--app-text-primary);
         margin-bottom: 0.25rem;
 
         .fin-chart-unit {
-            color: #94a3b8;
+            color: var(--app-text-secondary);
             font-weight: 400;
         }
 
@@ -2670,7 +2683,7 @@ onUnmounted(() => {
             float: right;
             font-size: 0.72rem;
             font-weight: 400;
-            color: #cbd5e1;
+            color: var(--app-text-muted);
         }
     }
 
@@ -2683,11 +2696,11 @@ onUnmounted(() => {
 .fin-state {
     padding: 2rem 0;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 
     &.fin-state--error {
-        color: #ef4444;
+        color: var(--app-up);
     }
 }
 
@@ -2695,7 +2708,7 @@ onUnmounted(() => {
 .fin-table-wrap {
     margin-top: 1rem;
     overflow-x: auto;
-    border: 1px solid #eef1f6;
+    border: 1px solid var(--app-border-base);
     border-radius: 0.5rem;
 }
 
@@ -2709,13 +2722,13 @@ onUnmounted(() => {
     td {
         padding: 0.5rem 0.75rem;
         text-align: right;
-        border-bottom: 1px solid #f1f5f9;
-        color: #334155;
+        border-bottom: 1px solid var(--app-border-weak);
+        color: var(--app-text-primary);
     }
 
     thead th {
-        background: #f8fafc;
-        color: #64748b;
+        background: var(--app-bg-subtle);
+        color: var(--app-text-secondary);
         font-weight: 600;
         position: sticky;
         top: 0;
@@ -2723,7 +2736,7 @@ onUnmounted(() => {
     }
 
     tbody tr:hover td {
-        background: #f8fafc;
+        background: var(--app-bg-subtle);
     }
 
     tbody tr:last-child td {
@@ -2734,21 +2747,21 @@ onUnmounted(() => {
     .fin-td-label {
         text-align: left;
         font-weight: 600;
-        color: #1e293b;
+        color: var(--app-text-primary);
         position: sticky;
         left: 0;
-        background: #fff;
+        background: var(--app-bg-card);
     }
 
     thead .fin-th-label {
-        background: #f8fafc;
+        background: var(--app-bg-subtle);
     }
 
     .fin-td-sub {
         display: block;
         font-size: 0.7rem;
         font-weight: 400;
-        color: #cbd5e1;
+        color: var(--app-text-muted);
     }
 }
 
@@ -2777,8 +2790,8 @@ onUnmounted(() => {
     gap: 0.35rem;
     padding: 0.75rem 1rem;
     border-radius: 0.5rem;
-    background: #fafafa;
-    border: 1px solid #f0f0f0;
+    background: var(--app-bg-subtle);
+    border: 1px solid var(--app-border-base);
 }
 
 .rs-value {
@@ -2794,7 +2807,7 @@ onUnmounted(() => {
 
 .rs-date {
     font-size: 0.75rem;
-    color: #909399;
+    color: var(--app-text-muted);
 }
 
 /* 置信度徽标：weak（置信度 < 50）用虚线边框，视觉上明确「这条结论不硬」 */
@@ -2812,7 +2825,7 @@ onUnmounted(() => {
 
 .rs-advice {
     font-size: 0.75rem;
-    color: #606266;
+    color: var(--app-text-secondary);
     line-height: 1.55;
 }
 
@@ -2826,7 +2839,7 @@ onUnmounted(() => {
     height: 8px;
     border-radius: 4px;
     overflow: hidden;
-    background: #eee;
+    background: var(--app-track-bg);
 
     .seg {
         display: block;
@@ -2834,15 +2847,15 @@ onUnmounted(() => {
     }
 
     .bull {
-        background: #ef4444;
+        background: var(--app-up);
     }
 
     .neut {
-        background: #c8c9cc;
+        background: var(--app-flat);
     }
 
     .bear {
-        background: #12783c;
+        background: var(--app-down);
     }
 }
 
@@ -2853,21 +2866,21 @@ onUnmounted(() => {
     font-size: 0.68rem;
 
     .bull {
-        color: #ef4444;
+        color: var(--app-up);
     }
 
     .neut {
-        color: #909399;
+        color: var(--app-flat);
     }
 
     .bear {
-        color: #12783c;
+        color: var(--app-down);
     }
 }
 
 .rs-meta {
     font-size: 0.68rem;
-    color: #909399;
+    color: var(--app-text-muted);
     line-height: 1.7;
 }
 
@@ -2880,7 +2893,7 @@ onUnmounted(() => {
 
 .rs-chart-title {
     font-size: 0.72rem;
-    color: #909399;
+    color: var(--app-text-muted);
     margin-bottom: 0.25rem;
 }
 
@@ -2892,8 +2905,8 @@ onUnmounted(() => {
 .rs-detail {
     margin-top: 1rem;
     padding: 0.85rem 1rem;
-    background: #fafafa;
-    border: 1px solid #f0f0f0;
+    background: var(--app-bg-subtle);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.5rem;
 }
 
@@ -2906,19 +2919,19 @@ onUnmounted(() => {
 
 .rs-detail-label {
     font-size: 0.7rem;
-    color: #909399;
+    color: var(--app-text-muted);
 }
 
 .rs-topic {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #303133;
+    color: var(--app-text-primary);
 }
 
 .rs-reasoning {
     margin-top: 0.4rem;
     font-size: 0.78rem;
-    color: #606266;
+    color: var(--app-text-secondary);
     line-height: 1.7;
 }
 
@@ -2933,8 +2946,8 @@ onUnmounted(() => {
     font-size: 0.68rem;
     padding: 0.05rem 0.45rem;
     border-radius: 0.6rem;
-    background: #eef2f7;
-    color: #5a6b82;
+    background: var(--app-bg-active);
+    color: var(--app-text-secondary);
 }
 
 .rs-posts {
@@ -2943,7 +2956,7 @@ onUnmounted(() => {
 
 .rs-posts-title {
     font-size: 0.7rem;
-    color: #909399;
+    color: var(--app-text-muted);
     margin-bottom: 0.3rem;
 }
 
@@ -2952,7 +2965,7 @@ onUnmounted(() => {
     align-items: baseline;
     gap: 0.4rem;
     font-size: 0.76rem;
-    color: #303133;
+    color: var(--app-text-primary);
     line-height: 1.7;
 
     .stance {
@@ -2962,18 +2975,18 @@ onUnmounted(() => {
         border-radius: 0.25rem;
 
         &.bull {
-            background: #fdeeee;
-            color: #ef4444;
+            background: var(--app-up-wash);
+            color: var(--app-up);
         }
 
         &.bear {
-            background: #e8f5ee;
-            color: #12783c;
+            background: var(--app-down-wash);
+            color: var(--app-down);
         }
 
         &.neut {
-            background: #f2f3f5;
-            color: #909399;
+            background: var(--app-bg-active);
+            color: var(--app-text-secondary);
         }
     }
 
@@ -2988,9 +3001,9 @@ onUnmounted(() => {
     padding: 0.6rem 0.8rem;
     font-size: 0.7rem;
     line-height: 1.7;
-    color: #909399;
-    background: #fbfbfb;
-    border-left: 2px solid #dcdfe6;
+    color: var(--app-text-muted);
+    background: var(--app-bg-subtle);
+    border-left: 2px solid var(--app-border-strong);
     border-radius: 2px;
 }
 
@@ -3068,7 +3081,7 @@ onUnmounted(() => {
 
 .stock-info-top {
     padding: 20px 15px;
-    border-bottom: 1px solid #dedede;
+    border-bottom: 1px solid var(--app-border-base);
 }
 
 /* 顶部报价区的 PE-TTM 估值（仅 A 股） */
@@ -3078,20 +3091,20 @@ onUnmounted(() => {
     gap: 6px;
     margin-top: 6px;
     font-size: 13px;
-    color: #6b7280;
+    color: var(--app-text-secondary);
 }
 .pe-ttm-label {
     font-size: 12px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
 }
 .pe-ttm-value {
     font-size: 15px;
-    color: #1d4ed8;
+    color: var(--app-select-text);
     font-variant-numeric: tabular-nums;
 }
 .pe-ttm-date {
     font-size: 11px;
-    color: #b0b0b0;
+    color: var(--app-text-muted);
 }
 
 /* 基本面分析 tab 的 PE-TTM 走势图 */
@@ -3105,7 +3118,7 @@ onUnmounted(() => {
    Aura 默认 1px 边框，同一株详情页里两个 tab 的卡片观感明显割裂。这里局部覆盖，
    只作用于本页（StockDetail 里的 <Card> 全都在基本面分析 tab），不影响其它页面。 */
 :deep(.p-card) {
-    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    border: 0.5px solid var(--app-line-soft);
     border-radius: 12px;
 }
 
@@ -3122,9 +3135,9 @@ onUnmounted(() => {
     align-items: flex-start;
     padding: 10px 12px;
     border-radius: 6px;
-    background-color: #fef7e6;
-    border: 1px solid #f5d99a;
-    color: #8a6116;
+    background-color: var(--app-warn-bg);
+    border: 1px solid var(--app-warn-border);
+    color: var(--app-warn-text);
     font-size: 12px;
     line-height: 1.6;
     /* 长文案可能把弹窗撑宽：允许在任意位置折行，且不参与父级的最小宽度计算 */
@@ -3139,16 +3152,16 @@ onUnmounted(() => {
 
 .gp-current {
     font-size: 12px;
-    color: #6b7280;
+    color: var(--app-text-secondary);
     min-width: 0;
     overflow-wrap: anywhere;
 
     b {
-        color: #374151;
+        color: var(--app-text-primary);
     }
 
     &__hint {
-        color: #9ca3af;
+        color: var(--app-text-muted);
     }
 }
 
@@ -3167,23 +3180,23 @@ onUnmounted(() => {
     gap: 8px;
     width: 100%;
     padding: 7px 10px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--app-border-base);
     border-radius: 6px;
-    background-color: #fff;
-    color: #374151;
+    background-color: var(--app-bg-card);
+    color: var(--app-text-primary);
     font-size: 13px;
     text-align: left;
     cursor: pointer;
     transition: background-color 0.15s, border-color 0.15s;
 
     &:hover {
-        background-color: #f9fafb;
+        background-color: var(--app-bg-hover);
     }
 
     &.is-active {
-        border-color: #3b82f6;
-        background-color: #eff6ff;
-        color: #1d4ed8;
+        border-color: var(--app-select-border);
+        background-color: var(--app-select-bg);
+        color: var(--app-select-text);
         font-weight: 600;
     }
 
@@ -3201,7 +3214,7 @@ onUnmounted(() => {
         flex-shrink: 0;
         font-size: 11px;
         font-weight: 400;
-        color: #9ca3af;
+        color: var(--app-text-muted);
     }
 }
 
@@ -3223,7 +3236,7 @@ onUnmounted(() => {
 
 .gp-tip {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
     line-height: 1.6;
     min-width: 0;
     overflow-wrap: anywhere;

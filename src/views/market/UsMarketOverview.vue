@@ -30,6 +30,7 @@ import * as echarts from 'echarts'
 import {
     COLORS, LINE,
     axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    registerThemeRedraw,
 } from '@/utils/echartsTheme'
 
 // 日线数据，收盘后不变 → 刷新间隔给长（与大盘页的恐惧贪婪一致）。
@@ -157,7 +158,7 @@ const avPeriods = computed(() => a500_sp500.value?.periods || [])
 // 比值涨 → A股占优（红）；跌 → 美股占优（绿）。与全站红涨绿跌一致。
 const avRatioColor = computed(() => {
     const v = avLatest.value?.ratio
-    if (v == null) return '#909399'
+    if (v == null) return COLORS.flat
     if (v > 1) return 'var(--color-up)'
     if (v < 1) return 'var(--color-down)'
     return 'var(--color-flat)'
@@ -182,7 +183,7 @@ const avBarWidth = (norm) => {
 
 // 成分腿颜色：>1 表示该腿跑赢（红），<1 表示跑输（绿）
 const avLegColor = (norm) => {
-    if (norm == null) return '#909399'
+    if (norm == null) return COLORS.flat
     if (norm > 1) return 'var(--color-up)'
     if (norm < 1) return 'var(--color-down)'
     return 'var(--color-flat)'
@@ -248,7 +249,7 @@ const renderA500Sp500Chart = async () => {
 
     // 比值线颜色跟随「相对起点」方向：>1 A股占优，<1 美股占优
     const lastRatio = ratio[ratio.length - 1]
-    const mainColor = lastRatio > 1 ? '#ef4444' : (lastRatio < 1 ? '#12783c' : '#909399')
+    const mainColor = lastRatio > 1 ? COLORS.up : (lastRatio < 1 ? COLORS.down : COLORS.flat)
 
     chart.setOption({
         grid: {left: 34, right: 42, top: 16, bottom: 22},
@@ -306,7 +307,7 @@ const renderA500Sp500Chart = async () => {
                 data: aNorm,
                 smooth: true,
                 showSymbol: false,
-                ...lineSeriesStyle({color: '#ef4444', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+                ...lineSeriesStyle({color: COLORS.up, width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             },
             {
                 name: '标普500',
@@ -315,7 +316,7 @@ const renderA500Sp500Chart = async () => {
                 data: sNorm,
                 smooth: true,
                 showSymbol: false,
-                ...lineSeriesStyle({color: '#12783c', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+                ...lineSeriesStyle({color: COLORS.down, width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             }
         ]
     })
@@ -327,7 +328,15 @@ onMounted(async () => {
     startTimer()
 })
 
+// ==================== 暗色模式：图表重绘 ====================
+// ECharts 的 setOption 是快照，CSS 变量对 canvas 无效 —— 切主题后必须重跑渲染，
+// 否则坐标轴/网格线/tooltip 会停留在旧配色。详见 echartsTheme.js 的说明。
+const stopThemeRedraw = registerThemeRedraw(() => {
+    renderA500Sp500Chart()
+})
+
 onUnmounted(() => {
+    stopThemeRedraw()
     stopTimer()
     disconnectAvChart()
     avChart?.dispose()
@@ -472,7 +481,7 @@ onUnmounted(() => {
     /* 页面外边距对齐全站约定：横向 2rem（=24px），与 .card 内容左边缘一致（204）。
        与 MarketOverview.vue 保持相同。 */
     padding: 2rem;
-    background: #f5f7fb;
+    background: var(--app-bg-page);
     min-height: 100vh;
 }
 
@@ -481,7 +490,7 @@ onUnmounted(() => {
    ======================== */
 .fear-greed-card {
     margin-bottom: 1.5rem;
-    background: #fff;
+    background: var(--app-bg-card);
 
     .card-title-row {
         display: flex;
@@ -494,7 +503,7 @@ onUnmounted(() => {
     // 标题右侧的区间说明，弱化显示
     .av-window {
         font-size: 0.8rem;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         font-weight: 400;
     }
 }
@@ -526,7 +535,7 @@ onUnmounted(() => {
 
         .fg-date {
             font-size: 0.8rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-top: 0.25rem;
         }
 
@@ -542,7 +551,7 @@ onUnmounted(() => {
                 align-items: center;
                 gap: 0.4rem;
                 font-size: 0.9rem;
-                color: #64748b;
+                color: var(--app-text-secondary);
 
                 .score-name {
                     flex: 0 0 3.6rem;
@@ -553,7 +562,7 @@ onUnmounted(() => {
                 .score-track {
                     flex: 1;
                     height: 5px;
-                    background: #eef1f6;
+                    background: var(--app-bg-subtle);
                     border-radius: 3px;
                     overflow: hidden;
 
@@ -569,7 +578,7 @@ onUnmounted(() => {
                     flex: 0 0 3.2rem;
                     text-align: right;
                     font-weight: 600;
-                    color: #0f172a;
+                    color: var(--app-text-primary);
                     font-variant-numeric: tabular-nums;
                 }
             }
@@ -584,7 +593,7 @@ onUnmounted(() => {
 
         .fg-chart-title {
             font-size: 0.85rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-bottom: 0.3rem;
         }
 
@@ -634,13 +643,13 @@ onUnmounted(() => {
     .title {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #1e293b;
+        color: var(--app-text-primary);
         margin: 0;
     }
 
     .subtitle {
         font-size: 0.85rem;
-        color: #64748b;
+        color: var(--app-text-secondary);
     }
 
     .header-right {
@@ -655,7 +664,7 @@ onUnmounted(() => {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    color: #475569;
+    color: var(--app-text-secondary);
     font-size: 0.9rem;
     cursor: pointer;
     user-select: none;
@@ -668,8 +677,8 @@ onUnmounted(() => {
     gap: 0.35rem;
     padding: 0.45rem 0.8rem;
     font-size: 0.85rem;
-    color: #475569;
-    background: #fff;
+    color: var(--app-text-secondary);
+    background: var(--app-bg-card);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     cursor: pointer;
@@ -707,10 +716,10 @@ onUnmounted(() => {
     gap: 0.25rem;
     padding: 0.75rem 1rem;
     margin-bottom: 1.25rem;
-    background: #fef2f2;
-    border: 1px solid #fecaca;
+    background: var(--app-error-bg);
+    border: 1px solid var(--app-error-border);
     border-radius: 8px;
-    color: #b91c1c;
+    color: var(--app-error-text);
     font-size: 0.9rem;
 }
 
@@ -735,6 +744,6 @@ onUnmounted(() => {
 .empty-tip {
     padding: 2rem;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 </style>

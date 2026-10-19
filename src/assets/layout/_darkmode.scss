@@ -1,0 +1,159 @@
+// ==================== 暗色模式全局兜底样式 ====================
+//
+// 三层策略（详见 .workbuddy/memory/页面细节.md 的「暗色迁移」条目）：
+//   1. PrimeVue 组件（Button/DataTable/Dialog…）→ 靠 @primeuix 生成的 `.app-dark` token，自动生效，本文件不管。
+//   2. 页面自有样式 → 靠语义变量层（--app-*），逐页把硬编码 hex 换成变量。
+//   3. 本文件 → 兜底：原生元素 + Tailwind 灰阶类 + PrimeVue 覆盖不到的边角。
+//
+// ⚠️ 本文件**不能**替代第 2 层。它只处理高频且确定的部分；
+//    逐页迁移才是让暗色真正「干净」的关键。
+
+// ---------- 原生元素 ----------
+// 这几个不跟系统走，必须显式指定；漏掉会导致暗色下出现刺眼白块。
+:root.app-dark {
+    input,
+    textarea,
+    select {
+        // 覆盖 Chrome 在暗色下仍然渲染成白底的表单控件
+        color-scheme: dark;
+    }
+
+    // Firefox / WebKit 的滚动条
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: var(--app-bg-page);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        // 字面值而非 var(--p-surface-600)：PrimeVue token 是 JS 运行时注入，
+        // 引用它会在注入前悬空（这里悬空只是滚动条颜色暂时缺失，影响小，
+        // 但保持与语义层一致更省心）。
+        background: #52525b;
+        border-radius: 5px;
+        border: 2px solid var(--app-bg-page);
+
+        &:hover {
+            background: #71717a;
+        }
+    }
+}
+
+// 滚动条只在暗色下需要显式定义：亮色下交给 PrimeVue 的 token 处理，
+// 避免在亮色下引入视觉差异。
+:root:not(.app-dark) {
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: var(--p-surface-300);
+        border-radius: 5px;
+        border: 2px solid transparent;
+        background-clip: padding-box;
+
+        &:hover {
+            background: var(--p-surface-400);
+            background-clip: padding-box;
+        }
+    }
+}
+
+// ---------- 选中文本 ----------
+// 暗色下浏览器默认选中色（蓝底白字）在深色背景上会形成刺眼色块。
+:root.app-dark ::selection {
+    background: var(--p-primary-color);
+    color: var(--p-primary-contrast-color);
+}
+
+// ---------- 亮色残留兜底 ----------
+// `bg-white` 这类不带 dark: 变体的 Tailwind 类在暗色下会变成纯白块。
+// 存量页面里这类写法很多（全站约 20+ 处），逐个改 dark: 变体成本高，
+// 这里统一在暗色下打回语义变量 —— 视觉上等价于「卡片底色」。
+// ⚠️ 这只是止血：新代码请直接用 var(--app-bg-card)，不要写 bg-white。
+// ⚠️ 已补上**文字灰阶**部分（原先只做了背景，见下）。存量 `text-gray-*`
+// 全站约 186 处（gray-500 最多 83 处），逐页迁移不现实；而文字不像背景那样
+// 会「明显看得出是 bug」，漏掉的页面只表现为「标题太黑看不见」，更难被察觉。
+// 所以文字也走兜底：把 Tailwind 灰阶整体映射到语义层，暗色下自动提亮。
+// ⚠️ 映射不是同值替换，而是**重新分级** —— Tailwind 灰阶是给白底设计的，
+// 直接反色会全变成同一档亮度，层次就没了。这里按「深→主/次/弱」重新对齐。
+:root.app-dark {
+    .bg-white {
+        background-color: var(--app-bg-card) !important;
+    }
+
+    .bg-gray-50,
+    .bg-gray-100 {
+        background-color: var(--app-bg-subtle) !important;
+    }
+
+    // 主体文字（gray-900/800/700）：亮色下本来就是深色正文，暗色下提到主文字档
+    .text-gray-900,
+    .text-gray-800,
+    .text-gray-700 {
+        color: var(--app-text-primary) !important;
+    }
+
+    // 次级文字（gray-600/500）
+    .text-gray-600,
+    .text-gray-500 {
+        color: var(--app-text-secondary) !important;
+    }
+
+    // 弱化文字（gray-400/300）：亮色下已是浅灰，暗色下提一档即可，
+    // 不能直接给 muted —— 深底上再压暗就彻底看不见了。
+    .text-gray-400,
+    .text-gray-300 {
+        color: var(--app-text-muted) !important;
+    }
+
+    // 涨跌色：Tailwind 的 red-500/green-600 在深底上偏暗且与全站口径不一致，
+    // 统一打回语义层（暗色下是提亮的 #f87171 / #4ade80）。
+    .text-red-500,
+    .text-red-600,
+    .text-red-400 {
+        color: var(--app-up) !important;
+    }
+
+    .text-green-600,
+    .text-green-500,
+    .text-green-700 {
+        color: var(--app-down) !important;
+    }
+}
+
+// ---------- PrimeVue 组件的边角 ----------
+// PrimeVue 的 token 已覆盖大部分组件，以下是 token 管不到的：
+
+// Dialog / 确认框：overlay mask 用 token 即可，但面板阴影在深色下过重
+:root.app-dark .p-dialog {
+    box-shadow: 0 10px 38px 10px rgba(0, 0, 0, 0.7);
+}
+
+// DataTable 行 hover：token 已有，此处保证 sticky 列（冻结列）在暗色下不透视
+:root.app-dark .p-datatable-table-container .p-datatable-thead > tr > th,
+:root.app-dark .p-datatable-table-container .p-datatable-tbody > tr > td {
+    &:last-child {
+        // 冻结在右侧的列
+        box-shadow: none;
+    }
+}
+
+// Paginator / Select 等内部用到的 inline 边框
+:root.app-dark .p-paginator,
+:root.app-dark .p-select {
+    background-color: var(--app-bg-card);
+}
+
+// 滚动容器的横向滚动条区域（表格横向溢出时底色）
+:root.app-dark .p-datatable-table-container {
+    background-color: transparent;
+}

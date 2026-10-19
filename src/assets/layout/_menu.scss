@@ -2,7 +2,7 @@
 
 .layout-sidebar {
     position: fixed;
-    width: 16rem;
+    width: 15rem;
     height: 100vh;
     z-index: 999;
     overflow-y: auto;
@@ -12,8 +12,15 @@
     transition:
         transform var(--layout-section-transition-duration),
         left var(--layout-section-transition-duration);
-    //background-color: var(--surface-overlay);
-    //border-radius: var(--content-border-radius);
+    // 独立底色 + 右边框，让导航区从内容区里「立」出来（原来整行被注释掉，
+    // 侧边栏完全透明、菜单直接浮在页面底色上，没有区域感）。
+    // ⚠️ 用语义变量而非 --surface-overlay/PrimeVue token：
+    //   token 是 JS 运行时注入，首帧会悬空；且要能随 .app-dark 自动反色。
+    background-color: var(--app-bg-sidebar);
+    border-right: 1px solid var(--app-border-sidebar);
+    // 菜单项 hover 用的是 --surface-hover（PrimeVue token，暗色下是 content hover 色），
+    // 在新的侧边栏底色上需要确认可见，否则 hover 态会「按了没反应」。
+    // 这里统一改成语义层的 --app-bg-hover，暗色下自动反色。
     padding: 0.5rem 1.5rem;
 }
 
@@ -92,7 +99,10 @@
             }
 
             &:hover {
-                background-color: var(--surface-hover);
+                // 原为 var(--surface-hover)（= PrimeVue 的 content hover 色）。
+                // 侧边栏有自己的底色后，那个值未必与新底色形成对比 →
+                // 统一走语义层的 --app-bg-hover，暗色下自动反色。
+                background-color: var(--app-bg-hover);
             }
 
             &:focus {

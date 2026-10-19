@@ -438,8 +438,8 @@ onBeforeMount(() => {
 }
 
 .del-warn {
-    background: var(--red-50, #fef2f2);
-    border-left: 3px solid var(--red-500, #ef4444);
+    background: var(--app-error-bg);
+    border-left: 3px solid var(--app-error-text);
     padding: 0.6rem 0.75rem;
     font-size: 0.9rem;
     line-height: 1.5;

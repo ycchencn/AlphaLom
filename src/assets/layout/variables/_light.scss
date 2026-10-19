@@ -1,5 +1,152 @@
 :root {
-    --surface-ground: var(--p-surface-100);
-    --code-background: var(--p-surface-900);
-    --code-color: var(--p-surface-200);
+    // ⚠️ 同样写死字面值，不引用 var(--p-surface-*)：PrimeVue token 是 JS 运行时注入的，
+    //   body 背景在 token 就绪前会悬空 → 首帧白底一闪（正好抵消防闪脚本）。
+    --surface-ground: #f1f5f9;
+    --code-background: #0f172a;
+    --code-color: #e2e8f0;
+
+    // ========== 语义化颜色层（暗色适配的迁移目标） ==========
+    // 设计原则：新代码一律用这里的语义变量，不再写死 hex。
+    // 好处是切暗色只改 _dark.scss 一处，页面代码零改动。
+    //
+    // ⚠️ 取值说明：这里**刻意写死字面值，不引用 var(--p-surface-*) 等 PrimeVue token**。
+    //   原因：PrimeVue 的 token 是 JS 运行时注入 <style> 的，构建产物里根本不存在
+    //   （实测 `--p-surface-950` 在 CSS 中 0 处定义）。若语义层间接引用它们，
+    //   在 token 注入完成前会出现「变量悬空 → 回落透明/白底」，正好抵消掉
+    //   index.html 的防闪脚本。写死字面值才能保证首帧就是对的。
+    //   代价：将来换 PrimeVue 主题（Aura→Lara）时这层不会跟着变，
+    //   需要手动同步 —— 但本项目主题是固定的，可接受。
+
+    // 背景层级
+    --app-bg-page: #f1f5f9; // = surface-100，原页面底色 #f5f7fb
+    --app-bg-card: #ffffff; // 原 #fff
+    --app-bg-elevated: #ffffff; // 浮层：下拉、Dialog
+    --app-bg-subtle: #f8fafc; // 表头、次级区块、进度条槽
+    --app-bg-hover: #f1f5f9;
+    --app-bg-active: #e2e8f0;
+
+    // 侧边栏：独立于页面底色，让导航区从内容区里「立」出来。
+    // 亮色下比页面底色略深一档（slate-200 > slate-100），比卡片白更沉，
+    // 这样层级是 侧边栏 < 卡片 < 页面底的对比关系，而不是和卡片撞成一片白。
+    --app-bg-sidebar: #e2e8f0;
+    --app-border-sidebar: #cbd5e1;
+
+    // 文本层级
+    --app-text-primary: #0f172a; // = slate-900
+    --app-text-secondary: #64748b; // = slate-500
+    --app-text-muted: #94a3b8; // = slate-400
+    --app-text-inverse: #ffffff;
+
+    // 描边与分隔线
+    --app-border-base: #e2e8f0; // = slate-200
+    --app-border-strong: #cbd5e1; // = slate-300
+
+    // 涨跌色（A 股口径：红涨绿跌）。⚠️ 这是**全站唯一来源**，
+    // 任何地方都不要再写死 #ef4444 / #22c55e / #16a34a / #4caf50 之类的涨跌幅色。
+    // 取值 = echartsTheme.js 的 COLORS.up/down，两处必须完全一致，
+    // 否则会出现「列表里红、走势图里是另一种红」。
+    --app-up: #dc2626;   // red-600
+    --app-down: #16a34a; // green-600
+    --app-flat: #909399;
+
+    // 涨跌色的浅色阶（热力图中间档、进度条底槽旁的弱提示用）。
+    // 由主色派生，保证与主色同族。
+    --app-up-soft: #e88989;
+    --app-down-soft: #6fbf8f;
+
+    // 涨跌色的 hover/强调档（比主色略深，用于 hover 态而非大面积填充）。
+    --app-up-strong: #b91c1c;
+    --app-down-strong: #12783c;
+
+    // 涨跌色的「洗底」档：给日历格、标签一类需要大面积着色的地方用，
+    // 比 area 更浅，避免整块铺开后过艳。
+    --app-up-wash: #fef2f2;
+    --app-up-wash-2: #fee2e2;
+    --app-down-wash: #f0fdf4;
+    --app-down-wash-2: #dcfce7;
+
+    // 提示条（琥珀色）：口径说明、样本不足提示等。
+    // 亮色用 amber-50/200/800 这一组，深色下换成暗底亮字（见 _dark.scss）。
+    --app-warn-bg: #fef6e0;
+    --app-warn-border: #f5dfa6;
+    --app-warn-text: #8a6100;
+
+    // 强调色（橙色高亮，如「连续跑赢」标记）。暗色下需提亮。
+    --app-accent: #b45309;
+
+    // 错误/异常提示条（取数失败、数据滞后）。与 warn 同理，暗色下需反色。
+    --app-error-bg: #fef2f2;
+    --app-error-border: #fecaca;
+    --app-error-text: #b91c1c;
+
+    // 涨跌色的半透明填充（数字徽标底、日格背景）。
+    --app-up-area: rgba(220, 38, 38, 0.10);
+    --app-down-area: rgba(22, 163, 74, 0.10);
+
+    // 品牌主按钮渐变（AI 速览的「刷新」按钮、Spark 徽标）。
+    // 原为 Ant Design 的 volcano 色系：#ff7a45 → #f5222d。
+    --app-grad-hot-a: #ff7a45;
+    --app-grad-hot-b: #f5222d;
+
+    // 选中态（左侧话题面板 / 分组列表的当前项）：浅蓝底 + 蓝字 + 蓝色左边框。
+    --app-select-bg: #eff6ff; // blue-50
+    --app-select-text: #1d4ed8; // blue-700
+    --app-select-border: #3b82f6; // blue-500
+
+    // 浅蓝标签底（行业/板块徽标、摘要高亮区）。
+    --app-info-bg: #f6f8ff;
+    --app-info-border: #e0e7ff; // indigo-200
+
+    // 弱化分隔线（虚线，话题面板内的条目分隔）
+    --app-border-weak: #f3f4f6; // gray-100
+
+    // 位置刻度条（三色渐变：低位→中位→高位，如 52 周区间位置条）。
+    // 与 --app-up/down-soft 分开：那条是「涨跌事实」的浅色档（语义是标记），
+    // 这条是「连续刻度」的背景带（语义是量表），两者用途不同、亮度也不同。
+    --app-scale-low: #cfe8d5;
+    --app-scale-mid: #f0e2cf;
+    --app-scale-high: #f3cfcf;
+
+    // 环形进度槽底（FactorPanel 均线偏离等）：比卡片底略深一档即可
+    --app-track-bg: #f0f0f0;
+
+    // 链接色（关键词按钮等可点击文本）
+    --app-link: #2563eb; // blue-600
+
+    // ========== 暖色卡片族（AI 速览卡片） ==========
+    // 这块用的是 Ant Design volcano 色系，与站内 amber 提示条是同一基调但更浓，
+    // 单独成组便于整体反色。
+    --app-warm-card-from: #fffaf5; // 渐变起点
+    --app-warm-card-to: #ffffff; // 渐变终点（65% 处）
+    --app-warm-card-border: #f0e2d8;
+    --app-warm-divider: #f3e4d8; // 虚线分隔
+
+    // 卡片内主按钮（橙色描边 + 浅橙底）
+    --app-warm-btn-bg: #fff7f0;
+    --app-warm-btn-bg-hover: #fff1e6;
+    --app-warm-btn-border: #ffd8bf;
+    --app-warm-btn-text: #d4380d;
+
+    // 话题标签（红底 + 红字 + 红边）
+    --app-tag-hot-bg: #fff2f0;
+    --app-tag-hot-border: #ffccc7;
+    --app-tag-hot-text: #cf1322;
+
+    // 圆点标记（要点列表前缀）
+    --app-warm-dot: #ffbb96; // orange-200
+
+    // ========== 品牌红（因子选股器整页的强调色） ==========
+    --app-brand: #d64545;
+    --app-brand-soft-bg: #fffafa; // 选中卡片的浅红底
+    --app-brand-ring: rgba(214, 69, 69, 0.18); // 选中态外发光
+    --app-brand-hover: #b93a3a; // Tab / 预设 hover 态
+
+    // ========== 半透明边框 ==========
+    // ⚠️ 不能用 rgba(0,0,0,x)：暗色下纯黑半透明等于不可见，卡片会「失去边框」，
+    // 分不清层级。这里统一给两套主题各自的半透明色。
+    --app-line-soft: rgba(15, 23, 42, 0.10); // 常规描边
+    --app-line-strong: rgba(15, 23, 42, 0.28); // hover 描边
+
+    // 图标蓝（Tab 标题前的 pi 图标）
+    --app-icon-info: #3b82f6;
 }

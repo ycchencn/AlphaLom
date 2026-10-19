@@ -290,25 +290,25 @@ defineExpose({
 }
 
 .profit-value.positive {
-    color: #f56c6c;
-    background-color: rgba(245, 108, 108, 0.1);
+    color: var(--app-up);
+    background-color: var(--app-up-area);
 }
 
 .profit-value.negative {
-    color: #67c23a;
-    background-color: rgba(103, 194, 58, 0.1);
+    color: var(--app-down);
+    background-color: var(--app-down-area);
 }
 
 /* 盈利日（红色系） */
 .day-cell.profit {
-    background: linear-gradient(135deg, #fef0f0, #fde2e2);
-    border-left: 3px solid #f56c6c;
+    background: linear-gradient(135deg, var(--app-up-wash), var(--app-up-wash-2));
+    border-left: 3px solid var(--app-up);
 }
 
 /* 亏损日（绿色系） */
 .day-cell.loss {
-    background: linear-gradient(135deg, #f0f9eb, #e6f4e1);
-    border-left: 3px solid #67c23a;
+    background: linear-gradient(135deg, var(--app-down-wash), var(--app-down-wash-2));
+    border-left: 3px solid var(--app-down);
 }
 
 /* 盈亏为0的日子 */

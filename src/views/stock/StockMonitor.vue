@@ -1197,11 +1197,11 @@ async function deleteGroup(groupName) {
    且行尾注释写的颜色名与实际色值完全相反（「柔和红」实为灰、「浅绿」实为红），
    已一并纠正。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #12783c !important; /* 极度恐惧 - 深绿 */
+    background: var(--app-down) !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: #4a9e6b !important; /* 恐惧 - 浅绿 */
+    background: var(--app-down-soft) !important; /* 恐惧 - 浅绿 */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {
@@ -1209,11 +1209,11 @@ async function deleteGroup(groupName) {
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #e8874a !important; /* 贪婪 - 橙 */
+    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef4444 !important; /* 极度贪婪 - 红 */
+    background: var(--app-up) !important; /* 极度贪婪 - 红 */
 }
 
 :deep(.p-progressbar) {

@@ -271,11 +271,12 @@ const resizeCharts = () => {
 };
 
 // 行业分布饼图：扇区权重 = 持仓市值（size×price），tooltip 同时给出市值与占组合总市值比。
-// ⚠️ 颜色用固定调色板（红涨绿跌之外的中性色），行业数量不固定，ECharts 会循环取色。
+// ⚠️ 这是**分类色板**，语义是「区分不同行业」，与涨跌无关 —— 但刻意避开红绿，
+//    否则用户会把某个行业的扇区误读成「这个行业在跌/涨」。
 const INDUSTRY_PALETTE = [
-    '#ef4444', '#12783c', '#3b82f6', '#f59e0b', '#8b5cf6',
+    '#3b82f6', '#f59e0b', '#8b5cf6',
     '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#0ea5e9',
-    '#a855f7', '#22c55e'
+    '#a855f7', '#0d9488', '#7c3aed', '#0891b2'
 ];
 
 const renderIndustryPie = async () => {
@@ -1585,8 +1586,8 @@ const reload = () => window.location.reload();
 <style scoped>
 /* 删除确认里的风险提示条（与 UserManage / ApiKeyManage 同一套写法） */
 .del-warn {
-    background: var(--red-50, #fef2f2);
-    border-left: 3px solid var(--red-500, #ef4444);
+    background: var(--app-error-bg);
+    border-left: 3px solid var(--app-error-text);
     padding: 0.6rem 0.75rem;
     font-size: 0.9rem;
     line-height: 1.5;

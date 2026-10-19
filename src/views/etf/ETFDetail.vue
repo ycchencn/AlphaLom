@@ -8,8 +8,10 @@ import * as echarts from 'echarts';
 import {
     COLORS, LINE, FONT,
     axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    registerThemeRedraw,
 } from '@/utils/echartsTheme'
-import {chartConfigs} from '@/utils/constants.js';
+import {createChartConfig} from '@/utils/constants.js';
+import {isDark} from '@/composables/useTheme';
 import Card from 'primevue/card';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -318,9 +320,11 @@ const renderFearGreedChart = async () => {
     const close = rows.map((r) => (r.close == null ? null : Number(r.close)));
 
     const lastFg = fg[fg.length - 1];
+    // ⚠️ ECharts 的颜色不吃 CSS 变量，必须走 COLORS（统一涨跌色 + 随暗黑模式切换）。
+    //    原来写死 '#ef4444'/'#12783c'/'#f59e0b'，与全站统一色不一致且暗色下不切换。
     const mainColor = lastFg == null
-        ? '#909399'
-        : (lastFg >= 55 ? '#ef4444' : (lastFg <= 45 ? '#12783c' : '#f59e0b'));
+        ? COLORS.flat
+        : (lastFg >= 55 ? COLORS.up : (lastFg <= 45 ? COLORS.down : COLORS.warn));
 
     chart.setOption({
         grid: {left: 30, right: 48, top: 14, bottom: 20},
@@ -479,7 +483,7 @@ function buildDataLoader() {
 function initChart() {
     if (chart || !chartEl.value) return;
     chart = init(chartEl.value);
-    chart.setStyles({...chartConfigs});
+    chart.setStyles(createChartConfig('redUp', isDark.value ? 'dark' : 'light'));
     chart.setPeriod({span: 1, type: 'day'});
     chart.setSymbol({ticker: symbol});
     chart.setDataLoader(buildDataLoader());
@@ -607,9 +611,24 @@ onMounted(async () => {
 // klinecharts 那边自己按容器尺寸重建画布，不用管。
 onUnmounted(() => {
     window.removeEventListener('resize', resizeFgChart);
+    stopThemeRedraw();
     if (chart) dispose(chart);
     fgChart?.dispose();
     fgChart = null;
+});
+
+// 主题切换重绘：ECharts 的 setOption 与 klinecharts 的 setStyles 都是**快照**，
+// CSS 变量换了不会改已画的图 —— 切主题后恐贪曲线和 K 线仍是亮色的那套配色。
+// ⚠️ 只重画不重取数据：greedData / history 早已在内存里，重画不发请求。
+const stopThemeRedraw = registerThemeRedraw(() => {
+    if (fgChart) renderFearGreedChart();
+    // K 线：按新主题重建整套样式。chartConfigs 是亮色版固定对象，
+    // 这里直接用 createChartConfig 按当前主题生成（导出的是 light 常量，
+    // 不能用 —— 它在模块加载时就固化了）。
+    if (chart) {
+        chart.setStyles(createChartConfig('redUp', isDark.value ? 'dark' : 'light'));
+        chart.setStyles({candle: {type: chart_type.value}});
+    }
 });
 
 </script>
@@ -960,7 +979,7 @@ onUnmounted(() => {
 #chart {
     width: 100%;
     height: 100%;
-    border: 1px solid #eee;
+    border: 1px solid var(--app-border-base);
     border-radius: 3px
 }
 
@@ -970,10 +989,7 @@ onUnmounted(() => {
 
 /* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
 .p-card {
-    border: 1px solid #dedede;
-}
-:global(html.app-dark) .p-card {
-    border-color: #334155;
+    border: 1px solid var(--app-border-base);
 }
 
 /* ========================
@@ -1009,13 +1025,13 @@ onUnmounted(() => {
 
         .fg-date {
             font-size: 0.8rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-top: 0.25rem;
         }
 
         .fg-advice {
             font-size: 0.8rem;
-            color: #64748b;
+            color: var(--app-text-secondary);
             margin-top: 0.3rem;
             text-align: center;
         }
@@ -1033,7 +1049,7 @@ onUnmounted(() => {
                 align-items: center;
                 gap: 0.4rem;
                 font-size: 0.9rem;
-                color: #64748b;
+                color: var(--app-text-secondary);
 
                 .score-name {
                     flex: 0 0 3.6rem;
@@ -1044,7 +1060,7 @@ onUnmounted(() => {
                 .score-track {
                     flex: 1;
                     height: 5px;
-                    background: #eef1f6;
+                    background: var(--app-track-bg);
                     border-radius: 3px;
                     overflow: hidden;
                     min-width: 30px;
@@ -1061,7 +1077,7 @@ onUnmounted(() => {
                     flex: 0 0 3.2rem;
                     text-align: right;
                     font-weight: 600;
-                    color: #0f172a;
+                    color: var(--app-text-primary);
                     font-variant-numeric: tabular-nums;
                 }
 
@@ -1082,7 +1098,7 @@ onUnmounted(() => {
 
         .fg-chart-title {
             font-size: 0.85rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-bottom: 0.3rem;
         }
 
@@ -1115,7 +1131,7 @@ onUnmounted(() => {
 .empty-tip {
     padding: 2rem 0;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 }
 </style>

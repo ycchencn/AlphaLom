@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue';
+import {ref, onMounted, computed} from 'vue';
 import axios from 'axios';
 
 const logs = ref([]);
@@ -32,7 +32,7 @@ const loadLogs = async () => {
             page: currentPage.value,
             page_size: pageSize.value
         };
-        
+
         if (filters.value.level) {
             params.level = filters.value.level;
         }
@@ -48,8 +48,8 @@ const loadLogs = async () => {
         if (dateRange.value && dateRange.value[1]) {
             params.end_time = dateRange.value[1].toISOString().split('T')[0] + ' 23:59:59';
         }
-        
-        const response = await axios.get('/api/v1/app_logs', { params });
+
+        const response = await axios.get('/api/v1/app_logs', {params});
         if (response.data.code === 200) {
             logs.value = response.data.data.logs;
             totalRecords.value = response.data.data.total;
@@ -68,7 +68,7 @@ const loadFilterOptions = async () => {
             axios.get('/api/v1/app_logs/levels'),
             axios.get('/api/v1/app_logs/modules')
         ]);
-        
+
         if (levelsRes.data.code === 200) {
             levelOptions.value = levelsRes.data.data.map(level => ({
                 label: level,
@@ -138,98 +138,98 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="mt-5">
-        <div class="card">
-            <div class="font-semibold text-xl mb-4">系统日志</div>
 
-            <!-- 筛选区域 -->
-            <div class="mb-4 flex flex-wrap gap-2 align-items-center">
-                <Dropdown
-                    v-model="filters.level"
-                    :options="levelOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="日志级别"
-                    showClear
-                />
-                <Dropdown
-                    v-model="filters.module"
-                    :options="moduleOptions"
-                    optionLabel="label"
-                    optionValue="value"
-                    placeholder="模块"
-                    showClear
-                />
-                <Calendar
-                    v-model="dateRange"
-                    selectionMode="range"
-                    :manualInput="false"
-                    dateFormat="yy-mm-dd"
-                    placeholder="时间范围"
-                />
-                <IconField>
-                    <InputIcon>
-                        <i class="pi pi-search" />
-                    </InputIcon>
-                    <InputText
-                        v-model="filters.keyword"
-                        placeholder="搜索日志内容"
-                    />
-                </IconField>
-                <Button label="筛选" icon="pi pi-filter" @click="onFilter" size="small" />
-                <Button label="重置" icon="pi pi-filter-slash" @click="resetFilters" outlined size="small" />
-            </div>
+    <div class="card" style="padding-top: 2rem;">
+        <div class="font-semibold text-xl mb-4">系统日志</div>
 
-            <!-- 数据表格 -->
-            <DataTable
-                :value="logs"
-                :loading="loading"
-                :paginator="true"
-                :rows="pageSize"
-                :totalRecords="totalRecords"
-                :lazy="true"
-                @page="onPage"
-                :rowsPerPageOptions="[20, 50, 100]"
-                stripedRows
-                showGridlines
-                style="font-size: 11px"
-            >
-                <Column field="timestamp" header="时间" style="min-width: 130px">
-                    <template #body="{ data }">
-                        <span class="text-color-secondary">{{ data.timestamp }}</span>
-                    </template>
-                </Column>
-                <Column field="level" header="级别">
-                    <template #body="{ data }">
-                        <Tag :value="data.level" :severity="getLevelSeverity(data.level)" />
-                    </template>
-                </Column>
-                <Column field="module" header="模块" style="min-width: 150px">
-                    <template #body="{ data }">
-                        <span class="font-medium">{{ data.module || '-' }}</span>
-                    </template>
-                </Column>
-                <Column field="func" header="函数" style="min-width: 120px">
-                    <template #body="{ data }">
-                        <span class="text-color-secondary">{{ data.func || '-' }}</span>
-                    </template>
-                </Column>
-                <Column field="line" header="行号">
-                    <template #body="{ data }">
-                        <span class="text-color-secondary">{{ data.line || '-' }}</span>
-                    </template>
-                </Column>
-                <Column field="message" header="消息" style="min-width: 400px">
-                    <template #body="{ data }">
-                        <span :title="data.message">{{ formatMessage(data.message) }}</span>
-                    </template>
-                </Column>
-                <template #empty>
-                    <div class="text-center p-5">暂无日志数据</div>
-                </template>
-            </DataTable>
+        <!-- 筛选区域 -->
+        <div class="mb-4 flex flex-wrap gap-2 align-items-center">
+            <Dropdown
+                v-model="filters.level"
+                :options="levelOptions"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="日志级别"
+                showClear
+            />
+            <Dropdown
+                v-model="filters.module"
+                :options="moduleOptions"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="模块"
+                showClear
+            />
+            <Calendar
+                v-model="dateRange"
+                selectionMode="range"
+                :manualInput="false"
+                dateFormat="yy-mm-dd"
+                placeholder="时间范围"
+            />
+            <IconField>
+                <InputIcon>
+                    <i class="pi pi-search"/>
+                </InputIcon>
+                <InputText
+                    v-model="filters.keyword"
+                    placeholder="搜索日志内容"
+                />
+            </IconField>
+            <Button label="筛选" icon="pi pi-filter" @click="onFilter" size="small"/>
+            <Button label="重置" icon="pi pi-filter-slash" @click="resetFilters" outlined size="small"/>
         </div>
+
+        <!-- 数据表格 -->
+        <DataTable
+            :value="logs"
+            :loading="loading"
+            :paginator="true"
+            :rows="pageSize"
+            :totalRecords="totalRecords"
+            :lazy="true"
+            @page="onPage"
+            :rowsPerPageOptions="[20, 50, 100]"
+            stripedRows
+            showGridlines
+            style="font-size: 11px"
+        >
+            <Column field="timestamp" header="时间" style="min-width: 130px">
+                <template #body="{ data }">
+                    <span class="text-color-secondary">{{ data.timestamp }}</span>
+                </template>
+            </Column>
+            <Column field="level" header="级别">
+                <template #body="{ data }">
+                    <Tag :value="data.level" :severity="getLevelSeverity(data.level)"/>
+                </template>
+            </Column>
+            <Column field="module" header="模块" style="min-width: 150px">
+                <template #body="{ data }">
+                    <span class="font-medium">{{ data.module || '-' }}</span>
+                </template>
+            </Column>
+            <Column field="func" header="函数" style="min-width: 120px">
+                <template #body="{ data }">
+                    <span class="text-color-secondary">{{ data.func || '-' }}</span>
+                </template>
+            </Column>
+            <Column field="line" header="行号">
+                <template #body="{ data }">
+                    <span class="text-color-secondary">{{ data.line || '-' }}</span>
+                </template>
+            </Column>
+            <Column field="message" header="消息" style="min-width: 400px">
+                <template #body="{ data }">
+                    <span :title="data.message">{{ formatMessage(data.message) }}</span>
+                </template>
+            </Column>
+            <template #empty>
+                <div class="text-center p-5">暂无日志数据</div>
+            </template>
+        </DataTable>
     </div>
+
 </template>
 
 <style scoped>

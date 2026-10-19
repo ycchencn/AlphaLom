@@ -128,10 +128,12 @@ const onReset = () => {
 };
 
 /* ---------------- echarts ---------------- */
+// 分类色板（模型/场景分布饼图），语义是「区分不同项」而非涨跌。
+// ⚠️ 刻意避开红绿，避免用户把某个模型的占比误读成「这个模型在跌/涨」。
 const PIE_PALETTE = [
-    '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899',
-    '#14b8a6', '#ef4444', '#6366f1', '#f97316', '#0ea5e9',
-    '#a855f7', '#22c55e'
+    '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899',
+    '#14b8a6', '#6366f1', '#f97316', '#0ea5e9',
+    '#a855f7', '#0d9488', '#7c3aed', '#0891b2'
 ];
 
 const trendChartRef = ref(null);
@@ -317,8 +319,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-    <div class="mt-5">
-        <div class="card">
+    <div>
+        <div class="card" style="padding-top: 2rem;">
             <div class="font-semibold text-xl mb-4">Token 使用量统计</div>
 
             <!-- 汇总卡片 -->
@@ -472,10 +474,12 @@ onUnmounted(() => {
     }
 
     // 对齐 IndexCard 的 .index-price（数值）
+    // ⚠️ 原先同样写死 #0f172a —— 那边（IndexCard）因为暗色下深底黑字被修过，
+    // 这边注释写着「对齐」却没跟着改，是同一处漏迁的镜像。
     .stat-value {
         font-size: 1.7rem;
         font-weight: 700;
-        color: #0f172a;
+        color: var(--app-text-primary);
         line-height: 1.1;
         white-space: nowrap;
         overflow: hidden;

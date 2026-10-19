@@ -25,26 +25,30 @@ import Dialog from 'primevue/dialog';
 import SelectButton from 'primevue/selectbutton';
 import {useNotification} from '@/composables/useNotification';
 import {
-    COLORS, LINE, FONT, axisLabel, splitLine, tooltipBase, areaGradient,
+    COLORS, LINE, FONT, axisLabel, splitLine, tooltipBase, areaGradient, registerThemeRedraw,
 } from '@/utils/echartsTheme';
 
-// 图表配色（沿用项目 echartsTheme 变量；缺失的语义色在此补齐）
+// 图表配色（全部走 echartsTheme 的响应式 COLORS：字段是 getter，
+// 切主题后重读即取新值。⚠️ 若在这里写死 hex，图表配色就与页面脱节。）
 const C = {
-    up: COLORS.up,            // 红 = 涨 / 过热
-    down: COLORS.down,        // 绿 = 跌 / 过冷
+    up: COLORS.up,               // 红 = 涨 / 过热
+    down: COLORS.down,           // 绿 = 跌 / 过冷
     neutral: COLORS.axisLabel,
-    accent: '#3b82f6',        // 主数据线
-    warn: '#f59e0b',
+    accent: COLORS.accent,       // 主数据线（亮暗两套通用亮度）
+    warn: COLORS.warn,
 };
 
 // 主力行为阶段配色（吸筹/洗盘/拉升/出货初/出货末）
+// ⚠️ 这里**不能**用涨跌色红绿：阶段是有序分类（黄→橙→红→灰蓝→绿），
+// 用涨跌色会让「拉升红 / 出货末绿」与「涨红跌绿」在视觉上撞成同一套含义。
+// 这里保留独立的分类色板，暗色下用 COLORS 的分类档提亮。
 const PHASE_COLORS = {
-    0: '#c0c4cc',  // 未知
-    1: '#f6c445',  // 吸筹（黄）
-    2: '#f59e0b',  // 洗盘（橙）
-    3: '#dc2626',  // 拉升（红）
-    5: '#7c9cbf',  // 出货初期（蓝灰）
-    6: '#5b8c5a',  // 出货末期（绿）
+    0: COLORS.phaseUnknown,  // 未知
+    1: COLORS.phase1,        // 吸筹（黄）
+    2: COLORS.phase2,        // 洗盘（橙）
+    3: COLORS.phase3,        // 拉升（红）
+    5: COLORS.phase5,        // 出货初期（蓝灰）
+    6: COLORS.phase6,        // 出货末期（绿）
 };
 function phaseColor(code) {
     return PHASE_COLORS[Number(code)] || PHASE_COLORS[0];
@@ -309,9 +313,9 @@ function renderRadar() {
             indicator: axes.map((a) => ({name: a.name, max: 100})),
             radius: '62%',
             axisName: {fontSize: 10, color: C.neutral},
-            splitLine: {lineStyle: {color: 'rgba(0,0,0,0.08)'}},
-            splitArea: {areaStyle: {color: ['rgba(0,0,0,0.01)', 'rgba(0,0,0,0.03)']}},
-            axisLine: {lineStyle: {color: 'rgba(0,0,0,0.1)'}},
+            splitLine: {lineStyle: {color: COLORS.splitLine}},
+            splitArea: {areaStyle: {color: [COLORS.markBg, COLORS.guide]}},
+            axisLine: {lineStyle: {color: COLORS.axisLine}},
         },
         series: [{
             type: 'radar',
@@ -320,7 +324,7 @@ function renderRadar() {
                 name: '分位',
                 lineStyle: {color: C.accent, width: 2},
                 itemStyle: {color: C.accent},
-                areaStyle: {color: 'rgba(214,69,69,0.15)'},
+                areaStyle: {color: COLORS.upArea},
             }],
         }],
     }, true);
@@ -353,16 +357,16 @@ function renderQuadrant() {
         series: [
             {
                 type: 'line', data: pts, smooth: true, showSymbol: false,
-                lineStyle: {color: 'rgba(214,69,69,0.35)', width: 1.2},
+                lineStyle: {color: COLORS.upArea, width: 1.2},
                 markLine: {
                     silent: true, symbol: 'none',
-                    lineStyle: {color: 'rgba(0,0,0,0.12)', type: 'dashed'},
+                    lineStyle: {color: COLORS.axisLine, type: 'dashed'},
                     data: [{xAxis: 50}, {yAxis: 50}],
                 },
             },
             {
                 type: 'scatter', data: [cur], symbolSize: 11,
-                itemStyle: {color: COLORS.up, borderColor: '#fff', borderWidth: 1.5},
+                itemStyle: {color: COLORS.up, borderColor: COLORS.dotBg, borderWidth: 1.5},
                 z: 10,
             },
         ],
@@ -384,7 +388,7 @@ function renderHeat() {
             radius: '100%', center: ['50%', '78%'],
             progress: {show: true, width: 12, roundCap: true,
                 itemStyle: {color: heatColor(h.heat)}},
-            axisLine: {lineStyle: {width: 12, color: [[1, 'rgba(0,0,0,0.06)']]}},
+            axisLine: {lineStyle: {width: 12, color: [[1, COLORS.markBg]]}},
             pointer: {show: false},
             axisTick: {show: false}, splitLine: {show: false}, axisLabel: {show: false},
             detail: {valueAnimation: true, fontSize: 16, offsetCenter: [0, '-8%'],
@@ -492,9 +496,9 @@ const historyShort = computed(() => {
 });
 
 const MA_STATE_STYLE = {
-    bull: {text: '多头排列', color: '#d64545'},
-    bear: {text: '空头排列', color: '#1f9d55'},
-    mixed: {text: '均线纠缠', color: '#8a8a8a'},
+    bull: {text: '多头排列', cls: 'is-bull'},
+    bear: {text: '空头排列', cls: 'is-bear'},
+    mixed: {text: '均线纠缠', cls: 'is-mixed'},
 };
 
 function onResize() {
@@ -535,6 +539,17 @@ watch(() => props.active, (v) => {
         renderSeries();
     });
 });
+// 切主题后重画：ECharts 的 setOption 是**快照**，CSS 变量变了不会自动改已画的图。
+// 组件的图表常驻在两个 tab 里（mode 不同但都是同一批实例），所以按 mounted 状态
+// 全量重画即可 —— 数据早已取好，重画不触发任何请求。
+const stopThemeRedraw = registerThemeRedraw(() => {
+    if (!props.active) return;
+    renderRadar();
+    renderQuadrant();
+    renderHeat();
+    renderSeries();
+});
+onUnmounted(() => stopThemeRedraw && stopThemeRedraw());
 </script>
 
 <template>
@@ -554,7 +569,7 @@ watch(() => props.active, (v) => {
                         <div class="fp-card-h">均线排列</div>
                         <div class="fp-card-body-row">
                             <div class="fp-ma-state"
-                                 :style="{color: (MA_STATE_STYLE[maState.state]||{}).color}">
+                                 :class="(MA_STATE_STYLE[maState.state]||{}).cls">
                                 {{ (MA_STATE_STYLE[maState.state]||{}).text }}
                                 <span v-if="maState.bull_days > 0" class="fp-ma-days">
                                     (多头已 {{ maState.bull_days }} 日)
@@ -563,7 +578,7 @@ watch(() => props.active, (v) => {
                             <div class="fp-ma-list">
                                 <span v-for="(v, k) in maState.bias_pct" :key="k"
                                       class="fp-ma-item"
-                                      :style="{color: Number(v) >= 0 ? '#d64545' : '#1f9d55'}">
+                                      :class="Number(v) >= 0 ? 'is-up' : 'is-down'">
                                     MA{{ k }} {{ Number(v) >= 0 ? '+' : '' }}{{ v }}%
                                 </span>
                             </div>
@@ -753,7 +768,7 @@ watch(() => props.active, (v) => {
                                 <span class="fp-rank-name">{{ r.name }}</span>
                                 <span class="fp-rank-val">{{ fmtValue(r.field, r.value) }}</span>
                                 <span class="fp-rank-pct"
-                                      :style="{color: betterPct(r) >= 70 ? '#d64545' : (betterPct(r) <= 30 ? '#1f9d55' : '#8a8a8a')}">
+                                      :class="betterPct(r) >= 70 ? 'is-up' : (betterPct(r) <= 30 ? 'is-down' : 'is-flat')">
                                     优于同类 {{ betterPct(r).toFixed(0) }}%
                                 </span>
                             </div>
@@ -833,13 +848,13 @@ watch(() => props.active, (v) => {
     overflow-wrap: anywhere;
     overflow: hidden;
 }
-.fp-loading { padding: 1rem 0; color: #8a8a8a; font-size: 13px; }
-.fp-empty { padding: 1.5rem 0; color: #8a8a8a; font-size: 13px; text-align: center; }
+.fp-loading { padding: 1rem 0; color: var(--app-text-muted); font-size: 13px; }
+.fp-empty { padding: 1.5rem 0; color: var(--app-text-muted); font-size: 13px; text-align: center; }
 /* 提示条（因子历史不足等）：淡底 + 左侧图标，窄屏不撑宽（已并入上方防溢出选择器） */
 .fp-note {
     display: flex; align-items: baseline; gap: 6px;
-    font-size: 12px; color: #8a6d3b;
-    background: #fdf6e3; border: 0.5px solid #f0e0b8;
+    font-size: 12px; color: var(--app-warn-text);
+    background: var(--app-warn-bg); border: 0.5px solid var(--app-warn-border);
     border-radius: 8px; padding: 8px 10px; margin: 6px 0 10px;
 }
 .fp-block { margin-bottom: 1.5rem; }
@@ -852,42 +867,52 @@ watch(() => props.active, (v) => {
 .fp-note-empty .fp-recalc-btn { margin-left: auto; }
 /* 重算确认框里的高风险提示条（与 UserManage / ApiKeyManage / PortfolioView 的 .del-warn 同款） */
 .del-warn {
-    background: var(--red-50, #fef2f2);
-    border-left: 3px solid var(--red-500, #ef4444);
+    background: var(--app-error-bg);
+    border-left: 3px solid var(--app-error-text);
     padding: 0.6rem 0.75rem;
     font-size: 0.9rem;
     line-height: 1.5;
 }
-.fp-sub { font-size: 11px; font-weight: 400; color: #9a9a9a; }
+.fp-sub { font-size: 11px; font-weight: 400; color: var(--app-text-muted); }
 
 /* 仪表盘卡片：两列布局。
    第 1 行「均线排列」通栏、第 2 行「52 周区间位置」通栏（都是 .fp-card-full），
    第 3 行「超买超卖热度 | 关键位与动态止损」并排。 */
 .fp-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 10px; }
-.fp-card { background: #fff; border: 0.5px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 12px 14px; }
+.fp-card { background: var(--app-bg-card); border: 0.5px solid var(--app-line-soft); border-radius: 12px; padding: 12px 14px; }
 .fp-card-full { grid-column: 1 / -1; }
 /* 均线排列通栏后，状态标签与均线偏离标签改为同一行排布，避免整行只有一小块内容 */
 .fp-card-body-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 18px; }
-.fp-card-h { font-size: 12px; color: #6b6b6b; margin-bottom: 8px; }
+.fp-card-h { font-size: 12px; color: var(--app-text-secondary); margin-bottom: 8px; }
 
 /* 通栏卡里与均线标签同排（.fp-card-body-row），故不需要单独的 margin-bottom */
 .fp-ma-state { font-size: 18px; font-weight: 500; }
-.fp-ma-days { font-size: 12px; font-weight: 400; color: #8a8a8a; }
+.fp-ma-days { font-size: 12px; font-weight: 400; color: var(--app-text-muted); }
 .fp-ma-list { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 11px; }
 /* 均线偏离标签：允许换行（标签本身很短，换行比裁掉更友好） */
 .fp-ma-item { white-space: normal; }
 
+/* 涨跌语义色统一走 class 而非内联 :style —— 内联色是渲染时算好的字符串，
+   切主题后不会重算（这里重算也不会及时，因为没有依赖 isDark 的响应式来源）。
+   写成 class 才能被 .app-dark 下的 --app-up/--app-down 覆盖。 */
+.is-up { color: var(--app-up); }
+.is-down { color: var(--app-down); }
+.is-flat { color: var(--app-flat); }
+.fp-ma-state.is-bull { color: var(--app-up); }
+.fp-ma-state.is-bear { color: var(--app-down); }
+.fp-ma-state.is-mixed { color: var(--app-text-secondary); }
+
 .fp-heat-chart { width: 100%; height: 92px; }
-.fp-heat-meta { display: flex; justify-content: center; gap: 10px; font-size: 11px; color: #6b6b6b; margin-top: -6px; }
+.fp-heat-meta { display: flex; justify-content: center; gap: 10px; font-size: 11px; color: var(--app-text-secondary); margin-top: -6px; }
 .fp-tag { font-weight: 500; }
 
 /* 关键位现在只占半行宽，列宽随之自适应：足够宽时 3 列，变窄自动降到 2 列 */
 .fp-levels { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px 14px; }
 .fp-lv { display: flex; flex-direction: column; }
-.fp-lv-k { font-size: 11px; color: #9a9a9a; }
+.fp-lv-k { font-size: 11px; color: var(--app-text-muted); }
 .fp-lv-v { font-size: 14px; font-weight: 500; }
-.fp-lv-v.up { color: #d64545; }
-.fp-lv-v.down { color: #1f9d55; }
+.fp-lv-v.up { color: var(--app-up); }
+.fp-lv-v.down { color: var(--app-down); }
 
 .fp-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
 /* 两列行里只剩一张卡时让它铺满整行。
@@ -897,52 +922,52 @@ watch(() => props.active, (v) => {
    注意 :only-child 只看**元素**子节点，两处 .fp-row2 里除卡片外没有别的元素，成立。 */
 .fp-row2 > .fp-card:only-child { grid-column: 1 / -1; }
 .fp-quad-chart { width: 100%; height: 200px; }
-.fp-quad-hint { font-size: 10px; color: #a0a0a0; margin-top: 4px; }
+.fp-quad-hint { font-size: 10px; color: var(--app-text-muted); margin-top: 4px; }
 
 .fp-phase-bar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
 .fp-phase-seg { min-width: 2px; }
-.fp-phase-cur { font-size: 12px; color: #4a4a4a; margin-bottom: 8px; }
-.fp-phase-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: #8a8a8a; }
+.fp-phase-cur { font-size: 12px; color: var(--app-text-secondary); margin-bottom: 8px; }
+.fp-phase-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 10px; color: var(--app-text-muted); }
 .fp-pl-item { display: inline-flex; align-items: center; gap: 4px; }
 .fp-pl-item i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 
 .fp-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; margin-top: 10px; }
-.fp-group { background: #fff; border: 0.5px solid rgba(0,0,0,0.1); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
-.fp-group:hover { border-color: rgba(0,0,0,0.25); }
-.fp-group.active { border-color: #d64545; box-shadow: 0 0 0 1px rgba(214,69,69,0.25); }
+.fp-group { background: var(--app-bg-card); border: 0.5px solid var(--app-line-soft); border-radius: 12px; padding: 12px 14px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+.fp-group:hover { border-color: var(--app-line-strong); }
+.fp-group.active { border-color: var(--app-brand); box-shadow: 0 0 0 1px var(--app-brand-ring); }
 .fp-group-h { display: flex; justify-content: space-between; font-size: 13px; font-weight: 500; gap: 6px; }
 .fp-group-h > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fp-group-n { color: #b0b0b0; font-weight: 400; flex: 0 0 auto; }
+.fp-group-n { color: var(--app-text-muted); font-weight: 400; flex: 0 0 auto; }
 /* 描述文案最长可达「单位风险下的趋势质量（去波动后的动量）」这类 18+ 字中文串，
    窄卡片里既放不下又会把卡片顶宽 —— 按 2 行截断，末行省略号。 */
 .fp-group-desc {
-    font-size: 10px; color: #9a9a9a; margin: 2px 0 10px;
+    font-size: 10px; color: var(--app-text-muted); margin: 2px 0 10px;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
     overflow: hidden; line-height: 1.4;
 }
 .fp-factor-list { display: flex; flex-direction: column; gap: 9px; }
 .fp-factor-top { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 3px; }
-.fp-factor-name { color: #4a4a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-factor-name { color: var(--app-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fp-factor-val { font-weight: 500; font-variant-numeric: tabular-nums; }
-.fp-pct-track { height: 5px; border-radius: 3px; background: #f0f0f0; overflow: hidden; }
+.fp-pct-track { height: 5px; border-radius: 3px; background: var(--app-track-bg); overflow: hidden; }
 .fp-pct-fill { height: 100%; border-radius: 3px; transition: width .3s; }
-.fp-factor-pct { font-size: 10px; color: #b0b0b0; margin-top: 2px; }
+.fp-factor-pct { font-size: 10px; color: var(--app-text-muted); margin-top: 2px; }
 
 .fp-range { display: flex; align-items: center; gap: 12px; font-size: 12px; flex-wrap: wrap; }
-.fp-range-bar { position: relative; flex: 1 1 120px; min-width: 100px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #cfe8d5, #f0e2cf, #f3cfcf); }
-.fp-range-fill { height: 100%; border-radius: 4px; background: rgba(0,0,0,0.06); }
-.fp-range-mark { position: absolute; top: -3px; width: 2px; height: 14px; background: #333; border-radius: 1px; transform: translateX(-1px); }
-.fp-range-v { color: #6b6b6b; }
-.fp-range-v b { color: #333; }
+.fp-range-bar { position: relative; flex: 1 1 120px; min-width: 100px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, var(--app-scale-low), var(--app-scale-mid), var(--app-scale-high)); }
+.fp-range-fill { height: 100%; border-radius: 4px; background: var(--app-line-soft); }
+.fp-range-mark { position: absolute; top: -3px; width: 2px; height: 14px; background: var(--app-text-primary); border-radius: 1px; transform: translateX(-1px); }
+.fp-range-v { color: var(--app-text-secondary); }
+.fp-range-v b { color: var(--app-text-primary); }
 
 .fp-series { margin-top: 14px; }
-.fp-series-h { font-size: 12px; color: #6b6b6b; margin-bottom: 6px; }
+.fp-series-h { font-size: 12px; color: var(--app-text-secondary); margin-bottom: 6px; }
 .fp-series-chart { width: 100%; height: 220px; }
 
 .fp-radar-chart { width: 100%; height: 260px; }
 .fp-rank-list { display: flex; flex-direction: column; gap: 8px; }
-.fp-rank-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; border-bottom: 0.5px solid rgba(0,0,0,0.05); padding-bottom: 6px; }
-.fp-rank-name { color: #4a4a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.fp-rank-val { font-variant-numeric: tabular-nums; color: #333; }
+.fp-rank-row { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; font-size: 12px; border-bottom: 0.5px solid var(--app-border-weak); padding-bottom: 6px; }
+.fp-rank-name { color: var(--app-text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-rank-val { font-variant-numeric: tabular-nums; color: var(--app-text-primary); }
 .fp-rank-pct { font-weight: 500; min-width: 52px; text-align: right; }
 </style>

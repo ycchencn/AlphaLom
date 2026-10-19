@@ -12,7 +12,14 @@
 .layout-main {
     flex: 1 1 auto;
     //padding-bottom: 2rem;
-    background: var(--surface-card);
+    // ⚠️ 这里原来用 `var(--surface-card)`，它等于 `var(--p-content-background)`——
+    //   PrimeVue Aura 的 content 背景亮色是 surface.0(#ffffff)、暗色是 surface.900(#18181b)，
+    //   与语义层的 `--app-bg-page`(亮 #f1f5f9 / 暗 #09090b) 不是同一个值。
+    //   于是「自己画了页面底色」的页面（大盘两页 / 事件驱动）显示 --app-bg-page，
+    //   其余页面透出 layout-main 的 token 值 → 两种底色，深浅明显不一致。
+    //   统一由语义层提供：页面底色只有 --app-bg-page 一个来源。
+    //   顺带去掉了对运行时注入 token 的依赖（首帧更稳）。
+    background: var(--app-bg-page);
     .card{
         padding-top: 0;
     }

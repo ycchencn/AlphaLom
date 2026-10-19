@@ -268,11 +268,11 @@ function initFilters1() {
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 贪婪 - 浅绿 */
+    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 极度贪婪 - 绿 */
+    background: var(--app-up) !important; /* 极度贪婪 - 红 */
 }
 
 :deep(.p-progressbar) {
@@ -304,7 +304,7 @@ function initFilters1() {
 
 /* 靛紫色 - 洗盘 */
 .phase-tag--rise {
-    background-color: #389e0d;
+    background-color: var(--app-down);
 }
 
 /* 绿色 - 拉升 */

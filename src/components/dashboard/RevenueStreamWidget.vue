@@ -1,8 +1,12 @@
 <script setup>
 import { useLayout } from '@/layout/composables/layout';
+import { useTheme } from '@/composables/useTheme';
 import { onMounted, ref, watch } from 'vue';
 
-const { getPrimary, getSurface, isDarkTheme } = useLayout();
+// ⚠️ isDarkTheme 原本取自 useLayout，该实现已废弃（配色统一由 useTheme 管）。
+//    这里保持 watch 依赖名不变，避免图表在切换配色时不重绘。
+const { getPrimary, getSurface } = useLayout();
+const { isDark: isDarkTheme } = useTheme();
 
 const chartData = ref(null);
 const chartOptions = ref(null);

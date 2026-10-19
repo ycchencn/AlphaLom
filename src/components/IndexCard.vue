@@ -183,7 +183,7 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
 
 .index-name {
     font-size: 0.95rem;
-    color: #475569;
+    color: var(--app-text-secondary);
     font-weight: 600;
     /* 长名字（芝加哥期权交易所波动率指数）不换行会顶出卡片，
        这里截断并用 title 挂全文。 */
@@ -194,7 +194,7 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
 
 .index-code {
     font-size: 0.72rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     margin-top: 0.15rem;
 }
 
@@ -207,7 +207,8 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
 .index-price {
     font-size: 1.7rem;
     font-weight: 700;
-    color: #0f172a;
+    /* 原为 #0f172a。暗色下深底黑字 = 完全看不见（用户报「指数点位太黑」）。 */
+    color: var(--app-text-primary);
     line-height: 1.1;
     /* 点位可达 5 位 + 2 位小数，窄列下不能被压缩换行 */
     white-space: nowrap;
@@ -237,7 +238,7 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
     align-items: center;
     justify-content: center;
     font-size: 0.75rem;
-    color: #cbd5e1;
+    color: var(--app-text-muted);
 }
 
 .metric-row {
@@ -245,7 +246,8 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
     gap: 1rem;
     margin-top: 0.15rem;
     padding-top: 0.45rem;
-    border-top: 1px solid #f1f5f9;
+    /* 原为 #f1f5f9，暗色下是一条看不见的分隔线 → 换语义边框色。 */
+    border-top: 1px solid var(--app-border-base);
 }
 
 .metric {
@@ -256,7 +258,7 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
 
     .metric-label {
         font-size: 0.72rem;
-        color: #94a3b8;
+        color: var(--app-text-muted);
     }
 
     .metric-value {
@@ -269,6 +271,6 @@ const sparkColor = computed(() => trendColorOf(sparkChange.value))
     margin-top: auto;
     padding-top: 0.3rem;
     font-size: 0.72rem;
-    color: #cbd5e1;
+    color: var(--app-text-muted);
 }
 </style>

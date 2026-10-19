@@ -1,6 +1,6 @@
 <template>
     <div class="progress-bar" :style="{ width: '100px', height: barHeight + 'px' }">
-        <div class="progress-bar-fill" :style="fillStyle"></div>
+        <div class="progress-bar-fill" :class="value > 0 ? 'is-up' : 'is-down'" :style="fillStyle"></div>
         <span class="progress-bar-value">{{ value }} %</span>
     </div>
 </template>
@@ -23,20 +23,15 @@ export default {
         }
     },
     computed: {
-        fillBackground() {
-            if (this.value > 0) {
-                return 'linear-gradient(to left, rgba(255, 107, 107, 0.8), rgba(255, 71, 87, 0.8))';
-            } else {
-                return 'linear-gradient(to right, rgba(106, 176, 76, 0.8), rgba(46, 204, 113, 0.8))';
-            }
-        },
         fillStyle() {
+            // ⚠️ 只管几何（宽度/位置），颜色交给 CSS 的 .is-up/.is-down：
+            //   内联 style 里写死 rgba(255,71,87) 这类色值时暗色模式下永远是亮色，
+            //   而 var(--app-up) 只有写在样式表里才能随 .app-dark 切换。
             const absValue = Math.abs(this.value) * this.times;
             if (this.value > 0) {
                 return {
                     width: `${absValue / 2}%`,
                     height: '100%',
-                    background: this.fillBackground,
                     left: '50%',
                     right: 'auto'
                 };
@@ -44,7 +39,6 @@ export default {
                 return {
                     width: `${absValue / 2}%`,
                     height: '100%',
-                    background: this.fillBackground,
                     left: `calc(50% - ${absValue / 2}%)`,
                     right: 'auto'
                 };
@@ -52,7 +46,6 @@ export default {
                 return {
                     width: '0%',
                     height: '100%',
-                    background: this.fillBackground,
                     left: '50%',
                     right: 'auto'
                 };
@@ -65,7 +58,7 @@ export default {
 <style scoped>
 .progress-bar {
     position: relative;
-    background-color: #f3f3f3;
+    background-color: var(--app-bg-active);
     overflow: hidden;
 }
 
@@ -74,6 +67,17 @@ export default {
     top: 0;
     transition: width 0.3s ease, left 0.3s ease;
     border-radius: 3px;
+    opacity: 0.85;
+}
+
+/* 涨跌色一律走语义变量，跟随 .app-dark 自动切换，
+   也保证和 echartsTheme.js 的 COLORS.up/down 是同一套红绿。 */
+.progress-bar-fill.is-up {
+    background: linear-gradient(to left, var(--app-up-soft), var(--app-up));
+}
+
+.progress-bar-fill.is-down {
+    background: linear-gradient(to right, var(--app-down-soft), var(--app-down));
 }
 
 .progress-bar-value {
@@ -81,7 +85,7 @@ export default {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    color: #555;
+    color: var(--app-text-primary);
     font-weight: normal;
     z-index: 1; /* 确保文字在进度条之上 */
     font-size: 12px;

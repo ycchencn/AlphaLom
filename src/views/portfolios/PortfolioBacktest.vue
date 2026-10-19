@@ -255,7 +255,7 @@ const renderChart = async () => {
                 const i = params[0].dataIndex;
                 const lines = [`<b>${s.dates[i]}</b>`, `组合净值 ${s.equity[i].toFixed(4)}`];
                 if (hasBench) lines.push(`基准净值 ${s.benchmark_equity[i].toFixed(4)}`);
-                lines.push(`组合回撤 <span style="color:#ef4444">${(s.drawdown[i] * 100).toFixed(2)}%</span>`);
+                lines.push(`组合回撤 <span style="color:${COLORS.up}">${(s.drawdown[i] * 100).toFixed(2)}%</span>`);
                 if (hasBench) lines.push(`基准回撤 <span style="color:#3b82f6">${(s.benchmark_drawdown[i] * 100).toFixed(2)}%</span>`);
                 return lines.join('<br/>');
             },
@@ -742,7 +742,7 @@ onBeforeUnmount(() => {
 }
 
 .chip-x:hover {
-    color: #ef4444;
+    color: var(--app-error-text);
 }
 
 .picker-input-row {

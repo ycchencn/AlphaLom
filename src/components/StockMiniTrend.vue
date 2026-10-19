@@ -48,6 +48,7 @@
 
 <script setup>
 import {computed} from 'vue'
+import {COLORS} from '@/utils/echartsTheme'
 
 const emit = defineEmits(['click'])
 
@@ -93,15 +94,18 @@ const props = defineProps({
         type: [String, Boolean],
         default: '#3b82f6'
     },
-    /** 上涨颜色（默认A股红涨） */
+    /** 上涨颜色（默认A股红涨）。
+     *  ⚠️ 从 COLORS 取而非写死 hex：SVG 的 stroke 属性不吃 CSS 变量，
+     *  且 COLORS 会随暗黑模式切换 —— 写死会导致这里永远是一个红。
+     *  改配色请改 echartsTheme.js 的 COLORS，全站同步生效。 */
     riseColor: {
         type: String,
-        default: '#ef4444'
+        default: COLORS.up
     },
-    /** 下跌颜色（默认A股绿跌） */
+    /** 下跌颜色（默认A股绿跌），同上 */
     fallColor: {
         type: String,
-        default: '#22c55e'
+        default: COLORS.down
     },
     /** 卡片样式，默认适合列表嵌入 */
     cardStyle: {
@@ -109,7 +113,7 @@ const props = defineProps({
         default: () => ({
             width: '100%',
             padding: '4px',
-            background: '#fff'
+            background: 'var(--app-bg-card)'
         })
     }
 })
