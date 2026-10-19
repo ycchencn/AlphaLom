@@ -726,22 +726,6 @@ onUnmounted(() => {
                 </Card>
             </div>
 
-            <!-- 基本资料 -->
-            <Card class="mb-6">
-                <template #title>
-                    <i class="pi pi-info-circle text-indigo-500 mr-1"></i> 基本资料
-                </template>
-                <template #content>
-                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-4">
-                        <div v-for="row in infoRows" :key="row.label" class="flex flex-col">
-                            <span class="text-base text-gray-500">{{ row.label }}</span>
-                            <span class="text-gray-800 font-mono">{{ row.value }}</span>
-                        </div>
-                    </div>
-                    <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
-                </template>
-            </Card>
-
             <!-- 恐惧贪婪：布局与个股页 / 大盘页保持一致 ——
                  左栏「当前值 + 情绪档位 + 分量条」、右栏 ECharts 双轴走势图
                  （主曲线 = 情绪值 0~100，点线 = 收盘价，右轴）。
@@ -803,6 +787,22 @@ onUnmounted(() => {
                         </div>
                     </div>
                     <div v-else class="empty-tip">该 ETF 暂无恐惧贪婪数据</div>
+                </template>
+            </Card>
+
+            <!-- 基本资料 -->
+            <Card class="mb-6">
+                <template #title>
+                    <i class="pi pi-info-circle text-indigo-500 mr-1"></i> 基本资料
+                </template>
+                <template #content>
+                    <div v-if="infoRows.length" class="grid grid-cols-2 md:grid-cols-5 gap-x-6 gap-y-4">
+                        <div v-for="row in infoRows" :key="row.label" class="flex flex-col">
+                            <span class="text-base text-gray-500">{{ row.label }}</span>
+                            <span class="text-gray-800 font-mono">{{ row.value }}</span>
+                        </div>
+                    </div>
+                    <div v-else class="text-center text-gray-400 py-6">暂无基本资料</div>
                 </template>
             </Card>
 
