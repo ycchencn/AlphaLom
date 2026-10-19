@@ -5,9 +5,10 @@ import axios from 'axios';
 import * as echarts from 'echarts';
 import {
     COLORS, FONT, PALETTE,
-    axisLabel, splitLine, tooltipBase,
+    axisLabel, splitLine, registerThemeRedraw,
 } from '@/utils/echartsTheme'
 import { useNotification } from '@/composables/useNotification';
+import { toneClass } from '@/utils/function';
 
 const { showError, showInfo } = useNotification();
 const route = useRoute();
@@ -256,7 +257,7 @@ const renderChart = async () => {
                 const lines = [`<b>${s.dates[i]}</b>`, `组合净值 ${s.equity[i].toFixed(4)}`];
                 if (hasBench) lines.push(`基准净值 ${s.benchmark_equity[i].toFixed(4)}`);
                 lines.push(`组合回撤 <span style="color:${COLORS.up}">${(s.drawdown[i] * 100).toFixed(2)}%</span>`);
-                if (hasBench) lines.push(`基准回撤 <span style="color:#3b82f6">${(s.benchmark_drawdown[i] * 100).toFixed(2)}%</span>`);
+                if (hasBench) lines.push(`基准回撤 <span style="color:${PALETTE[0]}">${(s.benchmark_drawdown[i] * 100).toFixed(2)}%</span>`);
                 return lines.join('<br/>');
             },
         },
@@ -296,13 +297,25 @@ const renderChart = async () => {
     }, true);
 };
 
+// 切主题后重画：ECharts 的 setOption 是快照，不重跑会留着旧主题的坐标轴/网格线颜色。
+// registerThemeRedraw 返回取消订阅函数，必须在卸载时调用，否则 KeepAlive 下会累积订阅。
+let stopThemeRedraw = null;
+
 const resizeChart = () => chart?.resize();
+
+onMounted(() => {
+    stopThemeRedraw = registerThemeRedraw(() => {
+        if (!chart) return;
+        renderChart();
+    });
+});
 
 // ======================== 展示辅助 ========================
 const pct = (v, digits = 2) => (v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(digits)}%`);
 const pctAbs = (v, digits = 2) => (v == null ? '—' : `${(v * 100).toFixed(digits)}%`);
-// 红涨绿跌（A 股习惯）
-const toneClass = (v) => (v > 0 ? 'text-red-600' : v < 0 ? 'text-green-600' : 'text-gray-500');
+// 涨跌色类统一由 utils/function.js 的 toneClass 提供（.tone-up/.tone-down/.tone-flat
+// 在 _utils.scss 里定义，绑定 --app-up/down/flat，两套主题自动跟随）。
+// 回撤/波动率恒为非正或非负、夏普/卡玛按正负着色，都交给它，不用写死 Tailwind 类。
 
 const excessReturn = computed(() => {
     const m = result.value?.metrics;
@@ -317,10 +330,10 @@ const metricCards = computed(() => {
     return [
         { label: '区间收益', value: pct(m.total_return), cls: toneClass(m.total_return) },
         { label: '年化收益', value: pct(m.annual_return), cls: toneClass(m.annual_return) },
-        { label: '最大回撤', value: pctAbs(m.max_drawdown), cls: 'text-green-600' },
-        { label: '年化波动率', value: pctAbs(m.volatility), cls: 'text-gray-700' },
-        { label: '夏普比率', value: m.sharpe.toFixed(2), cls: m.sharpe > 0 ? 'text-red-600' : 'text-green-600' },
-        { label: '卡玛比率', value: m.calmar.toFixed(2), cls: m.calmar > 0 ? 'text-red-600' : 'text-green-600' },
+        { label: '最大回撤', value: pctAbs(m.max_drawdown), cls: toneClass(m.max_drawdown) },
+        { label: '年化波动率', value: pctAbs(m.volatility), cls: toneClass(m.volatility) },
+        { label: '夏普比率', value: m.sharpe.toFixed(2), cls: toneClass(m.sharpe) },
+        { label: '卡玛比率', value: m.calmar.toFixed(2), cls: toneClass(m.calmar) },
     ];
 });
 
@@ -330,7 +343,7 @@ const benchmarkCards = computed(() => {
     if (!b) return [];
     return [
         { label: `${name} 区间收益`, value: pct(b.total_return), cls: toneClass(b.total_return) },
-        { label: `${name} 最大回撤`, value: pctAbs(b.max_drawdown), cls: 'text-green-600' },
+        { label: `${name} 最大回撤`, value: pctAbs(b.max_drawdown), cls: toneClass(b.max_drawdown) },
         { label: '超额收益', value: excessReturn.value == null ? '—' : pct(excessReturn.value), cls: toneClass(excessReturn.value ?? 0) },
     ];
 });
@@ -405,6 +418,8 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
     window.removeEventListener('resize', resizeChart);
+    stopThemeRedraw?.();
+    stopThemeRedraw = null;
     chart?.dispose();
     chart = null;
 });
@@ -664,7 +679,7 @@ onBeforeUnmount(() => {
 
 .cond-label {
     font-size: 1rem; /* 12px（根字号 12px） */
-    color: #64748b;
+    color: var(--app-text-secondary);
     /* 0.5rem：标签与控件之间要有明显分界，0.25rem 在 12px 根字号下只有 3px */
     margin-bottom: 0.5rem;
 }
@@ -681,7 +696,7 @@ onBeforeUnmount(() => {
 }
 
 .range-sep {
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .preset-row {
@@ -698,12 +713,12 @@ onBeforeUnmount(() => {
     /* 与上方条件网格拉开距离：1rem + 0.75rem 的内边距 */
     margin-top: 1rem;
     padding-top: 0.75rem;
-    border-top: 1px solid #f1f5f9;
+    border-top: 1px solid var(--app-border-weak);
 }
 
 .cond-hint {
     font-size: 1rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 /* ---------- 标的搜索 ---------- */
@@ -723,22 +738,22 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 0.25rem;
     padding: 0.1rem 0.4rem;
-    background: #f1f5f9;
-    border: 1px solid #e2e8f0;
+    background: var(--app-bg-active);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.25rem;
     font-size: 1rem;
-    color: #334155;
+    color: var(--app-text-primary);
 }
 
 .chip-code {
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 }
 
 .chip-x {
     cursor: pointer;
     font-size: 0.9rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .chip-x:hover {
@@ -763,10 +778,10 @@ onBeforeUnmount(() => {
        限到一个下拉框该有的宽度 */
     max-width: 34rem;
     overflow-y: auto;
-    background: #fff;
-    border: 1px solid #e2e8f0;
+    background: var(--app-bg-elevated);
+    border: 1px solid var(--app-border-base);
     border-radius: 0.25rem;
-    box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
+    box-shadow: var(--app-shadow-pop);
 }
 
 .picker-option {
@@ -779,19 +794,19 @@ onBeforeUnmount(() => {
 }
 
 .picker-option:hover {
-    background: #f8fafc;
+    background: var(--app-bg-hover);
 }
 
 .opt-name {
     flex: 1 1 auto;
-    color: #1e293b;
+    color: var(--app-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .opt-code {
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .opt-tag {
@@ -802,7 +817,7 @@ onBeforeUnmount(() => {
 .picker-tip {
     padding: 0.5rem;
     font-size: 1rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 /* ---------- 空状态 ---------- */
@@ -815,20 +830,21 @@ onBeforeUnmount(() => {
     /* 5rem 1rem：与 MarketOverview .empty-tip(2rem 1rem) 同量级，
        但本页空态后面没有别的区块，给得更舒展一些 */
     padding: 5rem 1rem;
-    background: #fff;
-    border: 1px dashed #e2e8f0;
+    background: var(--app-bg-card);
+    border: 1px dashed var(--app-border-base);
     border-radius: 0.5rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .empty-icon {
     font-size: 2rem;
-    color: #cbd5e1;
+    color: var(--app-text-muted);
+    opacity: 0.7;
 }
 
 .empty-title {
     font-size: 1.25rem; /* 15px */
-    color: #64748b;
+    color: var(--app-text-secondary);
 }
 
 .empty-sub {
@@ -853,20 +869,20 @@ onBeforeUnmount(() => {
 }
 
 .metric-card {
-    background: #fff;
-    border: 1px solid #eef1f6;
+    background: var(--app-bg-card);
+    border: 1px solid var(--app-border-weak);
     border-radius: 0.5rem;
     /* 0.75rem 1rem：给数值留出呼吸空间，和 Card 组件的默认内容内边距贴近 */
     padding: 0.75rem 1rem;
 }
 
 .bench-card {
-    background: #f8fafc;
+    background: var(--app-bg-subtle);
 }
 
 .metric-label {
     font-size: 1rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     margin-bottom: 0.2rem;
 }
 
@@ -886,7 +902,7 @@ onBeforeUnmount(() => {
 
 .chart-sub {
     font-size: 1rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-weight: 400;
 }
 
@@ -899,7 +915,7 @@ onBeforeUnmount(() => {
     display: flex;
     justify-content: space-between;
     font-size: 1rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     margin-top: 0.75rem;
 }
 
@@ -943,6 +959,6 @@ onBeforeUnmount(() => {
 
 /* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
 .p-card {
-    border: 1px solid #dedede;
+    border: 1px solid var(--app-border-weak);
 }
 </style>

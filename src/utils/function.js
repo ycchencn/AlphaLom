@@ -12,6 +12,26 @@ import axios from 'axios';
 
 const defaultStartYear = 3
 
+/**
+ * 涨跌色类（A 股习惯：红涨绿跌）。
+ *
+ * 返回 `.tone-up` / `.tone-down` / `.tone-flat`，三个类在
+ * `src/assets/layout/_utils.scss` 里定义，绑定到语义变量 --app-up/down/flat，
+ * 因此亮暗两套主题会自动跟随全站统一口径。
+ *
+ * ⚠️ 不要写成内联 `:style="{ color: v > 0 ? 'red' : 'green' }"`：
+ *   ① CSS 关键字 red(#ff0000)/green(#008000) 跟全站口径（#dc2626/#16a34a）
+ *      是两套完全不同的颜色，暗色下还是刺眼纯色；
+ *   ② 内联颜色的值在渲染时就算成字符串，切主题不会重算。
+ *
+ * @param {number|null|undefined} v 涨跌值（收益率、涨跌幅、空间等）
+ * @returns {'tone-up'|'tone-down'|'tone-flat'}
+ */
+export function toneClass(v) {
+    return v > 0 ? 'tone-up' : v < 0 ? 'tone-down' : 'tone-flat';
+}
+
+
 // 格式化为 %Y%m%d
 const formatDate = (date) => {
     const year = date.getFullYear();

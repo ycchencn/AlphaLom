@@ -296,7 +296,9 @@ const scenarioLabels = computed(() => {
         return {
             ...d,
             pctText: (up ? '↑ +' : '↓ ') + pct.toFixed(1) + '%',
-            pctColor: up ? '#16a34a' : '#dc2626'
+            // ⚠️ 必须用 COLORS 而不是字面值：SVG 的 fill 属性不吃 CSS 变量，
+            // 且这里原先写成 up→绿/down→红，与全站「红涨绿跌」正好相反。
+            pctColor: up ? COLORS.up : COLORS.down
         }
     })
 })
