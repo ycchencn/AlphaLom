@@ -7,17 +7,21 @@
 
  背景：原先各平台实现（llms/llm_base_*.py）在 __init__ 里直接读 `config.<x>_apikey`
  （来自 .env），换 key / 加平台都要改环境变量并重启。现在改成：
-
-   env / config 默认值  ←  system_setting 表覆盖（后台设置页可改，立即生效）
+ **凭据只从 system_setting 表取**（后台设置页「下拉添加平台」时写入）。
 
  存储约定（每行的 setting_value 是一个对象）：
    setting_group = 'llm_platform_setting'
    setting_key   = 'llm_platform_setting.<平台标识>'
    setting_value = {"enabled": true, "api_key": "v1:...", "base_url": "https://..."}
      - api_key 是 utils.secret_box 加密后的密文，**永不回传明文**；
-     - 三个字段都可缺省，缺省即沿用 env 默认值；
-     - **库里没有该行 = 该平台完全用 env 默认值**（含「没配 key 也能跑」的历史状态）。
-       注意这与 chart_display 的「删行 = 恢复默认」语义一致。
+     - 三个字段都可缺省，缺省即沿用代码默认值（仅 base_url 有代码默认值）。
+
+ 「平台已添加」的判定（**不是**代码注册，而是库里有没有那一行）：
+   - 表里有 `llm_platform_setting.<平台>` 这一行 = 该平台已被管理员添加，可用；
+   - 表里没有 = **未添加**，视作不可用（enabled=False、api_key=None）。
+   设置页的表格只列已添加的，候选清单（下拉「添加平台」）只列未添加的。
+   接入新平台仍需在 `llms/` 下实现 LLMBase 子类并注册 —— 代码提供「能力」，
+   数据库决定「是否启用」，两者缺一不可。
 
  ⚠️ 禁用（enabled=false）语义：路由到该平台时**明确报错**，不静默回退到别的平台 ——
  静默回退会让人以为改的模型生效了，实际跑的是另一个平台的另一个模型，排障极难。
@@ -30,48 +34,42 @@ from utils.logger import logger
 # system_setting 表里的分组名（同时也是配置键前缀）
 PLATFORM_SETTING_GROUP = 'llm_platform_setting'
 
-# 平台静态元数据：展示名 + env 里的默认凭据变量名 + 默认 base_url。
-# 这是「平台的代码默认值」的唯一出处（env 只覆盖 key，不覆盖 base_url）。
+# 平台静态元数据：展示名 + 文档链接 + 默认 base_url。
+# 这是「代码侧能支持哪些平台」的唯一出处 —— 决定下拉里能添加哪些平台，
+# 但**平台是否启用、key 是什么一律以数据库为准**（见 _resolve 的 added 语义）。
 PLATFORM_META: Dict[str, Dict[str, str]] = {
     'deepseek': {
         'label': 'DeepSeek',
-        'env_key': 'DEEPSEEK_APIKEY',
         'default_base_url': 'https://api.deepseek.com',
         'docs': 'https://api-docs.deepseek.com',
     },
     'volcengine': {
         'label': '火山方舟',
-        'env_key': 'DOUBAO_APIKEY',
         'default_base_url': 'https://ark.cn-beijing.volces.com/api/v3',
         'docs': 'https://www.volcengine.com/docs/82379',
     },
     'siliconflow': {
         'label': '硅基流动',
-        'env_key': 'SILICONFLOW_APIKEY',
         'default_base_url': 'https://api.siliconflow.cn',
         'docs': 'https://docs.siliconflow.cn',
     },
     'aliyun': {
         'label': '阿里云百炼',
-        'env_key': 'ALIYUN_BAILIAN_APIKEY',
         'default_base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
         'docs': 'https://help.aliyun.com/zh/model-studio',
     },
     'zhipu': {
         'label': '智谱 AI',
-        'env_key': 'ZHIPU_APIKEY',
         'default_base_url': 'https://open.bigmodel.cn/api/paas/v4',
         'docs': 'https://docs.bigmodel.cn',
     },
     'tencent': {
         'label': '腾讯云混元',
-        'env_key': 'TENCENT_APIKEY',
         'default_base_url': 'https://api.hunyuan.cloud.tencent.com/v1',
         'docs': 'https://cloud.tencent.com/document/product/1729',
     },
     'baidu': {
         'label': '百度云千帆',
-        'env_key': 'BAIDU_QIANFAN_APIKEY',
         'default_base_url': 'https://qianfan.baidubce.com/v2',
         'docs': 'https://cloud.baidu.com/doc/WENXINWORKSHOP',
     },
@@ -84,12 +82,13 @@ def platform_label(platform: str) -> str:
 
 
 def _env_default_api_key(platform: str) -> Optional[str]:
-    """env 里的默认 key（仅作兜底；库里配了就以库里为准）。"""
-    import os
-    env_name = (PLATFORM_META.get(platform) or {}).get('env_key')
-    if not env_name:
-        return None
-    return (os.getenv(env_name) or '').strip() or None
+    """
+    ⚠️ 已废弃：不再从 .env 读平台 key。
+
+    保留函数只为让历史调用点不炸，且**恒返回 None** —— 凭据只认数据库。
+    新增平台请在「系统设置 → 大模型配置」里下拉添加并填写 API Key。
+    """
+    return None
 
 
 def _default_base_url(platform: str) -> Optional[str]:
@@ -145,18 +144,32 @@ def _resolve(platform: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
     """
     单个平台的生效配置（key 已解密为明文；解密失败则为 None）。
 
-    返回 {platform, label, enabled, api_key, base_url, customized}，其中：
-      - api_key 为 None 表示「没有任何可用 key」；
-      - customized 表示表里是否有该行（设置页据此显示「已自定义」）。
+    返回 {platform, label, enabled, api_key, base_url, added, customized}，其中：
+      - added = 表里有没有该平台那一行。**没添加 = 不可用**（enabled=False、api_key=None）：
+        凭据只认数据库，未添加就没有任何可用 key，与其「看起来 enabled 却调不通」不如明确不可用；
+      - api_key 为 None 表示「已添加但没填 key」；
+      - customized 与 added 同义（保留该字段名是为了设置页文案不用改口径）。
     """
     raw = overrides.get(platform)
     normalized = _normalize(raw, platform) if raw is not None else {}
-    customized = platform in overrides
+    added = platform in overrides
 
-    # enabled：表里有显式值就用它，否则默认 True
+    if not added:
+        # 未添加：明确不可用。base_url 仍给代码默认值，仅供设置页「添加平台」时预填。
+        return {
+            'platform': platform,
+            'label': platform_label(platform),
+            'enabled': False,
+            'api_key': None,
+            'base_url': _default_base_url(platform),
+            'added': False,
+            'customized': False,
+        }
+
+    # enabled：表里有显式值就用它，缺省视为 True（刚添加即默认可用）
     enabled = normalized.get('enabled', True)
 
-    # api_key：表里配了（密文）优先；否则取 env 默认值
+    # api_key：只认表里配的密文
     api_key: Optional[str] = None
     if normalized.get('api_key'):
         from utils.secret_box import decrypt
@@ -165,8 +178,6 @@ def _resolve(platform: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
             logger.warning(
                 f'平台 {platform} 的 api_key 解密失败（主密钥换过或数据损坏），视为未配置'
             )
-    if not api_key:
-        api_key = _env_default_api_key(platform)
 
     base_url = normalized.get('base_url') or _default_base_url(platform)
 
@@ -176,7 +187,8 @@ def _resolve(platform: str, overrides: Dict[str, Any]) -> Dict[str, Any]:
         'enabled': bool(enabled),
         'api_key': api_key,
         'base_url': base_url,
-        'customized': customized,
+        'added': True,
+        'customized': True,
     }
 
 
@@ -191,16 +203,17 @@ def get_platform_settings() -> Dict[str, Dict[str, Any]]:
 
 def get_platform_setting(platform: str) -> Dict[str, Any]:
     """
-    单个平台生效配置。未登记的平台也返回一份「无线索」结构（enabled=True、
-    api_key=None），由调用方判断 —— 便于外部 register_platform 扩展时不至于崩。
+    单个平台生效配置。未登记的平台也返回一份「无线索」结构（added=False、
+    enabled=False、api_key=None），由调用方判断 —— 便于外部 register_platform 扩展时不至于崩。
     """
     if platform not in PLATFORM_META:
         return {
             'platform': platform,
             'label': platform,
-            'enabled': True,
+            'enabled': False,
             'api_key': None,
             'base_url': None,
+            'added': False,
             'customized': False,
         }
     return _resolve(platform, _load_overrides())
@@ -209,23 +222,30 @@ def get_platform_setting(platform: str) -> Dict[str, Any]:
 def get_api_key(platform: str, required: bool = True) -> Optional[str]:
     """
     取平台明文 key（给各 LLMBase 实现调用）。
-    :param required: True 时，平台被禁用 / 没配 key 直接抛 ValueError（明确报错，
-        不静默回退）；False 时返回 None 交调用方处理（如「列出模型」这类可降级场景）。
+    :param required: True 时，未添加 / 被禁用 / 没填 key 都直接抛 ValueError
+        （明确报错，不静默回退）；False 时返回 None 交调用方处理（如「列出模型」这类可降级场景）。
     """
     setting = get_platform_setting(platform)
+    label = setting['label']
+    if not setting.get('added'):
+        if required:
+            raise ValueError(
+                f"大模型平台「{label}」尚未添加，"
+                f"请先在「系统管理 → 系统设置 → 大模型配置」中通过「添加平台」下拉添加并填写 API Key。"
+            )
+        return None
     if not setting.get('enabled'):
         if required:
             raise ValueError(
-                f"大模型平台「{setting['label']}」已在系统设置中被禁用，"
-                f"请在「系统管理 → 大模型配置 → 平台管理」中启用，或把使用它的场景换到其它平台。"
+                f"大模型平台「{label}」已在系统设置中被禁用，"
+                f"请在「系统管理 → 大模型配置」中启用，或把使用它的场景换到其它平台。"
             )
         return None
     key = setting.get('api_key')
     if not key and required:
         raise ValueError(
-            f"大模型平台「{setting['label']}」未配置 API Key，"
-            f"请在「系统管理 → 大模型配置 → 平台管理」中填写，或在 .env 中设置 "
-            f"{(PLATFORM_META.get(platform) or {}).get('env_key', '对应变量')}。"
+            f"大模型平台「{label}」未配置 API Key，"
+            f"请在「系统管理 → 大模型配置」中点击该平台的「设置 Key」填写。"
         )
     return key
 
@@ -235,39 +255,60 @@ def get_base_url(platform: str) -> Optional[str]:
     return get_platform_setting(platform).get('base_url')
 
 
-def list_platforms_view() -> List[Dict[str, Any]]:
-    """
-    设置页视图：每个平台一行，**key 只回掩码，绝不回明文**。
-
-    额外返回 has_env_key：env 里是否已有兜底 key（前端提示「未配置，将使用 .env 中的 key」）。
-    """
+def _platform_view_row(platform: str, meta: Dict[str, str], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    """单个平台的设置页视图行（key 只给掩码，绝不给明文）。"""
     from utils.secret_box import mask
 
+    setting = _resolve(platform, overrides)
+    plain = setting.get('api_key')
+    stored = overrides.get(platform)
+    has_stored_key = bool(isinstance(stored, dict) and stored.get('api_key'))
+    return {
+        'platform': platform,
+        'label': meta['label'],
+        'docs': meta.get('docs'),
+        'enabled': setting['enabled'],
+        'base_url': setting['base_url'],
+        'default_base_url': meta.get('default_base_url'),
+        # ⚠️ 恒为 'database' / None：凭据只认数据库，不再有 env 兜底。
+        # 保留该字段是为了前端 Tag 的渲染分支不用改。
+        'key_source': 'database' if has_stored_key else None,
+        'api_key_masked': mask(plain) if plain else '',
+        'has_api_key': bool(plain),
+        'added': setting['added'],
+        'customized': setting['customized'],
+    }
+
+
+def list_platforms_view() -> List[Dict[str, Any]]:
+    """
+    设置页表格视图：**只列已添加的平台**（表里有配置行的那些）。
+
+    ⚠️ 语义已变：以前这里列的是全部代码注册平台。现在未添加的平台不出现在表格里 ——
+    凭据只认数据库，一个没添加的平台在设置页占一行、却永远调不通，不如不显示。
+    未添加的平台请用 `list_addable_platforms()`（下拉「添加平台」的数据源）。
+    """
     overrides = _load_overrides()
-    result: List[Dict[str, Any]] = []
-    for platform, meta in PLATFORM_META.items():
-        setting = _resolve(platform, overrides)
-        env_key = _env_default_api_key(platform)
-        plain = setting.get('api_key')
-        # 来源：表里覆盖的密文 / env 兜底 / 都没有
-        if overrides.get(platform, {}).get('api_key') if isinstance(overrides.get(platform), dict) else False:
-            source = 'database'
-        elif env_key:
-            source = 'env'
-        else:
-            source = None
-        result.append({
-            'platform': platform,
+    return [
+        _platform_view_row(p, meta, overrides)
+        for p, meta in PLATFORM_META.items()
+        if p in overrides
+    ]
+
+
+def list_addable_platforms() -> List[Dict[str, Any]]:
+    """
+    下拉「添加平台」的候选：**已添加的排除在外**，避免重复添加同一平台。
+    返回 {platform, label, docs, default_base_url}，不含任何凭据字段。
+    """
+    overrides = _load_overrides()
+    return [
+        {
+            'platform': p,
             'label': meta['label'],
             'docs': meta.get('docs'),
-            'enabled': setting['enabled'],
-            'base_url': setting['base_url'],
             'default_base_url': meta.get('default_base_url'),
-            'env_key_name': meta.get('env_key'),
-            'has_env_key': bool(env_key),
-            'api_key_masked': mask(plain) if plain else '',
-            'has_api_key': bool(plain),
-            'key_source': source,
-            'customized': setting['customized'],
-        })
-    return result
+        }
+        for p, meta in PLATFORM_META.items()
+        if p not in overrides
+    ]

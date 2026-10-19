@@ -10,10 +10,11 @@ import {useNotification} from '@/composables/useNotification';
  * 系统设置 · 大模型配置
  *
  * 两个区块：
- *   1. 平台管理 —— 每个平台的「启用 / 关闭」+ API Key + Base URL。
- *      API Key **加密存在库里**（主密钥在 .env: ALPHALOM_SECRET_KEY），页面只回显掩码；
- *      留空 = 不改动现有 key，「恢复默认」= 删掉表里那一行，完全回落到 .env 的配置。
- *   2. 业务场景 —— 每个场景选一个「平台 + 模型」。
+ *   1. 平台管理 —— **默认为空**，从下拉里「添加平台」后才会出现在表格中。
+ *      每个已添加的平台可配「启用开关 / API Key / Base URL」。
+ *      API Key **加密存在库里**（主密钥在 .env: ALPHALOM_SECRET_KEY），页面只回显掩码。
+ *      凭据只从数据库取 —— .env 里的 *_APIKEY 已废弃。
+ *   2. 业务场景 —— 每个场景选一个「平台 + 模型」，下拉只列**已添加**的平台。
  *
  * 两处配置都**保存后立即生效、无需重启服务**（服务每次调用都实时读表）。
  */
@@ -34,11 +35,12 @@ const modelsLoading = reactive({});
 
 // ==================== 平台管理 ====================
 
-const platformRows = ref([]);          // 后端返回的平台列表（含掩码）
+const platformRows = ref([]);          // 后端返回的**已添加**平台列表（含掩码）
+const addablePlatforms = ref([]);      // 下拉「添加平台」的候选（未添加的）
 const secretKeyConfigured = ref(true); // 加密主密钥是否已配置（未配置则不能保存 key）
 const platformForms = reactive({});    // { 平台: {enabled, api_key, base_url} }
 const savingPlatform = ref('');
-const resettingPlatform = ref('');
+const removingPlatform = ref('');
 const testingPlatform = ref('');
 
 // ⚠️ 读平台列表失败时**不能只把列表清空** —— 那样页面显示「共 0 个平台」，
@@ -51,6 +53,62 @@ const keyDialogVisible = ref(false);
 const keyDialogPlatform = ref('');
 const keyDialogValue = ref('');
 const keyDialogSaving = ref(false);
+
+// 添加平台弹窗：候选来自后端 addable（已添加的不会出现在这里）
+const addDialogVisible = ref(false);
+const addDialogPlatform = ref('');
+const addDialogApiKey = ref('');
+const addDialogBaseUrl = ref('');
+const addDialogSaving = ref(false);
+
+const addDialogOptions = computed(() =>
+    addablePlatforms.value.map((p) => ({
+        label: p.label,
+        value: p.platform,
+        default_base_url: p.default_base_url || '',
+    })),
+);
+
+// 待添加平台的代码默认地址：base_url 没填就用它，不必让用户手敲
+const addDialogDefaultBaseUrl = computed(() =>
+    addDialogOptions.value.find((o) => o.value === addDialogPlatform.value)?.default_base_url || '',
+);
+
+function openAddDialog() {
+    addDialogPlatform.value = addDialogOptions.value[0]?.value || '';
+    addDialogApiKey.value = '';
+    addDialogBaseUrl.value = '';
+    addDialogVisible.value = true;
+}
+
+function submitAddPlatform() {
+    if (!addDialogPlatform.value) {
+        showError('请选择要添加的平台');
+        return;
+    }
+    if (!String(addDialogApiKey.value || '').trim()) {
+        showError('请填写 API Key');
+        return;
+    }
+    addDialogSaving.value = true;
+    axios.post('/api/v1/settings/llm_platforms', {
+        platform: addDialogPlatform.value,
+        api_key: String(addDialogApiKey.value).trim(),
+        // 留空则后端用该平台的代码默认地址
+        base_url: String(addDialogBaseUrl.value || '').trim(),
+    })
+        .then((response) => {
+            applyPlatformResponse(response);
+            addDialogVisible.value = false;
+            showSuccess('平台已添加');
+        })
+        .catch((e) => {
+            showError(e.response?.data?.detail || '添加失败，请重试');
+        })
+        .finally(() => {
+            addDialogSaving.value = false;
+        });
+}
 
 const platformOptions = computed(() => platforms.value);
 
@@ -70,6 +128,7 @@ function loadPlatforms() {
         .then((response) => {
             const data = response.data?.data || {};
             platformRows.value = data.platforms || [];
+            addablePlatforms.value = data.addable || [];
             secretKeyConfigured.value = data.secret_key_configured !== false;
             platformError.value = '';
             syncPlatformForms();
@@ -97,8 +156,40 @@ function loadPlatforms() {
 
 function keySourceLabel(row) {
     if (row.key_source === 'database') return '后台配置';
-    if (row.key_source === 'env') return '.env';
     return '未配置';
+}
+
+// 移除平台确认弹框。移除 = 删掉库里那一行，Key 一并消失且**无法恢复**
+// （凭据只认数据库，没有 .env 兜底），所以必须显式确认，不能一点就删。
+const removeDialogVisible = ref(false);
+const removeTarget = ref(null);
+
+// 移除该平台：删掉库里那一行 = key 彻底消失，该平台回到「未添加」状态。
+// ⚠️ 不是「恢复默认」：凭据只认数据库，删行后没有任何兜底可回落。
+function removePlatform(row) {
+    removeTarget.value = row;
+    removeDialogVisible.value = true;
+}
+
+function confirmRemovePlatform() {
+    const row = removeTarget.value;
+    if (!row) return;
+    removingPlatform.value = row.platform;
+    axios.delete(`/api/v1/settings/llm_platforms/${encodeURIComponent(row.platform)}`)
+        .then((response) => {
+            applyPlatformResponse(response);
+            removeDialogVisible.value = false;
+            removeTarget.value = null;
+            showSuccess(response.data?.deleted
+                ? `已移除 ${row.label}`
+                : `${row.label} 本来就没有配置`);
+        })
+        .catch((e) => {
+            showError(e.response?.data?.detail || '移除失败，请重试');
+        })
+        .finally(() => {
+            removingPlatform.value = '';
+        });
 }
 
 // 保存一行的「开关 + base_url」（不含 key —— key 走弹窗单独保存）
@@ -121,27 +212,10 @@ function savePlatform(row) {
         });
 }
 
-// 删除该平台的全部后台配置 = 完全回到 .env / 代码默认值（key、base_url、开关一起回退）
-function resetPlatform(row) {
-    resettingPlatform.value = row.platform;
-    axios.delete(`/api/v1/settings/llm_platforms/${encodeURIComponent(row.platform)}`)
-        .then((response) => {
-            applyPlatformResponse(response);
-            showSuccess(response.data?.deleted
-                ? `已恢复默认 ${row.label}（改为使用 .env 中的配置）`
-                : `${row.label} 本来就是默认配置`);
-        })
-        .catch((e) => {
-            showError(e.response?.data?.detail || '恢复默认失败，请重试');
-        })
-        .finally(() => {
-            resettingPlatform.value = '';
-        });
-}
-
 function applyPlatformResponse(response) {
     const data = response.data?.data || {};
     platformRows.value = data.platforms || [];
+    addablePlatforms.value = data.addable || [];
     secretKeyConfigured.value = data.secret_key_configured !== false;
     syncPlatformForms();
 }
@@ -349,28 +423,40 @@ onBeforeMount(() => {
                                 <div class="font-semibold text-xl">大模型配置</div>
                                 <div class="text-sm text-gray-500 mt-1">配置大模型平台与业务场景路由，保存后立即生效、无需重启服务。</div>
                             </div>
-                            <Button
-                                icon="pi pi-refresh"
-                                label="刷新"
-                                size="small"
-                                severity="secondary"
-                                outlined
-                                :loading="loading"
-                                @click="refreshAll"
-                            />
+                            <div class="flex items-center gap-2">
+                                <Button
+                                    v-if="addablePlatforms.length"
+                                    icon="pi pi-plus"
+                                    label="添加平台"
+                                    size="small"
+                                    :disabled="!secretKeyConfigured"
+                                    :title="secretKeyConfigured ? '' : '未配置加解密主密钥，无法保存 API Key'"
+                                    @click="openAddDialog"
+                                />
+                                <Button
+                                    icon="pi pi-refresh"
+                                    label="刷新"
+                                    size="small"
+                                    severity="secondary"
+                                    outlined
+                                    :loading="loading"
+                                    @click="refreshAll"
+                                />
+                            </div>
                         </div>
                         <div class="text-gray-500 text-sm">
-                            共 {{ platformRows.length }} 个大模型平台
+                            已添加 {{ platformRows.length }} 个大模型平台<template v-if="addablePlatforms.length">，还可添加 {{ addablePlatforms.length }} 个</template>
                         </div>
                         <div class="text-xs text-gray-500">
-                            这里配置各平台的<b>启用开关、API Key、Base URL</b>，
+                            平台<b>默认为空，需先从右上角「添加平台」下拉添加</b>，添加后才能配置与使用。
+                            每个平台可配<b>启用开关、API Key、Base URL</b>，
                             API Key <b>加密存库</b>、页面只显示掩码，<b>保存后立即生效、无需重启</b>。
-                            留空表示沿用 .env 中的配置；「恢复默认」= 删除库里的配置行，完全回到 .env。
+                            凭据<b>只从数据库读取</b>，不再回退到 .env。
                         </div>
                         <div class="text-xs text-gray-400">
-                            平台清单来自代码里已注册的平台实现（<code>llms/PLATFORM_META</code>），
-                            这里只能<b>启用/配置</b>它们，<b>不能新增或删除平台</b>
-                            —— 接入新平台需要在 <code>llms/</code> 下实现一个 LLMBase 子类并注册。
+                            可添加的平台清单来自代码里已注册的平台实现（<code>llms/PLATFORM_META</code>）——
+                            这里只能<b>启用/配置</b>它们，<b>不能自定义新平台</b>
+                            —— 接入全新平台需要在 <code>llms/</code> 下实现一个 LLMBase 子类并注册。
                         </div>
                         <div v-if="platformError" class="text-xs text-red-500 flex items-center gap-1">
                             <i class="pi pi-exclamation-triangle"></i>
@@ -392,13 +478,31 @@ onBeforeMount(() => {
                 </template>
 
                 <template #empty>
-                    <!-- 平台清单是代码注册的，正常永远有 5 个；走到这里说明请求没成功 -->
-                    <div class="flex flex-col items-center gap-1 py-4">
+                    <!-- 空态有两种，得区分开：读不到接口 vs 真的一个平台都没加 -->
+                    <div v-if="platformError" class="flex flex-col items-center gap-1 py-4">
                         <i class="pi pi-exclamation-circle text-2xl text-gray-400"></i>
                         <div class="text-sm text-gray-500">没有读到平台列表</div>
+                        <div class="text-xs text-gray-400">{{ platformError }}</div>
+                    </div>
+                    <div v-else class="flex flex-col items-center gap-2 py-6">
+                        <i class="pi pi-inbox text-2xl text-gray-400"></i>
+                        <div class="text-sm text-gray-500">尚未添加任何大模型平台</div>
                         <div class="text-xs text-gray-400">
-                            {{ platformError || '平台清单由后端代码注册，正常应显示 5 个。请点「刷新」重试。' }}
+                            <template v-if="secretKeyConfigured">
+                                点击右上角「添加平台」，从下拉里选择平台并填写 API Key 后即可使用。
+                            </template>
+                            <template v-else>
+                                但需先在 .env 中配置加解密主密钥 <code>ALPHALOM_SECRET_KEY</code> 并重启服务。
+                            </template>
                         </div>
+                        <Button
+                            v-if="addablePlatforms.length && secretKeyConfigured"
+                            icon="pi pi-plus"
+                            label="添加平台"
+                            size="small"
+                            class="mt-1"
+                            @click="openAddDialog"
+                        />
                     </div>
                 </template>
 
@@ -413,8 +517,7 @@ onBeforeMount(() => {
                     <template #body="{ data }">
                         <div class="flex flex-col items-start gap-1">
                             <ToggleSwitch v-model="platformForms[data.platform].enabled" size="small"/>
-                            <Tag v-if="data.customized" value="已自定义" severity="success"/>
-                            <Tag v-else value="使用默认" severity="secondary"/>
+                            <Tag v-if="data.customized" value="已添加" severity="success"/>
                         </div>
                     </template>
                 </Column>
@@ -427,11 +530,11 @@ onBeforeMount(() => {
                             </span>
                             <Tag
                                 :value="keySourceLabel(data)"
-                                :severity="data.key_source === 'database' ? 'success' : (data.key_source === 'env' ? 'info' : 'danger')"
+                                :severity="data.key_source === 'database' ? 'success' : 'danger'"
                             />
                         </div>
-                        <div class="text-xs text-gray-400 mt-1">
-                            .env 变量：<code>{{ data.env_key_name }}</code>
+                        <div v-if="!data.has_api_key" class="text-xs text-red-400 mt-1">
+                            未填写 Key，调用该平台会报错
                         </div>
                     </template>
                 </Column>
@@ -481,15 +584,14 @@ onBeforeMount(() => {
                                 @click="testPlatform(data)"
                             />
                             <Button
-                                icon="pi pi-undo"
+                                icon="pi pi-trash"
                                 size="small"
-                                severity="secondary"
+                                severity="danger"
                                 text
                                 rounded
-                                v-tooltip.top="'恢复默认（回到 .env 配置）'"
-                                :disabled="!data.customized"
-                                :loading="resettingPlatform === data.platform"
-                                @click="resetPlatform(data)"
+                                v-tooltip.top="'移除该平台（Key 将一并删除）'"
+                                :loading="removingPlatform === data.platform"
+                                @click="removePlatform(data)"
                             />
                         </div>
                     </template>
@@ -520,6 +622,10 @@ onBeforeMount(() => {
                                 可选平台：{{ platformOptions.map(p => p.label).join(' / ') }}。
                             </span>
                         </div>
+                        <div v-if="!platformOptions.length" class="text-xs text-amber-600">
+                            ⚠️ 当前还没有任何已添加的平台，场景无法选择模型。
+                            请先在上方「添加平台」里接入至少一个平台。
+                        </div>
                     </div>
                 </template>
 
@@ -546,12 +652,16 @@ onBeforeMount(() => {
 
                 <Column header="平台" :style="{ width: '12rem' }">
                     <template #body="{ data }">
+                        <!-- 下拉只列已添加的平台；一个都没添加时直接禁掉并说明原因，
+                             免得用户对着空下拉猜「是不是页面坏了」 -->
                         <Dropdown
                             v-model="forms[data.name].platform"
                             :options="platforms"
                             optionLabel="label"
                             optionValue="value"
                             placeholder="选择平台"
+                            :disabled="!platforms.length"
+                            :empty-message="platforms.length ? '没有可选平台' : '尚未添加任何平台，请先在上方添加'"
                             class="w-full"
                             @change="onPlatformChange(data)"
                         />
@@ -635,7 +745,7 @@ onBeforeMount(() => {
                     />
                 </div>
                 <div class="text-xs text-gray-400">
-                    留空并保存不会改动现有 key。「恢复默认」可让该平台回到 .env 中的配置。
+                    留空并保存不会改动现有 Key。Key <b>只存在数据库里</b>（加密存储），不再回退到 .env。
                 </div>
                 <div v-if="!secretKeyConfigured" class="text-xs text-red-500">
                     未配置 <code>ALPHALOM_SECRET_KEY</code>，无法保存。
@@ -655,11 +765,116 @@ onBeforeMount(() => {
                 </div>
             </template>
         </Dialog>
+
+        <!-- ==================== 添加平台弹窗 ==================== -->
+        <Dialog
+            v-model:visible="addDialogVisible"
+            modal
+            header="添加大模型平台"
+            :style="{ width: '34rem', maxWidth: '92vw' }"
+            :draggable="false"
+        >
+            <div class="flex flex-col gap-3">
+                <div class="text-sm text-gray-600">
+                    从下拉中选择要接入的平台，填写它的 API Key。保存后该平台<b>加密存入数据库</b>，
+                    立即生效、无需重启。
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-500">平台</label>
+                    <Dropdown
+                        v-model="addDialogPlatform"
+                        :options="addDialogOptions"
+                        optionLabel="label"
+                        optionValue="value"
+                        placeholder="选择平台"
+                        class="w-full"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-500">API Key</label>
+                    <InputText
+                        v-model="addDialogApiKey"
+                        type="password"
+                        class="w-full"
+                        autocomplete="new-password"
+                        placeholder="粘贴该平台的 API Key"
+                    />
+                </div>
+                <div class="flex flex-col gap-1">
+                    <label class="text-xs text-gray-500">Base URL（可选）</label>
+                    <InputText
+                        v-model="addDialogBaseUrl"
+                        class="w-full"
+                        :placeholder="addDialogDefaultBaseUrl || '留空则用该平台默认地址'"
+                    />
+                    <div v-if="addDialogDefaultBaseUrl" class="text-xs text-gray-400 break-all">
+                        默认：{{ addDialogDefaultBaseUrl }}
+                    </div>
+                </div>
+                <div v-if="!secretKeyConfigured" class="text-xs text-red-500">
+                    未配置 <code>ALPHALOM_SECRET_KEY</code>，无法保存 API Key。
+                </div>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <Button label="取消" size="small" severity="secondary" text @click="addDialogVisible = false"/>
+                    <Button
+                        label="添加"
+                        size="small"
+                        icon="pi pi-plus"
+                        :loading="addDialogSaving"
+                        :disabled="!secretKeyConfigured"
+                        @click="submitAddPlatform"
+                    />
+                </div>
+            </template>
+        </Dialog>
+
+        <!-- ==================== 移除平台确认 ==================== -->
+        <Dialog
+            v-model:visible="removeDialogVisible"
+            modal
+            header="移除大模型平台"
+            :style="{ width: '32rem', maxWidth: '92vw' }"
+            :draggable="false"
+        >
+            <div class="flex flex-col gap-3">
+                <div class="text-sm text-gray-600">
+                    确定要移除平台 <b>{{ removeTarget?.label }}</b> 吗？
+                </div>
+                <div class="del-warn">
+                    ⚠️ 移除后该平台的 <b>API Key 会被一并删除且无法恢复</b>
+                    （凭据只存数据库，没有 .env 兜底）。
+                    业务场景若正路由到它，会直接报错，需先改到其它平台或重新添加。
+                </div>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <Button label="取消" size="small" severity="secondary" text @click="removeDialogVisible = false"/>
+                    <Button
+                        label="确认移除"
+                        size="small"
+                        icon="pi pi-trash"
+                        severity="danger"
+                        :loading="removingPlatform === removeTarget?.platform"
+                        @click="confirmRemovePlatform"
+                    />
+                </div>
+            </template>
+        </Dialog>
     </div>
 </template>
 
 <style scoped lang="scss">
 :deep(.p-datatable) {
     font-size: 12px;
+}
+
+.del-warn {
+    background: var(--red-50, #fef2f2);
+    border-left: 3px solid var(--red-500, #ef4444);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
 </style>

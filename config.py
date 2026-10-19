@@ -48,21 +48,15 @@ is_debug = os.getenv('DEBUG', False)
 # 数据库连接串（如 mysql+pymysql://user:pwd@host:port/db），env: DATABASE_CONN_STR
 database_conn_str = os.getenv('DATABASE_CONN_STR')
 
-# ===== 各厂商 LLM / 平台 API Key =====
-# 火山方舟（Doubao / Deepseek on VolcEngine）密钥，env: DOUBAO_APIKEY
-ark_apikey = os.getenv('DOUBAO_APIKEY')
-# DeepSeek 官方密钥，env: DEEPSEEK_APIKEY
-deepseek_apikey = os.getenv('DEEPSEEK_APIKEY')
-# 阿里云百炼密钥，env: ALIYUN_BAILIAN_APIKEY
-aliyun_bailian_apikey = os.getenv('ALIYUN_BAILIAN_APIKEY')
-# SiliconFlow 密钥，env: SILICONFLOW_APIKEY
-siliconflow_apikey = os.getenv('SILICONFLOW_APIKEY')
-# 腾讯混元密钥，env: TENCENT_APIKEY
-tencent_api = os.getenv('TENCENT_APIKEY')
-# 智谱 GLM 密钥，env: ZHIPU_APIKEY
-zhipu_api = os.getenv('ZHIPU_APIKEY')
-# 百度云千帆密钥，env: BAIDU_QIANFAN_APIKEY
-baidu_qianfan_apikey = os.getenv('BAIDU_QIANFAN_APIKEY')
+# ===== 大模型平台凭据 =====
+# ⚠️ 平台 API Key **不再从 .env 读取**（原 DEEPSEEK_APIKEY / DOUBAO_APIKEY /
+#    ALIYUN_BAILIAN_APIKEY / SILICONFLOW_APIKEY / TENCENT_APIKEY / ZHIPU_APIKEY /
+#    BAIDU_QIANFAN_APIKEY 全部废弃）。
+# 改为在「系统设置 → 大模型配置」里下拉添加平台并填写 Key，加密存进
+# system_setting 表（llm_platform_setting 组），由 llms/llm_platform.py 运行时解析。
+# 这么做的原因：改 key 要连库带加密主密钥、后台点几下即可，不必再改环境变量 + 重启；
+# 而且 .env 里的明文 key 是备份/日志/误提交时最容易泄露的地方。
+# 主密钥 ALPHALOM_SECRET_KEY 仍在 .env（它不是某家平台的凭据，是本系统的加解密口令）。
 
 # ===== 通知 =====
 # 飞书机器人 Webhook 地址，用于告警 / 推送，env: FEISHU_WEBHOOK_URL
