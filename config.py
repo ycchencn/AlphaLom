@@ -266,7 +266,11 @@ guba_max_posts_for_llm = int(os.getenv('GUBA_MAX_POSTS_FOR_LLM', 80))
 guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))
 
 # ===== MCP 服务 =====
-mcp_host = os.getenv('MCP_HOST')      # MCP 服务器地址
+# ⚠️ 必须归一化，不能直接用 os.getenv 的原值：未配置时原值是 None，
+#    而 f"{None}/tools" 会拼成字符串 "None/tools" 发出去 —— requests 抛 MissingSchema
+#    才被调用方的 except 吞掉，表现为「每次新建 LLM 实例都白等一次超时 + 刷一条
+#    看不出根因的 warning」。这里统一成 None 表示「不启用 MCP」，由 LLM 基类显式短路。
+mcp_host = (os.getenv('MCP_HOST') or '').strip() or None
 
 # ===== 策略参数 =====
 strategy_setting = {

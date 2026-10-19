@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from config import mcp_host
 from llms import _PLATFORM_REGISTRY, get_llm_from_agent
 from app.fastapi_app import api_prefix
 from service.agent_service import AgentService
@@ -224,6 +225,18 @@ async def chat_stream(req: ChatStreamRequest, user: dict = Depends(get_current_u
     return StreamingResponse(response_generator(), media_type='text/plain')
 
 
+@chat_router.get('/mcp_status')
+def get_mcp_status(user: dict = Depends(get_current_user)):
+    """
+    本部署是否启用了 MCP（Agent 模式）。
+
+    ⚠️ 前端要用它决定「Agent 模式」开关是否可用：MCP_HOST 未配置时后端会
+    静默降级为纯文本，若前端还把开关显示成开启状态，用户会以为在用工具，
+    实际拿到的是纯模型回答 —— 两边对「agent 模式」的理解必须一致。
+    """
+    return {'code': 0, 'data': {'mcp_enabled': bool(mcp_host and str(mcp_host).strip())}}
+
+
 @chat_router.get('/session')
 def get_session(agent_id: Optional[int] = None, stock_code: Optional[str] = None, user: dict = Depends(get_current_user)):
     """拉取指定智能体的会话历史（供刷新页面 / 切换智能体后恢复界面）。
@@ -339,17 +352,37 @@ async def chat_agent_stream(req: ChatAgentStreamRequest, user: dict = Depends(ge
         )
 
     # 2. 拼 system + 历史 + 用户消息
+    #    ⚠️ agent 模式最终由「MCP 是否可用」决定，而不是前端那个开关：
+    #    MCP_HOST 未配置时没有工具可调，此时若仍按 use_tools 拼 system 指令，
+    #    等于要求模型「必须调用 MCP 工具却一个都拿不到」——它会开始编造数据，
+    #    或者反复尝试调用不存在的函数。所以这里直接降级为纯文本模式。
+    use_tools = bool(req.use_tools) and getattr(staff, 'mcp_enabled', False)
+    if req.use_tools and not use_tools:
+        logger.info('MCP 未配置（MCP_HOST 为空），本次 agent 请求降级为纯文本模式')
+
     key = resolve_session_key(user, req.agent_id, req.session_id, req.stock_code)
     history = load_session(key) or []
     msgs = []
     sys_parts = []
     if req.stock_code:
         sys_parts.append(f'你正在与用户讨论 A股标的 {req.stock_code} {req.stock_name or ""}。'.strip())
-        if req.use_tools:
+        if use_tools:
             sys_parts.append(
                 '请优先使用系统提供的 MCP 工具获取该股票的最新行情、财务、新闻等数据来辅助回答，'
                 '不要编造未获取的数据。'
             )
+    if not use_tools:
+        # 明确告知模型「没有工具可用」，否则它可能把记忆里的行情当成实时数据。
+        # 不覆盖 role_base（调用方传入的 system_prompt 才是主提示词），只做追加。
+        if not getattr(staff, 'mcp_enabled', False):
+            # MCP 未配置：环境层面就没有实时数据
+            sys_parts.append(
+                '当前环境未接入实时行情工具，请基于已有知识回答，'
+                '并明确提示用户你无法获取实时数据，不要编造具体价格与财务数字。'
+            )
+        else:
+            # 用户主动关掉了 Agent 模式：工具是有的，只是不给用
+            sys_parts.append('本次不调用任何工具，请直接基于已有知识回答，不要编造具体价格与财务数字。')
     if system_prompt and system_prompt.strip():
         sys_parts.append(system_prompt)
     if sys_parts:
@@ -359,7 +392,7 @@ async def chat_agent_stream(req: ChatAgentStreamRequest, user: dict = Depends(ge
 
     # 3. 加载 MCP 工具（agent 模式）
     mcp_tools = []
-    if req.use_tools:
+    if use_tools:
         try:
             mcp_tools = await anyio.to_thread.run_sync(staff._get_mcp_tools)
         except Exception as e:

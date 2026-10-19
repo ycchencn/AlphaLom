@@ -45,7 +45,24 @@ const placeholderText = computed(() =>
 const messages = ref([])  // {id, role: user|assistant|tool, content, isLoading, name?, args?, summary?}
 const inputMessage = ref('')
 const isLoading = ref(false)
-const useTools = ref(true)  // agent 模式开关，默认开
+// Agent 模式开关。默认值不是写死的 true —— 后端 MCP_HOST 未配置时会静默降级为纯文本，
+// 此时开关若仍显示为开启，用户会以为在用工具，实际拿到的是纯模型回答。
+// 所以先问后端「这台部署到底有没有 MCP」，再决定默认值和可用性。
+const useTools = ref(false)
+const mcpEnabled = ref(true)
+function fetchMcpStatus() {
+    return axios.get('/api/v1/chat/mcp_status')
+        .then((r) => {
+            const on = !!r.data?.data?.mcp_enabled
+            mcpEnabled.value = on
+            useTools.value = on
+        })
+        .catch(() => {
+            // 拿不到状态时保守处理：按不可用处理，避免又出现「以为在用工具」
+            mcpEnabled.value = false
+            useTools.value = false
+        })
+}
 const scrollAnchor = ref(null)
 const abortController = ref(new AbortController())
 
@@ -210,7 +227,7 @@ const sendMessage = async () => {
 }
 
 onMounted(async () => {
-    await fetchAgents()
+    await Promise.all([fetchAgents(), fetchMcpStatus()])
     if (currentAgentId.value !== null) {
         await loadAgentSession(currentAgentId.value)
     }
@@ -236,8 +253,12 @@ onMounted(async () => {
                 </option>
             </select>
 
-            <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer ml-1">
-                <input type="checkbox" v-model="useTools"/>
+            <label
+                class="flex items-center gap-1 text-xs ml-1"
+                :class="mcpEnabled ? 'text-gray-600 cursor-pointer' : 'text-gray-400 cursor-not-allowed'"
+                :title="mcpEnabled ? '调用本系统 MCP 工具获取行情/财务/新闻' : '当前部署未配置 MCP_HOST，Agent 模式不可用'"
+            >
+                <input type="checkbox" v-model="useTools" :disabled="!mcpEnabled"/>
                 Agent 模式（调用本系统数据）
             </label>
 
