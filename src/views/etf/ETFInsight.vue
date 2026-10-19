@@ -11,6 +11,7 @@ import EtfRotation from '@/views/etf/EtfRotation.vue';
 import {
     formatStockTradeAmount,
     fearGreedLevel,
+    toneClass,
 } from '@/utils/function.js';
 
 // 组件名与 AppLayout <KeepAlive :include> 名单一致（列表页缓存，返回不重建）
@@ -208,14 +209,14 @@ onBeforeMount(() => {
             </Column>
             <Column field="ohlc_last.chg_pct" filterField="ohlc_last.chg_pct" header="涨跌幅" sortable dataType="numeric">
                 <template #body="{ data }">
-                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.ohlc_last.chg_pct)">
                         {{ data.ohlc_last.chg_pct != null ? data.ohlc_last.chg_pct.toFixed(2) + '%' : '--' }}
                     </b>
                 </template>
             </Column>
             <Column field="ohlc_last.lastPrice" filterField="ohlc_last.lastPrice" header="最新净值" sortable dataType="numeric">
                 <template #body="{ data }">
-                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.ohlc_last.chg_pct)">
                         {{ data.ohlc_last.lastPrice != null ? data.ohlc_last.lastPrice.toFixed(3) : '--' }}
                     </b>
                 </template>

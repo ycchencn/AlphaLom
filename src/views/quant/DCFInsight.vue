@@ -2,7 +2,7 @@
 
 import {FilterMatchMode, FilterOperator} from '@primevue/core/api';
 import {computed, onBeforeMount, ref} from 'vue';
-import {formatPercentage} from '@/utils/function';
+import {formatPercentage, toneClass} from '@/utils/function';
 import ToggleSwitch from 'primevue/toggleswitch';
 import axios from 'axios';
 import {useNotification} from '@/composables/useNotification';
@@ -193,7 +193,7 @@ function initFilters1() {
             </Column>
             <Column field="opt_space" filterField="opt_space" header="乐观空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.opt_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.opt_space)">
                         {{ data.opt_space != null ? (data.opt_space * 100).toFixed(2) : '--' }}%
                     </span>
                 </template>
@@ -205,7 +205,7 @@ function initFilters1() {
             </Column>
             <Column field="mid_space" filterField="mid_space" header="中性空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.mid_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.mid_space)">
                         {{ data.mid_space != null ? (data.mid_space * 100).toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
@@ -217,7 +217,7 @@ function initFilters1() {
             </Column>
             <Column field="cons_space" filterField="cons_space" header="保守空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.cons_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.cons_space)">
                         {{ data.cons_space != null ? (data.cons_space * 100).toFixed(2) + '%' : '--' }}
                     </span>
                 </template>

@@ -4,7 +4,7 @@ import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
 import { computed, onActivated, onBeforeMount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
+import { getMarketByCode, fearGreedToText, fearGreedLevel, toneClass } from '@/utils/function';
 import Dialog from 'primevue/dialog';
 import Menu from 'primevue/menu';
 import axios from 'axios';
@@ -1029,14 +1029,14 @@ async function deleteGroup(groupName) {
             </Column>
             <Column field="close" filterField="close" header="最新" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.chg_pct > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.chg_pct)">
                         {{ data.close != null ? data.close.toFixed(2) : '--' }}
                     </span>
                 </template>
             </Column>
             <Column field="chg_pct" filterField="chg_pct" header="涨跌幅" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.chg_pct > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.chg_pct)">
                         {{ data.chg_pct != null ? data.chg_pct.toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
