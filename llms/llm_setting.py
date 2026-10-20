@@ -62,6 +62,12 @@ LLM_SETTING_SCENES: List[Dict[str, Any]] = [
         'description': '东方财富股吧发帖的看多/看空三分类与归因（job_stock_guba_sentiment，每只票每日一次）',
         'in_use': True,
     },
+    {
+        'name': 'stock_financial_review',
+        'label': '个股财务点评(巴菲特视角)',
+        'description': '个股详情页财务分析 Tab 的「AI 财务点评」Card，由系统智能体以巴菲特视角生成（/api/v1/stock/financial_review/{symbol}）',
+        'in_use': True,
+    },
 ]
 
 _SCENE_NAMES = [s['name'] for s in LLM_SETTING_SCENES]

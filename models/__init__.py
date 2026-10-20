@@ -621,6 +621,48 @@ class StockGubaSentiment(Base):
         }
 
 
+class StockFinancialReview(Base):
+    """个股「巴菲特视角 AI 财务点评」日频快照 —— 由每日定时任务 / 前端手动触发生成，
+    经系统 LLM（场景 stock_financial_review）基于真实财务数据产出，存库供卡片直接展示。
+
+    ⚠️ 与 `stock_guba_sentiment` / `stocks_fear_greed` 是**不同口径**，互不覆盖：
+      - 本表：基于财务报表文本的质量点评（巴菲特视角），主观分析产物；
+      - 那两张：价量技术情绪 / 股吧文本语义情绪，计算口径各异。
+    唯一键 (symbol, review_date)：每日定时任务按「生成日期」幂等写入；前端手动
+    「重新生成」会覆盖当天的记录。
+
+    ⚠️ 与 guba 表不同，本表额外存 `report_date`：点评所依据的「最新财报期」。
+    每日任务会比较 `report_date` 与已存最新记录的 `report_date`，财务期没变化就跳过
+    重新生成（避免财报空窗期每天烧一遍相同的 token）。
+    """
+
+    __tablename__ = 'stock_financial_review'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), nullable=False, index=True, comment='股票代码，如 600519')
+    review_date = Column(Date, nullable=False, index=True, comment='点评生成日期（每日任务归属日）')
+    report_date = Column(String(25), nullable=True, comment='点评所依据的最新财报期，如 2024-12-31')
+
+    content = Column(Text, nullable=True, comment='巴菲特视角点评全文（Markdown）')
+    model = Column(String(120), nullable=True, comment='产出该条记录的模型名，便于回溯')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='写入时间')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'review_date', name='uniq_fin_review_symbol_date'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'symbol': self.symbol,
+            'review_date': self.review_date.isoformat() if self.review_date else None,
+            'report_date': self.report_date,
+            'content': self.content,
+            'model': self.model,
+            'update_time': self.update_time.isoformat() if self.update_time else None,
+        }
+
+
 class DailyPnLRecord(Base):
     __tablename__ = 'daily_pnl_records'
 

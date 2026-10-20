@@ -33,6 +33,7 @@ import FactorPanel from '@/components/FactorPanel.vue';
 import router from '@/router'
 import NavSidePanel from '@/components/NavSidePanel.vue'
 import StockAgentChat from '@/components/stock/StockAgentChat.vue';
+import StockFinancialReviewCard from '@/components/stock/StockFinancialReviewCard.vue';
 import * as echarts from 'echarts'
 import {
     COLORS, LINE, FONT, PALETTE,
@@ -2333,6 +2334,12 @@ onUnmounted(() => {
                         <i class="pi pi-chart-bar text-blue-500"></i> 财务分析
                     </div>
                     <Divider/>
+
+                    <!-- AI 财务点评（巴菲特视角）：每日盘后由系统智能体预生成，打开即展示；可手动重新生成 -->
+                    <StockFinancialReviewCard
+                        :stock-code="stock_code"
+                        :stock-name="stock_info?.name || ''"
+                    />
 
                     <!-- 报表切换（5 种，与后端白名单一致） -->
                     <div class="p-0 mb-3">

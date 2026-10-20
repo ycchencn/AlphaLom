@@ -155,3 +155,15 @@ jobs:
       hour: 19
       minute: 10
     replace_existing: true
+
+  # 个股「巴菲特视角 AI 财务点评」每日批量生成（20:30，mon-fri）
+  # 基于真实财务数据（databull 4 张核心报表）由系统 LLM（场景 stock_financial_review）产出，落库。
+  # ⚠️ 增量跳过：财务期没变化（两次财报之间）不会重跑，避免每天烧相同 token；
+  #    新财报期出现或首次运行才真正调 LLM。单只失败隔离、不投队列（见 job 文件说明）。
+  - id: job_stock_financial_review_daily
+    func: job.job_stock_financial_review:job_stock_financial_review_daily
+    cron:
+      day_of_week: mon-fri
+      hour: 20
+      minute: 30
+    replace_existing: true

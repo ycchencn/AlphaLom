@@ -9,9 +9,10 @@ import io
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+import anyio
 from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
@@ -22,10 +23,12 @@ from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
 from service.stock_guba_sentiment_service import StockGubaSentimentService
+from service.stock_financial_review import StockFinancialReviewService
 from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
 from utils.logger import logger
+from llms import get_model_by_setting
 
 # 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
 # 写接口（入池/分组/重新分析）同时有各自的 get_current_user_id 精确校验。
@@ -1057,6 +1060,132 @@ def get_financial_data(
         'periods': periods,
         'items': items,
     }
+
+
+# ==================== AI 财务点评（巴菲特视角）====================
+# 个股详情页「财务分析」Tab 里的 AI 财务点评 Card 调用。
+# 复用系统的 LLM 配置（场景 stock_financial_review），以巴菲特视角基于真实财务数据流式生成点评。
+# 角色设定（system_prompt）写死在服务层，避免前端篡改人格；模型走系统配置 = 「用系统的智能体去做点评」。
+
+class FinancialReviewRequest(BaseModel):
+    stock_name: str = ''
+    periods: int = 12
+
+
+@stock_router.get('/stock/financial_review/{symbol}')
+async def financial_review_get(symbol: str, user: dict = Depends(get_current_user)):
+    """返回该股票最新一条已生成的「巴菲特视角财务点评」。
+
+    每日定时任务会在盘后预生成并落库；本接口让前端卡片直接展示已生成结果，
+    无需每次打开都重新生成（省 token）。没有则 review=null。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail='Invalid symbol')
+    review = StockFinancialReviewService.get_latest(symbol)
+    return {'symbol': symbol, 'review': review}
+
+
+@stock_router.post('/stock/financial_review/{symbol}')
+async def financial_review(symbol: str, req: FinancialReviewRequest, user: dict = Depends(get_current_user)):
+    """以巴菲特视角对个股财务数据做一次 AI 点评（流式纯文本）。
+
+    前端通过 fetch 读取流，逐段拼接到 Markdown 渲染。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail='Invalid symbol')
+
+    # 1. 取财务数据（databull 是阻塞 HTTP 调用，丢进线程池避免卡住事件循环）
+    periods = max(1, min(int(req.periods or 12), 40))
+    try:
+        data = await anyio.to_thread.run_sync(
+            lambda: StockFinancialReviewService.fetch_review_data(symbol, periods)
+        )
+    except Exception as e:
+        logger.error(f'财务点评取数失败 symbol={symbol}: {e}')
+        raise HTTPException(status_code=502, detail=f'财务数据获取失败：{e}')
+
+    # 2. 构建 prompt（system 写死在后端）
+    system_prompt, user_content = StockFinancialReviewService.build_review_messages(
+        symbol, req.stock_name, data
+    )
+
+    async def response_generator():
+        assistant_reply = ''
+        _usage = None
+        try:
+            def _stream_call():
+                # 在线程里构建 LLM 客户端（避免在事件循环做同步初始化），
+                # 并启动流式请求；stream_options 失败回退到不带 usage。
+                staff = get_model_by_setting('stock_financial_review')
+                model_name = staff.model
+                messages = [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_content},
+                ]
+                try:
+                    stream = staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        stream=True,
+                        stream_options={'include_usage': True},
+                    )
+                except Exception:
+                    stream = staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        stream=True,
+                    )
+                # 把 staff 透传出来供用量统计使用
+                return staff, model_name, stream
+
+            staff, model_name, stream = await anyio.to_thread.run_sync(_stream_call)
+            platform = getattr(staff, 'platform', '')
+            scene = getattr(staff, 'scene', 'stock_financial_review')
+
+            for chunk in stream:
+                if getattr(chunk, 'usage', None) is not None:
+                    _usage = chunk.usage
+                content = chunk.choices[0].delta.content or ''
+                if content:
+                    assistant_reply += content
+                    yield content.encode('utf-8')
+
+            # 记录 token 用量（失败不影响主链路）
+            if assistant_reply:
+                try:
+                    from llms.usage_recorder import record_llm_usage
+                    from utils.auth import request_user_id_var
+                    record_llm_usage(
+                        user_id=request_user_id_var.get() or user.get('id'),
+                        scene=scene,
+                        platform=platform,
+                        model=model_name,
+                        prompt_tokens=getattr(_usage, 'prompt_tokens', 0) or 0,
+                        completion_tokens=getattr(_usage, 'completion_tokens', 0) or 0,
+                        total_tokens=getattr(_usage, 'total_tokens', 0) or 0,
+                        input_text=system_prompt + '\n' + user_content,
+                        output_text=assistant_reply,
+                    )
+                except Exception as e:
+                    logger.warning(f'财务点评 token 记录失败（已忽略）：{e}')
+
+            # 落库：前端手动「重新生成」与每日任务共用同一张表，下次打开直接展示、省 token
+            if assistant_reply:
+                try:
+                    StockFinancialReviewService.save(
+                        symbol=symbol,
+                        content=assistant_reply,
+                        model=model_name,
+                        report_date=data.get('latest_date') or None,
+                    )
+                except Exception as e:
+                    logger.warning(f'财务点评落库失败（已忽略）：{e}')
+        except Exception as e:
+            logger.error(f'财务点评生成失败 symbol={symbol}: {e}')
+            # 流已开启，只能以文本片段形式把错误回传（前端会原样展示）
+            yield f'\n\n（生成失败：{str(e)}）'.encode('utf-8')
+
+    return StreamingResponse(response_generator(), media_type='text/plain; charset=utf-8')
 
 
 # ==================== 上市公司公告 ====================

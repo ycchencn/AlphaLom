@@ -228,6 +228,12 @@ llm_model_setting = {
         'platform': 'volcengine',
         'model': 'doubao-seed-2-0-mini-260428'
     },
+    'stock_financial_review': {         # 个股财务点评（巴菲特视角，个股详情页财务分析 Tab）
+        # 需要较强的财务综合与长文写作能力，用主研报同档推理模型；
+        # 输入侧会把多张报表近 3 年数据塞进 prompt，前端默认 periods=12，注意别调太大。
+        'platform': 'volcengine',
+        'model': 'deepseek-v4-flash-ga-260731'
+    },
 }
 
 # ===== 外部数据接口 =====
@@ -255,6 +261,11 @@ guba_max_symbols = int(os.getenv('GUBA_MAX_SYMBOLS', 50))
 
 # 单次送入 LLM 的帖子数上限（超出按互动量分层采样，控制 token 与信噪比）
 guba_max_posts_for_llm = int(os.getenv('GUBA_MAX_POSTS_FOR_LLM', 80))
+
+# 每日「巴菲特视角财务点评」批量任务的股票数上限。单只比股吧情绪重得多
+# （4 次财务取数 + 一次长文 LLM），token 消耗显著；默认 100 只，覆盖监控池主力。
+# 扩大覆盖需评估 token 预算（与代理池无关，瓶颈在 LLM 成本而非抓取封锁）。
+fin_review_max_symbols = int(os.getenv('FIN_REVIEW_MAX_SYMBOLS', 100))
 
 # 命中验证页后的冷却秒数：冷却期内所有抓取直接跳过，不再发请求（避免越试越封）
 guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))
