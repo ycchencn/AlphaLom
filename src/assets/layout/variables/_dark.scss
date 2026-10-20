@@ -80,6 +80,10 @@
     --app-select-text: #93c5fd; // blue-300
     --app-select-border: #3b82f6; // blue-500（这个亮度两套主题通用）
 
+    // 品牌主色实心块：PrimeVue 暗色把 --p-primary-color 提到 emerald-400，
+    // 但白字压 emerald-400 只有约 2.6:1 对比度，读不清 —— 压到600 才有反差。
+    --app-primary-solid: #059669; // emerald-600
+
     --app-info-bg: #1e1b4b; // indigo-950
     --app-info-border: #312e81; // indigo-900
 

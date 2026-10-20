@@ -28,6 +28,30 @@
     padding: 0 2rem;
 }
 
+/* ---------- 品牌主色实心块 ---------- */
+/* 头像圆点、用户消息气泡这类「主色实心底 + 文字」的组合。
+   ⚠️ PrimeVue 暗色下 --p-primary-color 会从 emerald-500 提到 emerald-400
+   （亮色用 500），亮度的白字压在上面对比度不够（emerald-400 上白字约 2.6:1），
+   读不清。亮色维持 500（对比度 4.0:1 左右），暗色压到 600，白字才有足够反差。
+   text-inverse 在两套主题下都是白字 —— 压在实心主色块上，两套都得是白的，
+   不参与明暗语义。 */
+.solid-primary {
+    background: var(--app-primary-solid);
+    color: var(--app-text-inverse);
+}
+
+/* ---------- 选中态 ---------- */
+/* 列表项被选中时的底色 + 边框 + 文字。
+   ⚠️ 别用 Tailwind 的 bg-primary-50：那是 emerald-50（≈#ecfdf5），暗色下
+   是一块接近纯白的浅绿底，而同级文字（text-gray-800 等）已被暗色兜底提亮成
+   白字 —— 结果就是「选中项全白、字看不见」。语义层已有 --app-select-* 三件套，
+   两套主题各自取浅蓝底/深蓝底，直接用。 */
+.is-selected {
+    background: var(--app-select-bg);
+    border-color: var(--app-select-border);
+    color: var(--app-select-text);
+}
+
 /* ========== 涨跌色（全局） ==========
  * 表格里标涨跌的通用类，配合 `toneClass(v)` 用。
  *

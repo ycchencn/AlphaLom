@@ -283,14 +283,14 @@ onMounted(async () => {
                 <div v-for="msg in messages" :key="msg.id" class="mb-3">
                     <!-- 用户消息 -->
                     <div v-if="msg.role === 'user'" class="flex justify-end">
-                        <div class="bg-primary text-white rounded-lg px-4 py-2 max-w-[85%] whitespace-pre-wrap break-words">
+                        <div class="solid-primary rounded-lg px-4 py-2 max-w-[85%] whitespace-pre-wrap break-words">
                             {{ msg.content }}
                         </div>
                     </div>
                     <!-- 工具步骤卡片（可折叠） -->
                     <div v-else-if="msg.role === 'tool'">
-                        <details class="rounded-lg border border-blue-200 bg-blue-50/60 text-sm">
-                            <summary class="cursor-pointer px-3 py-2 text-blue-700">
+                        <details class="rounded-lg border p-0 text-sm tool-step">
+                            <summary class="cursor-pointer px-3 py-2 tool-step-title">
                                 🔧 调用工具：{{ msg.name }}
                             </summary>
                             <div class="px-3 pb-3 text-gray-700 space-y-1">
@@ -340,13 +340,27 @@ onMounted(async () => {
     width: 6px;
 }
 ::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--app-bg-subtle);
 }
 ::-webkit-scrollbar-thumb {
-    background: #888;
+    background: var(--app-text-muted);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--app-text-secondary);
+}
+
+/* 工具调用步骤卡片：原本写的是 border-blue-200 / bg-blue-50/60 / text-blue-700，
+   暗色下 bg-blue-50/60 是一层浅蓝白雾、和白字叠在一起读不清。
+   走 --app-info-* 语义层（浅色淡蓝底 / 暗色深靛底），并显式声明 color ——
+   summary 在部分浏览器里不继承 details 的 color。 */
+.tool-step {
+    background: var(--app-info-bg);
+    border-color: var(--app-info-border);
+    color: var(--app-text-primary);
+}
+
+.tool-step-title {
+    color: var(--app-icon-info);
 }
 </style>
