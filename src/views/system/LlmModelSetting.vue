@@ -28,6 +28,10 @@ const platforms = ref([]);
 const forms = reactive({});
 const savingScene = ref('');
 const resettingScene = ref('');
+// 「恢复默认」确认弹框。这个操作是DELETE 删掉库里那一行（行内的模型/平台
+// 选择、base_url 等全部改动一起丢弃），不是「刷新一下」—— 一点就丢没法撤销。
+const resetDialogVisible = ref(false);
+const resetTarget = ref(null);
 
 // 平台 → 模型列表（后端实时调各平台 /models 接口，改变低频，进程内缓存一份）
 const modelOptionsByPlatform = ref({});
@@ -365,7 +369,15 @@ function saveScene(scene) {
         });
 }
 
-function resetScene(scene) {
+// 打开「恢复默认」确认弹框，不直接删 —— 见 resetDialogVisible 处的说明。
+function requestResetScene(scene) {
+    resetTarget.value = scene;
+    resetDialogVisible.value = true;
+}
+
+function resetScene() {
+    const scene = resetTarget.value;
+    if (!scene) return;
     resettingScene.value = scene.name;
     axios.delete(`/api/v1/settings/llm_models/${encodeURIComponent(scene.name)}`)
         .then((response) => {
@@ -376,6 +388,8 @@ function resetScene(scene) {
                 model: normalizeModel(scene.model),
             };
             if (scene.platform) loadLlmModels(scene.platform);
+            resetDialogVisible.value = false;
+            resetTarget.value = null;
             showSuccess(response.data?.deleted ? `已恢复默认 ${scene.label}` : `${scene.label} 本来就是默认值`);
         })
         .catch((e) => {
@@ -713,7 +727,7 @@ onBeforeMount(() => {
                                 v-tooltip.top="'恢复默认'"
                                 :disabled="!data.customized"
                                 :loading="resettingScene === data.name"
-                                @click="resetScene(data)"
+                                @click="requestResetScene(data)"
                             />
                         </div>
                     </template>
@@ -858,6 +872,39 @@ onBeforeMount(() => {
                         severity="danger"
                         :loading="removingPlatform === removeTarget?.platform"
                         @click="confirmRemovePlatform"
+                    />
+                </div>
+            </template>
+        </Dialog>
+
+        <!-- ==================== 恢复默认确认 ==================== -->
+        <Dialog
+            v-model:visible="resetDialogVisible"
+            modal
+            header="恢复默认配置"
+            :style="{ width: '30rem', maxWidth: '92vw' }"
+            :draggable="false"
+        >
+            <div class="flex flex-col gap-3">
+                <div class="text-sm text-gray-600">
+                    确定要把 <b>{{ resetTarget?.label }}</b> 恢复为默认配置吗？
+                </div>
+                <div class="del-warn">
+                    ⚠️ 这会<b>删除该场景在数据库里的配置行</b>：手动选择的平台、模型、
+                    base_url 等改动会全部丢弃，回到代码中的默认值。
+                    <b>此操作无法撤销</b>，若只是想临时换模型，请直接改下拉框并点保存。
+                </div>
+            </div>
+            <template #footer>
+                <div class="flex justify-end gap-2">
+                    <Button label="取消" size="small" severity="secondary" text @click="resetDialogVisible = false"/>
+                    <Button
+                        label="确认恢复默认"
+                        size="small"
+                        icon="pi pi-undo"
+                        severity="danger"
+                        :loading="!!resettingScene"
+                        @click="resetScene"
                     />
                 </div>
             </template>
