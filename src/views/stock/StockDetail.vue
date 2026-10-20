@@ -649,9 +649,15 @@ const tabItems = [
     { key: 'tab7', label: '散户情绪' },
     { key: 'tab4', label: '财务分析' },
     { key: 'tab5', label: '研报数据' },
+    // 公司公告：databull /cn/stock/announcements（巨潮公告原文 PDF）
+    { key: 'tab8', label: '公司公告' },
 ];
 const onTabSelect = (key) => {
     activeTab.value = key;
+    // 公告走懒加载：切到该 tab 时才首次取数（多数用户不看公告，没必要占首屏请求）
+    if (key === 'tab8') {
+        loadAnnouncements();
+    }
 };
 
 /** 拉取财务数据。切换报表时重新取（不同 report_type 是不同接口调用）。 */
@@ -684,6 +690,87 @@ const greedLoading = ref(true);    // 恐惧贪婪卡片
 const newsLoading = ref(true);     // 新闻动态
 const reportsLoading = ref(true);  // 研报数据
 const techLoading = ref(true);     // 技术面深度诊断
+
+// ==================== 公司公告（tab8）====================
+// 数据源：后端 /api/v1/stock/announcements/{symbol}（透传 databull 巨潮公告接口）。
+// ⚠️ 上游覆盖**不完整**（实测 600519/600036/601899 恒为空），所以「空列表」是合法状态，
+//    要显示「该标的暂无公告数据」而不是「加载失败」—— 后端用 empty_reason 区分这两种情况。
+const announcements = ref([]);
+const announcementsLoading = ref(false);
+const announcementsLoaded = ref(false);   // 是否已请求过（懒加载判据，避免重复请求）
+const announcementsTotal = ref(0);
+const announcementsPage = ref(1);
+const announcementsPageSize = ref(20);
+const announcementsError = ref('');
+const announcementsEmptyReason = ref('');
+const announcementsSupported = ref(true);  // 港股/美股无该接口 → 后端返回 supported=false
+// 请求序号：用来丢弃乱序响应。
+// ⚠️ 不能拿 `announcementsPage` 当判据 —— 它初值是 1，翻到第 2 页时
+//    `2 !== 1` 会把**有效**响应当成乱序丢掉（页面永远停在第 1 页数据）。
+let announcementReqSeq = 0;
+
+/**
+ * 加载公司公告。
+ * @param {number} page 页码（分页器翻页时传入）
+ */
+const loadAnnouncements = async (page = 1) => {
+    const seq = ++announcementReqSeq;
+    announcementsLoading.value = true;
+    announcementsError.value = '';
+    try {
+        const {data} = await axios.get(`/api/v1/stock/announcements/${stock_code}`, {
+            params: {page, page_size: announcementsPageSize.value}
+        });
+        // 快速连点分页时丢弃乱序响应（与股票搜索同一个坑）
+        if (seq !== announcementReqSeq) return;
+        announcements.value = Array.isArray(data?.items) ? data.items : [];
+        announcementsTotal.value = data?.total ?? 0;
+        announcementsPage.value = data?.page ?? page;
+        announcementsSupported.value = data?.supported !== false;
+        announcementsEmptyReason.value = data?.empty_reason || '';
+    } catch (e) {
+        if (seq !== announcementReqSeq) return;
+        announcements.value = [];
+        announcementsTotal.value = 0;
+        announcementsError.value = e?.response?.status === 401
+            ? '登录状态已失效，请重新登录'
+            : '公告数据加载失败';
+    } finally {
+        if (seq === announcementReqSeq) {
+            announcementsLoading.value = false;
+            announcementsLoaded.value = true;
+        }
+    }
+};
+
+/** 公告 PDF 体积的可读化：KB → 自动切到 MB。 */
+const formatPdfSize = (kb) => {
+    const n = Number(kb);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return n >= 1024 ? `${(n / 1024).toFixed(1)} MB` : `${Math.round(n)} KB`;
+};
+
+/**
+ * 公告分类标签的样式类。
+ * ⚠️ 分类是**有序的语义分组**，不是涨跌信号 —— 所以绝不能借用 --app-up/--app-down
+ *    （那会让「定期报告」被读成看涨、「风险提示」被读成看跌）。
+ *    全部走中性灰蓝梯度，用深浅区分重要度。
+ */
+const annCatClass = (category) => {
+    switch (category) {
+        case '定期报告':
+        case '重大事项':
+            return 'cat-strong';
+        case '风险提示':
+            return 'cat-warn';
+        case '公司治理':
+        case '融资事项':
+        case '回购增持':
+            return 'cat-mid';
+        default:
+            return 'cat-base';
+    }
+};
 const {showSuccess, showError} = useNotification();
 const stock_code = route.params.symbol;
 const stock_profile = ref(null);
@@ -2389,6 +2476,104 @@ onUnmounted(() => {
                     </DataTable>
                 </div>
             </div>
+
+            <!-- ==================== 公司公告（tab8）====================
+                 数据源：databull /cn/stock/announcements（巨潮资讯网公告原文）。
+                 ⚠️ 上游覆盖不完整 —— 部分 A 股恒为空，所以「空」与「失败」要分开显示：
+                    后端用 empty_reason 区分（no_match=该标的没有公告 / upstream_error=接口挂了）。 -->
+            <div v-show="activeTab === 'tab8'">
+                <div class="mt-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <div class="font-semibold text-lg">
+                            <i class="pi pi-file-edit text-blue-500"></i> 公司公告
+                        </div>
+                        <Button label="刷新" icon="pi pi-refresh" size="small" severity="secondary" text
+                                :loading="announcementsLoading"
+                                @click="loadAnnouncements(1)"/>
+                    </div>
+
+                    <!-- 港股/美股：上游只覆盖 A 股，直接说明而不是显示空白表格 -->
+                    <Message v-if="announcementsLoaded && !announcementsSupported" severity="info" :closable="false">
+                        公司公告接口目前仅覆盖 A 股，该标的（港股/美股）暂无可用公告数据。
+                    </Message>
+
+                    <!-- 接口失败 -->
+                    <Message v-else-if="announcementsError" severity="error" :closable="false">
+                        {{ announcementsError }}
+                    </Message>
+
+                    <DataTable
+                        v-else
+                        :value="announcements"
+                        :loading="announcementsLoading || !announcementsLoaded"
+                        :paginator="announcementsTotal > announcementsPageSize"
+                        :rows="announcementsPageSize"
+                        :first="(announcementsPage - 1) * announcementsPageSize"
+                        :totalRecords="announcementsTotal"
+                        lazy
+                        tableStyle="font-size:12px"
+                        :rowHover="true"
+                        :showGridlines="false"
+                        dataKey="id"
+                        @page="loadAnnouncements($event.page + 1)"
+                    >
+                        <template #empty>
+                            <span v-if="announcementsEmptyReason === 'no_match'">
+                                该标的暂无公告数据（上游未同步该标的的公告）
+                            </span>
+                            <span v-else>暂无公告数据</span>
+                        </template>
+                        <template #loading>公告加载中，请稍候...</template>
+
+                        <!-- 日期 -->
+                        <Column field="date" header="公告日期" style="width: 120px">
+                            <template #body="{ data }">
+                                <span class="ann-date">{{ data.date || '--' }}</span>
+                            </template>
+                        </Column>
+
+                        <!-- 分类标签（后端按标题关键词推断，非上游原始码） -->
+                        <Column field="category" header="分类" style="width: 110px">
+                            <template #body="{ data }">
+                                <span class="ann-cat" :class="annCatClass(data.category)">
+                                    {{ data.category || '其他公告' }}
+                                </span>
+                            </template>
+                        </Column>
+
+                        <!-- 标题 + 板块 -->
+                        <Column field="title" header="公告标题">
+                            <template #body="{ data }">
+                                <div class="ann-title">
+                                    <a v-if="data.pdf_url" :href="data.pdf_url" target="_blank" rel="noopener"
+                                       class="ann-title-link">{{ data.title }}</a>
+                                    <span v-else class="ann-title-text">{{ data.title }}</span>
+                                    <span v-if="data.column_name" class="ann-col">{{ data.column_name }}</span>
+                                </div>
+                            </template>
+                        </Column>
+
+                        <!-- PDF 原文 -->
+                        <Column header="原文" style="width: 150px">
+                            <template #body="{ data }">
+                                <a v-if="data.pdf_url" :href="data.pdf_url" target="_blank" rel="noopener"
+                                   class="ann-pdf">
+                                    <i class="pi pi-file-pdf"></i> PDF
+                                    <span v-if="formatPdfSize(data.pdf_size_kb)" class="ann-size">
+                                        {{ formatPdfSize(data.pdf_size_kb) }}
+                                    </span>
+                                </a>
+                                <span v-else class="ann-none">--</span>
+                            </template>
+                        </Column>
+                    </DataTable>
+
+                    <div v-if="announcementsTotal > 0" class="ann-total">
+                        共 {{ announcementsTotal }} 条公告
+                        <span class="ann-hint">（数据来源：巨潮资讯网，经 DataBull 接口接入）</span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -3240,6 +3425,119 @@ onUnmounted(() => {
     line-height: 1.6;
     min-width: 0;
     overflow-wrap: anywhere;
+}
+
+/* ===== 公司公告（tab8）===== */
+.ann-date {
+    color: var(--app-text-secondary);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 分类标签：有序语义分组 → 走中性灰蓝梯度 + 语义色，
+   ⚠️ 绝不用 --app-up/--app-down（那会让「风险提示」被读成看跌）。 */
+.ann-cat {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    line-height: 18px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+}
+
+.ann-cat.cat-strong {
+    background: var(--app-select-bg);
+    color: var(--app-select-text);
+    border-color: var(--app-select-border);
+}
+
+.ann-cat.cat-warn {
+    background: var(--app-warn-bg);
+    color: var(--app-warn-text);
+    border-color: var(--app-warn-border);
+}
+
+.ann-cat.cat-mid {
+    background: var(--app-info-bg);
+    color: var(--app-select-text);
+    border-color: var(--app-info-border);
+}
+
+.ann-cat.cat-base {
+    /* ⚠️ 用 --app-bg-active 而不是 --app-bg-subtle：subtle 在亮色主题下是
+       #f8fafc，几乎与表格白底同色，标签会「糊」进背景里看不出是标签。
+       active 两套主题都有明确对比（亮 #e2e8f0 / 暗 #3f3f46）。 */
+    background: var(--app-bg-active);
+    color: var(--app-text-secondary);
+    border-color: var(--app-border-strong);
+}
+
+.ann-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+}
+
+.ann-title-link,
+.ann-title-text {
+    overflow-wrap: anywhere;
+}
+
+.ann-title-link {
+    color: var(--app-link);
+    text-decoration: none;
+}
+
+.ann-title-link:hover {
+    text-decoration: underline;
+}
+
+.ann-title-text {
+    color: var(--app-text-primary);
+}
+
+.ann-col {
+    flex: none;
+    font-size: 11px;
+    color: var(--app-text-muted);
+    border: 1px solid var(--app-border-base);
+    border-radius: 3px;
+    padding: 0 5px;
+    line-height: 16px;
+}
+
+.ann-pdf {
+    color: var(--app-link);
+    text-decoration: none;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.ann-pdf:hover {
+    text-decoration: underline;
+}
+
+.ann-size {
+    color: var(--app-text-muted);
+    font-size: 11px;
+}
+
+.ann-none {
+    color: var(--app-text-muted);
+}
+
+.ann-total {
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+}
+
+.ann-hint {
+    color: var(--app-text-muted);
 }
 
 </style>
