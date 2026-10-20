@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from app.fastapi_app import api_prefix, json_resp
 from service.factor_analysis_service import FactorAnalysisService, TECH_FACTOR_GROUPS
 from service.factor_service import FactorValueService
-from service.factor_selector_service import FactorSelectorService
+from service.factor_selector_service import FactorSelectorService, exclude_etf_condition
 from service.factor_desc import factor_descriptions
 from service import StockService
 from service.trading_calendar_service import get_latest_trading_date
@@ -479,7 +479,8 @@ def _eval_signal(signal: str, universe: Optional[List[str]], asof, limit: int) -
                 func.max(FactorValue.trade_date).label('md'),
             )
             .filter(FactorValue.factor_name == factor_name,
-                    FactorValue.trade_date.in_(dates))
+                    FactorValue.trade_date.in_(dates),
+                    exclude_etf_condition())
             .group_by(FactorValue.ticker)
         )
         if universe:
@@ -523,7 +524,8 @@ def _eval_signal(signal: str, universe: Optional[List[str]], asof, limit: int) -
             )
             .filter(FactorValue.factor_name.in_(['macd', 'macd_signal']),
                     FactorValue.trade_date.in_(dates),
-                    FactorValue.value.isnot(None))
+                    FactorValue.value.isnot(None),
+                    exclude_etf_condition())
         )
         if universe:
             recent = recent.filter(FactorValue.ticker.in_(universe))
