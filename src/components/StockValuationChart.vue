@@ -40,7 +40,9 @@
                 </linearGradient>
                 <!-- 当前价圆点柔和投影 -->
                 <filter :id="`softShadow-${uid}`" x="-50%" y="-50%" width="200%" height="200%">
-                    <feDropShadow dx="0" dy="1" stdDeviation="2" flood-color="#0f172a" flood-opacity="0.25"/>
+                    <!-- ⚠️ SVG 属性不吃 CSS 变量，flood-color 必须从 JS 取（否则暗色下是黑投影）。
+                         暗色档用浅色投影 = 圆点周围的一圈微光，比黑投影干净。 -->
+                    <feDropShadow dx="0" dy="1" stdDeviation="2" :flood-color="COLORS.shadow" flood-opacity="0.25"/>
                 </filter>
             </defs>
 
@@ -115,7 +117,7 @@
                 text-anchor="middle"
                 font-size="13"
                 font-weight="700"
-                fill="#1f2937"
+                :fill="COLORS.text"
             >
                 现价 {{ currentPrice }}
             </text>
@@ -124,7 +126,7 @@
             <g v-for="s in scenarioLabels" :key="s.key">
                 <rect x="812" :y="priceToY(s.value) - 14" width="92" height="28" rx="14" :fill="s.color"/>
                 <text x="858" :y="priceToY(s.value)" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="13" font-weight="600">{{ s.name }}</text>
-                <text :x="924" :y="priceToY(s.value) - 4" font-size="13" font-weight="600" fill="#1f2937">¥{{ s.value.toFixed(2) }}</text>
+                <text :x="924" :y="priceToY(s.value) - 4" font-size="13" font-weight="600" :fill="COLORS.text">¥{{ s.value.toFixed(2) }}</text>
                 <text :x="924" :y="priceToY(s.value) + 12" font-size="11" :fill="s.pctColor">{{ s.pctText }}</text>
             </g>
         </svg>
@@ -155,6 +157,7 @@ import {computed} from 'vue'
 import {
     parseNumber
 } from '@/utils/function.js';
+import { COLORS } from '@/utils/echartsTheme';
 
 // 用于隔离多个实例的渐变/滤镜 id，避免页面内冲突
 const uid = Math.random().toString(36).slice(2, 8)
@@ -260,13 +263,14 @@ const props = defineProps({
             boxShadow: '0 4px 20px rgba(15, 23, 42, 0.06)'
         })
     },
-    /** 配色自定义 */
+    /** 配色自定义。⚠️ 情景色与涨跌色同族（改配色请改 echartsTheme.js 的 COLORS，
+     *  避免全站出现第二套红绿）。SVG 的 stroke/fill 不吃 CSS 变量，故从 COLORS 取。 */
     historyLineColor: {type: String, default: '#3b82f6'},
-    conservativeLineColor: {type: String, default: '#22c55e'},
-    neutralLineColor: {type: String, default: '#6b7280'},
-    optimisticLineColor: {type: String, default: '#ef4444'},
-    conservativeAreaColor: {type: String, default: 'rgba(34, 197, 94, 0.15)'},
-    optimisticAreaColor: {type: String, default: 'rgba(239, 68, 68, 0.15)'}
+    conservativeLineColor: {type: String, default: COLORS.down},
+    neutralLineColor: {type: String, default: COLORS.flat},
+    optimisticLineColor: {type: String, default: COLORS.up},
+    conservativeAreaColor: {type: String, default: COLORS.downArea},
+    optimisticAreaColor: {type: String, default: COLORS.upArea}
 })
 
 
@@ -292,7 +296,9 @@ const scenarioLabels = computed(() => {
         return {
             ...d,
             pctText: (up ? '↑ +' : '↓ ') + pct.toFixed(1) + '%',
-            pctColor: up ? '#16a34a' : '#dc2626'
+            // ⚠️ 必须用 COLORS 而不是字面值：SVG 的 fill 属性不吃 CSS 变量，
+            // 且这里原先写成 up→绿/down→红，与全站「红涨绿跌」正好相反。
+            pctColor: up ? COLORS.up : COLORS.down
         }
     })
 })
@@ -430,7 +436,7 @@ const historyAreaPath = computed(() => {
     margin: 0;
     font-size: 18px;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--app-text-primary);
 }
 
 .sv-rating {

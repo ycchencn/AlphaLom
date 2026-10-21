@@ -1,11 +1,14 @@
 <script setup>
 import { useLayout } from '@/layout/composables/layout';
+// 配色状态来自 useTheme（isDark），不再来自 useLayout —— 后者的暗色实现已废弃。
+import { useTheme } from '@/composables/useTheme';
 import { $t, updatePreset, updateSurfacePalette } from '@primevue/themes';
 import Aura from '@primevue/themes/aura';
 import Lara from '@primevue/themes/lara';
 import { ref } from 'vue';
 
-const { layoutConfig, isDarkTheme } = useLayout();
+const { layoutConfig } = useLayout();
+const { isDark } = useTheme();
 
 const presets = {
     Aura,
@@ -226,7 +229,7 @@ function onMenuModeChange() {
                         @click="updateColors('surface', surface)"
                         :class="[
                             'border-none w-5 h-5 rounded-full p-0 cursor-pointer outline-none outline-offset-1',
-                            { 'outline-primary': layoutConfig.surface ? layoutConfig.surface === surface.name : isDarkTheme ? surface.name === 'zinc' : surface.name === 'slate' }
+                            { 'outline-primary': layoutConfig.surface ? layoutConfig.surface === surface.name : isDark ? surface.name === 'zinc' : surface.name === 'slate' }
                         ]"
                         :style="{ backgroundColor: `${surface.palette['500']}` }"
                     ></button>

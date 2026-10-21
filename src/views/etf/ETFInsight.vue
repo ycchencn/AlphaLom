@@ -11,6 +11,7 @@ import EtfRotation from '@/views/etf/EtfRotation.vue';
 import {
     formatStockTradeAmount,
     fearGreedLevel,
+    toneClass,
 } from '@/utils/function.js';
 
 // 组件名与 AppLayout <KeepAlive :include> 名单一致（列表页缓存，返回不重建）
@@ -121,7 +122,7 @@ onBeforeMount(() => {
         @submit="addEtf"
     />
 
-    <div class="card">
+    <div class="card" style="padding-top: 2rem">
         <!-- 页签：监控列表 / 轮动分析 -->
         <div class="etf-tabs">
             <button
@@ -208,14 +209,14 @@ onBeforeMount(() => {
             </Column>
             <Column field="ohlc_last.chg_pct" filterField="ohlc_last.chg_pct" header="涨跌幅" sortable dataType="numeric">
                 <template #body="{ data }">
-                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.ohlc_last.chg_pct)">
                         {{ data.ohlc_last.chg_pct != null ? data.ohlc_last.chg_pct.toFixed(2) + '%' : '--' }}
                     </b>
                 </template>
             </Column>
             <Column field="ohlc_last.lastPrice" filterField="ohlc_last.lastPrice" header="最新净值" sortable dataType="numeric">
                 <template #body="{ data }">
-                    <b :style="{ color: data.ohlc_last.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.ohlc_last.chg_pct)">
                         {{ data.ohlc_last.lastPrice != null ? data.ohlc_last.lastPrice.toFixed(3) : '--' }}
                     </b>
                 </template>
@@ -280,28 +281,28 @@ onBeforeMount(() => {
 /* 恐惧贪婪进度条配色（与股票列表 StockMonitor 一致，对应 utils/function.js 的
    FEAR_GREED_LEVELS，A 股口径：恐惧绿、贪婪红）。改这里务必同步那个常量。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #12783c !important; /* 极度恐惧 - 深绿 */
+    background: var(--app-down) !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: #4a9e6b !important; /* 恐惧 - 浅绿 */
+    background: var(--app-down-soft) !important; /* 恐惧 - 浅绿 */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {
-    background: #909399 !important; /* 中性 - 灰 */
+    background: var(--app-flat) !important; /* 中性 - 灰 */
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #e8874a !important; /* 贪婪 - 橙 */
+    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef4444 !important; /* 极度贪婪 - 红 */
+    background: var(--app-up) !important; /* 极度贪婪 - 红 */
 }
 
 .etf-fg-empty {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
 }
 
 :deep(.p-progressbar) {
@@ -313,6 +314,13 @@ onBeforeMount(() => {
     border-radius: 8px;
 }
 
+/* 以下 .phase-tag 整块在本页**没有引用点**（模板/脚本都搜不到 phase-tag）——
+   「主力行为阶段」是个股因子，ETF 的因子表里没有这一项，这里是从个股页拷来的死代码
+   （`views/quant/DCFInsight.vue` 有另一份同样的拷贝，同样是死的）。
+   故保持原样不迁移：等哪天在本页真的用起来，改用 `COLORS.phase1/2/3/5/6/Unknown`
+   （FactorPanel 用的就是那套，两套色板不能各写一份）。
+   顺带记一笔：这里的注释已经和类名错位了 —— 「蓝色 - 吸筹」写在 --accumulate
+   之后，读起来像在描述 --wash。 */
 .phase-tag {
     padding: 2px 8px;
     border-radius: 4px;
@@ -334,7 +342,7 @@ onBeforeMount(() => {
 
 /* 靛紫色 - 洗盘 */
 .phase-tag--rise {
-    background-color: #389e0d;
+    background-color: var(--app-down);
 }
 
 /* 绿色 - 拉升 */
@@ -354,7 +362,7 @@ onBeforeMount(() => {
 .etf-tabs {
     display: flex;
     gap: 24px;
-    border-bottom: 1px solid #eef1f6;
+    border-bottom: 1px solid var(--app-border-base);
     margin-bottom: 16px;
 }
 
@@ -366,19 +374,21 @@ onBeforeMount(() => {
     border: none;
     border-bottom: 2px solid transparent;
     background: transparent;
-    color: #64748b;
+    /* ⚠️ 这里原先写死 #64748b（未选中）/ #1f2937（hover + 选中 + 下划线）。
+       #1f2937 是近黑的 slate-800 —— 暗色下就是「黑字压在深底上」，正是页签看不清的原因。 */
+    color: var(--app-text-secondary);
     font-size: 13px;
     cursor: pointer;
     margin-bottom: -1px;
 
     &:hover {
-        color: #1f2937;
+        color: var(--app-text-primary);
     }
 
     &.etf-tab--active {
-        color: #1f2937;
+        color: var(--app-text-primary);
         font-weight: 500;
-        border-bottom-color: #1f2937;
+        border-bottom-color: var(--app-text-primary);
     }
 }
 
@@ -390,8 +400,8 @@ onBeforeMount(() => {
     height: 18px;
     padding: 0 5px;
     border-radius: 9px;
-    background: #f1f5f9;
-    color: #64748b;
+    background: var(--app-bg-active);
+    color: var(--app-text-secondary);
     font-size: 11px;
 }
 

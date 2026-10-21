@@ -272,6 +272,47 @@ class FactorValueService:
             return {}
 
     @staticmethod
+    def get_ticker_stats(ticker: str) -> Dict[str, Any]:
+        """单个标的的因子库概况：最新交易日 / 最后写入时间 / 历史天数 / 因子数。
+
+        用途：「一键重算」的前端进度判断与看板的新鲜度提示。
+        关键字段是 `last_update`（`MAX(update_time)`）—— 队列不回执执行结果，
+        只能靠「最后写入时间是否晚于入队时刻」判定重算是否已完成。
+
+        ⚠️ 一次查询拿全（`COUNT(DISTINCT ...)` 与 MAX 都在同一次聚合里），
+        别拆成多次往返：单标的约 1 万行、17ms 量级，但拆开就是 4 倍往返。
+
+        查不到任何行时各字段返回 None / 0，调用方无需判空。
+        """
+        ticker = str(ticker or '').strip()
+        if not ticker:
+            return {'latest_trade_date': None, 'last_update': None,
+                    'history_days': 0, 'factor_count': 0, 'row_count': 0}
+        try:
+            r = (
+                db_session.query(
+                    func.max(FactorValue.trade_date),
+                    func.max(FactorValue.update_time),
+                    func.count(func.distinct(FactorValue.trade_date)),
+                    func.count(func.distinct(FactorValue.factor_name)),
+                    func.count(),
+                )
+                .filter(FactorValue.ticker == ticker)
+                .first()
+            )
+        except Exception as e:
+            logger.error(f"Error getting ticker stats for {ticker}: {e}")
+            return {'latest_trade_date': None, 'last_update': None,
+                    'history_days': 0, 'factor_count': 0, 'row_count': 0}
+        return {
+            'latest_trade_date': r[0],
+            'last_update': r[1],
+            'history_days': int(r[2] or 0),
+            'factor_count': int(r[3] or 0),
+            'row_count': int(r[4] or 0),
+        }
+
+    @staticmethod
     def get_latest_factor_values(tickers, factor_names) -> Dict[Any, Any]:
         """
         批量获取「多个 ticker × 多个 factor」各自的最新值，**一次查询**完成。

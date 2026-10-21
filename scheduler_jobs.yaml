@@ -142,3 +142,27 @@ jobs:
       hour: 23
       minute: 5
     replace_existing: true
+
+  # 个股散户情绪（东财股吧 24h 发帖 + LLM 三分类；19:10，避开 18:50/18:55 恐贪任务）
+  # ⚠️ 只在交易日跑：周末帖子量只有交易日的一成左右，且不交易、无决策价值，
+  #    少跑 2/7 的请求量可以显著降低触发反爬的概率。
+  # ⚠️ 任务内部单只票之间串行 + 20 秒全局限速（见 service/eastmoney_guba.py），
+  #    50 只约需 17 分钟，属正常耗时，不要误判为卡死。
+  - id: job_stock_guba_sentiment_daily
+    func: job.job_stock_guba_sentiment:job_stock_guba_sentiment_daily
+    cron:
+      day_of_week: mon-fri
+      hour: 19
+      minute: 10
+    replace_existing: true
+
+  # 个股「巴菲特视角 AI 财务点评」每小时批量生成
+  # 基于真实财务数据（databull 4 张核心报表）由系统 LLM（场景 stock_financial_review）产出，落库。
+  # ⚠️ 节奏：每小时触发一次，每次从监控池挑「近 7 天（fin_review_interval_days）内未点评」的
+  #    最多 5 只（fin_review_per_run）生成。靠 7 天间隔实现「一周内点评过的不在候选」，
+  #    池子较大时多轮即可在数天内铺满一轮。单只失败隔离、不投队列（见 job 文件说明）。
+  - id: job_stock_financial_review_hourly
+    func: job.job_stock_financial_review:job_stock_financial_review_hourly
+    cron:
+      minute: 0
+    replace_existing: true

@@ -1,10 +1,11 @@
 <script setup>
 import {ref, onMounted, onUnmounted, computed, watch, nextTick} from 'vue';
-import {useRoute} from 'vue-router';
+import {useRoute, useRouter} from 'vue-router';
 import * as echarts from 'echarts';
 import {
     COLORS, LINE, FONT,
     axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    registerThemeRedraw,
 } from '@/utils/echartsTheme'
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -30,6 +31,7 @@ const {showSuccess, showError} = useNotification();
 
 // 状态
 const route = useRoute();
+const router = useRouter();
 const portfolioId = route.params.portfolio_id;
 const profInfo = ref(null);
 const profSummary = ref(null);
@@ -124,8 +126,9 @@ const renderEquityChart = async () => {
     const last = assets[assets.length - 1];
     const up = last >= first;
     const mainColor = up ? UP_COLOR : DOWN_COLOR;
-    const areaFrom = up ? 'rgba(239,68,68,0.20)' : 'rgba(18,120,60,0.20)';
-    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+    // ⚠️ 原先这里还声明过 areaFrom/areaTo 两个 rgba 字面值，但下面实际用的是
+    // areaGradient(mainColor, ...) —— 声明后从未被引用，是死代码，且那组 rgba
+    // 与全站涨跌色（#dc2626/#16a34a）本来就不是一套色。已删。
 
     // 极值标注：最大 / 最小净资产（只看纵轴看不出「我在哪」，标出来才有体感）
     let maxIdx = 0, minIdx = 0;
@@ -188,10 +191,13 @@ const renderEquityChart = async () => {
             markPoint: {
                 symbol: 'pin',
                 symbolSize: 30,
+                // pin 是实心色块，上面压白字才看得清；这个 #fff 是「反色底上的字」，
+                // 不是正文色，两套主题通用，不参与涨跌/明暗语义。
                 label: {fontSize: FONT.axis, color: '#fff', formatter: (p) => compactMoney(p.value)},
                 data: [
-                    {type: 'max', name: '最高', itemStyle: {color: '#94a3b8'}},
-                    {type: 'min', name: '最低', itemStyle: {color: '#cbd5e1'}}
+                    // 最高/最低两个 pin 是灰蓝中性色，不借用涨跌红绿（否则会读成「涨/跌信号」）
+                    {type: 'max', name: '最高', itemStyle: {color: COLORS.axisLabel}},
+                    {type: 'min', name: '最低', itemStyle: {color: COLORS.axisLabelThin}}
                 ]
             }
         }]
@@ -213,8 +219,7 @@ const renderReturnChart = async () => {
     const last = pct[pct.length - 1];
     const up = (last ?? 0) >= 0;
     const mainColor = up ? UP_COLOR : DOWN_COLOR;
-    const areaFrom = up ? 'rgba(239,68,68,0.22)' : 'rgba(18,120,60,0.22)';
-    const areaTo = up ? 'rgba(239,68,68,0.02)' : 'rgba(18,120,60,0.02)';
+    // 同 renderEquityChart：原先的 areaFrom/areaTo 是死代码，已删。
 
     returnChart.setOption({
         grid: {left: 46, right: 20, top: 16, bottom: 26},
@@ -270,11 +275,12 @@ const resizeCharts = () => {
 };
 
 // 行业分布饼图：扇区权重 = 持仓市值（size×price），tooltip 同时给出市值与占组合总市值比。
-// ⚠️ 颜色用固定调色板（红涨绿跌之外的中性色），行业数量不固定，ECharts 会循环取色。
+// ⚠️ 这是**分类色板**，语义是「区分不同行业」，与涨跌无关 —— 但刻意避开红绿，
+//    否则用户会把某个行业的扇区误读成「这个行业在跌/涨」。
 const INDUSTRY_PALETTE = [
-    '#ef4444', '#12783c', '#3b82f6', '#f59e0b', '#8b5cf6',
+    '#3b82f6', '#f59e0b', '#8b5cf6',
     '#ec4899', '#14b8a6', '#6366f1', '#f97316', '#0ea5e9',
-    '#a855f7', '#22c55e'
+    '#a855f7', '#0d9488', '#7c3aed', '#0891b2'
 ];
 
 const renderIndustryPie = async () => {
@@ -312,12 +318,14 @@ const renderIndustryPie = async () => {
             radius: ['42%', '62%'],
             center: ['50%', '44%'],
             avoidLabelOverlap: true,
-            itemStyle: { borderColor: '#fff', borderWidth: 2 },
+            // 扇区描边是**分隔相邻扇区**的，不是文字色：原先写死 '#fff'，暗色下
+            // 每个扇区外圈一圈刺眼白边。用 dotBg 跟随主题（暗色为深灰白 #27272a）。
+            itemStyle: { borderColor: COLORS.dotBg, borderWidth: 2 },
             label: { show: false },
             labelLine: { show: false },
             emphasis: {
                 label: { show: false },
-                itemStyle: { shadowBlur: 10, shadowColor: 'rgba(0,0,0,0.2)' }
+                itemStyle: { shadowBlur: 10, shadowColor: COLORS.shadow }
             },
             data: dist.data
         }]
@@ -701,8 +709,23 @@ watch(industryDistribution, () => {
     renderIndustryPie();
 });
 
+// 切主题后重画三个图：ECharts 的 setOption 是快照，不重跑会留着旧主题的
+// 坐标轴 / 网格线 / 扇区描边色。各 render 函数内部已做容器判空（ensureChart）。
+// registerThemeRedraw 返回取消订阅函数，卸载时必须调 stop，否则 KeepAlive 下会累积。
+let stopThemeRedraw = null;
+
+onMounted(() => {
+    stopThemeRedraw = registerThemeRedraw(() => {
+        renderEquityChart();
+        renderReturnChart();
+        renderIndustryPie();
+    });
+});
+
 onUnmounted(() => {
     window.removeEventListener('resize', resizeCharts);
+    stopThemeRedraw?.();
+    stopThemeRedraw = null;
     equityChart?.dispose();
     equityChart = null;
     returnChart?.dispose();
@@ -732,8 +755,46 @@ const items = [
         command: () => {
             triggerAnalysis();
         }
+    },
+    // 破坏性操作单独隔开：与上面的常规操作之间留一条分隔线，降低误点概率
+    {separator: true},
+    {
+        label: '删除策略',
+        icon: 'pi pi-trash',
+        command: () => {
+            openDelete();
+        }
     }
 ];
+
+// ---------------- 删除策略 ----------------
+const deleteVisible = ref(false);
+const deleting = ref(false);
+
+const openDelete = () => {
+    deleteVisible.value = true;
+};
+
+// 删除后本页的数据源已不存在，继续停留只会到处 404，直接回列表
+const submitDelete = async () => {
+    deleting.value = true;
+    try {
+        const {data} = await axios.delete(
+            `/api/v1/investment_portfolios/${encodeURIComponent(portfolioId)}`);
+        // ⚠️ 业务错误码在响应体里（`{code, msg, data}`），HTTP 仍是 200，必须自己判 code
+        if (data && data.code && data.code !== 200) {
+            showError(data.msg || '删除策略失败');
+            return;
+        }
+        showSuccess(`已删除策略 ${profInfo.value?.name || portfolioId}`);
+        deleteVisible.value = false;
+        await router.push({name: 'portfolio_list'});
+    } catch (error) {
+        showError(error?.response?.data?.msg || error?.response?.data?.detail || '删除策略失败');
+    } finally {
+        deleting.value = false;
+    }
+};
 
 // 触发AI调仓分析
 const analysisLoading = ref(false);
@@ -905,6 +966,26 @@ const reload = () => window.location.reload();
             暂无报告数据
         </div>
     </Drawer>
+
+    <!-- 删除策略确认（物理删除不可恢复，必须让用户先看清楚会连带删掉什么） -->
+    <Dialog v-model:visible="deleteVisible" modal header="删除策略" :style="{ width: '30rem' }">
+        <div class="flex flex-col gap-3">
+            <div>
+                确定要删除策略
+                <b>{{ profInfo?.name }}</b>
+                吗？
+            </div>
+            <div class="del-warn">
+                ⚠️ 删除后该策略的<b>持仓、每日盈亏、每日汇总、交易记录会一并永久清除</b>，不可恢复。
+            </div>
+        </div>
+        <template #footer>
+            <div class="flex justify-end gap-2">
+                <Button type="button" label="取消" severity="secondary" text @click="deleteVisible = false" :disabled="deleting" />
+                <Button type="button" label="确认删除" icon="pi pi-trash" severity="danger" :loading="deleting" @click="submitDelete" />
+            </div>
+        </template>
+    </Dialog>
 
     <!-- 编辑组合信息弹窗 -->
     <Dialog v-model:visible="editDialogVisible" modal header="编辑组合信息" :style="{ width: '32rem' }">
@@ -1524,12 +1605,20 @@ const reload = () => window.location.reload();
 </template>
 
 <style scoped>
-/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框 */
-.p-card {
-    border: 1px solid #dedede;
+/* 删除确认里的风险提示条（与 UserManage / ApiKeyManage 同一套写法） */
+.del-warn {
+    background: var(--app-error-bg);
+    border-left: 3px solid var(--app-error-text);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
 }
-:global(html.app-dark) .p-card {
-    border-color: #334155;
+
+/* 增强 Card 边框：Aura 主题默认只有极淡阴影、无边框，这里补一条清晰但克制的中性边框。
+   ⚠️ 原先额外写了 `:global(html.app-dark) .p-card { border-color: #334155 }` 做暗色覆盖，
+   语义变量 --app-border-weak 两套主题取值本就不同，这段局部覆盖已属多余，删掉。 */
+.p-card {
+    border: 1px solid var(--app-border-weak);
 }
 
 /* ===== 走势卡片布局（与全站 fear-greed / growth-value 卡片同构：左读数 + 右图）===== */
@@ -1546,12 +1635,12 @@ const reload = () => window.location.reload();
     justify-content: center;
     gap: 8px;
     padding-right: 20px;
-    border-right: 1px solid #eef1f6;
+    border-right: 1px solid var(--app-border-weak);
 }
 
 .pv-side-label {
     font-size: 11px;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     /* ⚠️ 读数区与图表贴太近时，"区间累计收益" 会被折线压过去（视觉重叠）——
        这里靠 line-height 与 margin 把它和数值成组，和右侧图表拉开呼吸感 */
     line-height: 1.4;
@@ -1574,7 +1663,7 @@ const reload = () => window.location.reload();
 }
 
 .pv-side-k {
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 .pv-side-v {
@@ -1601,14 +1690,12 @@ const reload = () => window.location.reload();
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 12px;
 }
 
-/* 深色模式：分隔线换成深色，避免一条亮线特别扎眼 */
-:global(html.app-dark) .pv-chart-side {
-    border-right-color: #334155;
-}
+/* 原先这里有一段 `:global(html.app-dark) .pv-chart-side { border-right-color: #334155 }`，
+   语义变量 --app-border-weak 暗色下会自动取深色值，局部覆盖已删。 */
 
 @media (max-width: 768px) {
     .pv-chart-wrap {
@@ -1624,7 +1711,7 @@ const reload = () => window.location.reload();
         padding-right: 0;
         padding-bottom: 10px;
         border-right: 0;
-        border-bottom: 1px solid #eef1f6;
+        border-bottom: 1px solid var(--app-border-weak);
     }
 
     .pv-side-value {

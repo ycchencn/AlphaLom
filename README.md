@@ -139,10 +139,12 @@ alphalom/
 ```bash
 pip install -r requirements.txt
 npm install
-cp .env.sample .env       # 配置数据库 / Redis / 各 LLM API Key
+cp .env.sample .env       # 配置数据库 / Redis / 加解密主密钥 / 上游数据源
 ```
 
-`config.py` 按环境变量 `ENV` 加载 `.env` 或 `.env.<ENV>`，未找到时回退到进程环境变量。主要变量：`DATABASE_CONN_STR`、`REDIS_*`、`JOB_QUEUE_*`、`*_APIKEY`、`DATABULL_HOST`、`DATABULL_KEY`、`MCP_HOST`。
+`config.py` 按环境变量 `ENV` 加载 `.env` 或 `.env.<ENV>`，未找到时回退到进程环境变量。主要变量：`DATABASE_CONN_STR`、`REDIS_*`、`JOB_QUEUE_*`、`ALPHALOM_SECRET_KEY`、`DATABULL_HOST`、`DATABULL_KEY`、`MCP_HOST`。
+
+> 各 LLM 平台的 API Key **不在 .env 里配**（`*_APIKEY` 已废弃），改为登录后进入「系统管理 → 系统设置 → 大模型配置」，从「添加平台」下拉里选择平台并填写 Key —— 加密存入 `system_setting` 表，改完立即生效、无需重启。从旧版本升级、`.env` 里已有 Key 的，可先跑一次迁移：`python tools/_migrate_env_apikeys_to_db.py --apply`（默认 dry-run）。
 
 ### 首次启动与默认管理员
 

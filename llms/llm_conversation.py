@@ -3,13 +3,25 @@ import json
 import datetime
 from dotenv import load_dotenv
 from openai import OpenAI
-from config import aliyun_bailian_apikey
 
-client_aliyun = OpenAI(
-    # 若没有配置环境变量，请用百炼API Key将下行替换为：api_key="sk-xxx",
-    api_key=aliyun_bailian_apikey,
-    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
+# ⚠️ 阿里云百炼的 key 已不再从 .env 读取（config.aliyun_bailian_apikey 已废弃），
+#    改由 llms.llm_platform 从 system_setting 表解析 —— 需要先在
+#    「系统设置 → 大模型配置」里添加「阿里云百炼」平台并填 Key。
+#    客户端懒加载：模块导入期就取 key 会让「还没添加平台」直接变成 ImportError。
+_ALIYUN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+_client_aliyun = None
+
+
+def _get_aliyun_client():
+    """懒加载 + 进程内缓存阿里云百炼客户端。"""
+    global _client_aliyun
+    if _client_aliyun is None:
+        from llms.llm_platform import get_api_key, get_base_url
+        _client_aliyun = OpenAI(
+            api_key=get_api_key('aliyun'),
+            base_url=get_base_url('aliyun') or _ALIYUN_BASE_URL,
+        )
+    return _client_aliyun
 
 # DCF分析专属系统提示词，固化分析规则
 DCF_ANALYST_PROMPT = """
@@ -105,7 +117,7 @@ class LLMFConversation:
         self.context.append({"role": "user", "content": user_query})
 
         # 调用大模型
-        response = client_aliyun.chat.completions.create(
+        response = _get_aliyun_client().chat.completions.create(
             model='deepseek-v4-flash',
             messages=self.context,
             temperature=0.1,  # 调低温度，保证分析结果一致性

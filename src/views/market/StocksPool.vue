@@ -3,6 +3,7 @@
 import { FilterMatchMode, FilterOperator } from '@primevue/core/api';
 import { onBeforeMount, reactive, ref } from 'vue';
 import axios from 'axios';
+import { toneClass } from '@/utils/function';
 
 const customers1 = ref(null);
 const filters1 = ref(null);
@@ -72,21 +73,21 @@ function initFilters1() {
             </Column>
             <Column field="stock_code" filterField="stock_code" header="最新">
                 <template #body="{ data }">
-                    <b :style="{ color: data.daily_data.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.daily_data.chg_pct)">
                       {{ data.daily_data.close.toFixed(2) }}
                     </b>
                 </template>
             </Column>
             <Column field="stock_code" filterField="stock_code" header="涨跌幅">
                 <template #body="{ data }">
-                    <b :style="{ color: data.daily_data.chg_pct > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.daily_data.chg_pct)">
                       {{ data.daily_data.chg_pct.toFixed(2) }}%
                     </b>
                 </template>
             </Column>
             <Column field="stock_code" filterField="stock_code" header="换手率">
                 <template #body="{ data }">
-                    <b :style="{ color: data.daily_data.turnover_rate > 0 ? 'red' : 'green' }">
+                    <b :class="toneClass(data.daily_data.turnover_rate)">
                       {{ data.daily_data.turnover_rate.toFixed(2) }}%
                     </b>
                 </template>

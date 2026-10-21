@@ -31,7 +31,8 @@ class LLMBaseAsync:
     response_format: str = 'text'
 
     # MCP 服务配置
-    mcp_base_url: str = mcp_host
+    # ⚠️ 允许为 None：MCP_HOST 未配置时表示「本部署不启用 MCP」，此时整体短路降级为纯文本
+    mcp_base_url: Optional[str] = mcp_host
 
     def __init__(self, client: AsyncOpenAI):
         """
@@ -73,13 +74,28 @@ class LLMBaseAsync:
         self.model = model
 
     def set_mcp_url(self, url: str):
-        """设置 MCP 服务地址"""
-        self.mcp_base_url = url
+        """设置 MCP 服务地址（传空/None 视为关闭 MCP）"""
+        self.mcp_base_url = (url or '').strip() or None
+
+    # ==================== MCP 开关判定 ====================
+
+    @property
+    def mcp_enabled(self) -> bool:
+        """本实例是否可用 MCP（MCP_HOST 未配置时为 False，工具链路整体短路）"""
+        url = self.mcp_base_url
+        if url is None:
+            return False
+        if not isinstance(url, str):
+            return True
+        return bool(url.strip())
 
     # ==================== MCP 工具调用 ====================
 
     async def _get_mcp_tools(self) -> List[Dict[str, Any]]:
         """异步获取 MCP 工具元数据（带实例级缓存）"""
+        if not self.mcp_enabled:
+            # 未配置 MCP：不缓存空列表，避免调用方误判为「已加载过、只是暂时为空」
+            return []
         await self.ensure_session()
         if self._cached_tools is None:
             try:
@@ -96,6 +112,8 @@ class LLMBaseAsync:
 
     async def _call_mcp_tool(self, function_name: str, parameters: dict) -> dict:
         """异步调用 MCP 工具接口"""
+        if not self.mcp_enabled:
+            return {"code": 503, "msg": "MCP 服务未配置（MCP_HOST 为空），无法调用工具", "data": None}
         await self.ensure_session()
         logger.debug(f"调用 MCP 工具：{function_name}, {parameters}")
         try:
@@ -126,13 +144,25 @@ class LLMBaseAsync:
         mcp_tools = await self._get_mcp_tools()
         valid_function_names = {tool["function"]["name"] for tool in mcp_tools} if mcp_tools else set()
 
+        if not mcp_tools:
+            # 调用点的 system prompt 常硬编码「请主动调用 MCP 工具取数」。工具一个都没有时
+            # 这句指令会让模型要么反复调用不存在的函数、要么编造实时数据 —— 补一条说明。
+            current_messages.insert(0, {
+                'role': 'system',
+                'content': '当前环境未挂载任何工具，无法获取实时行情/财务/新闻数据。'
+                           '请仅基于用户消息中已提供的上下文作答，'
+                           '并明确说明你无法获取实时数据，不要编造具体价格与财务数字。',
+            })
+            logger.info('MCP 未配置或不可用，本次以纯文本模式调用（无工具）')
+
         while True:
             completion = await self.client.chat.completions.create(
                 model=self.model,
                 messages=current_messages,
                 response_format={"type": self.response_format},
-                tools=mcp_tools,
-                tool_choice="auto" if mcp_tools else "none",
+                # ⚠️ 空列表不能传给 tools：部分 OpenAI 兼容网关会直接报参数错误
+                tools=mcp_tools if mcp_tools else None,
+                tool_choice="auto" if mcp_tools else None,
                 extra_body={"enable_search": self.enable_search},
                 stream=False
             )

@@ -205,10 +205,10 @@ onBeforeMount(loadSettings);
 
 <template>
 
-    <div class="gs-page mt-5 flex flex-col">
+    <div class="gs-page flex flex-col">
 
         <!-- 区块 1：展示时区（页面标题整合在卡片顶部，避免标题悬浮在卡片外造成多余间距） -->
-        <div class="card">
+        <div class="card" style="padding-top: 2rem;">
             <div class="flex flex-col gap-2 w-full mb-4">
                 <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 w-full">
                     <div>

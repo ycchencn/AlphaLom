@@ -37,7 +37,9 @@ class LLMBase:
     max_tokens: int = 32768
 
     # MCP 服务配置
-    mcp_base_url: str = mcp_host
+    # ⚠️ 允许为 None：MCP_HOST 未配置时表示「本部署不启用 MCP」，
+    #    此时所有工具调用短路降级为纯文本，而不是拿 None 去拼 URL 发请求。
+    mcp_base_url: Optional[str] = mcp_host
 
     # 工具结果回灌给大模型时的单条字符上限。
     # ⚠️ MCP 的 get_stock_detail 会返回整段公司简介/经营范围（实测单只票几千字），
@@ -86,8 +88,28 @@ class LLMBase:
         self.max_tokens = max_tokens
 
     def set_mcp_url(self, url: str):
-        """设置 MCP 服务地址"""
-        self.mcp_base_url = url
+        """设置 MCP 服务地址（传空/None 视为关闭 MCP）"""
+        self.mcp_base_url = (url or '').strip() or None
+
+    # ==================== MCP 开关判定 ====================
+
+    @property
+    def mcp_enabled(self) -> bool:
+        """
+        本实例是否可用 MCP。
+
+        ⚠️ MCP_HOST 未配置时 `mcp_base_url` 为 None（见 config.mcp_host），
+        此时必须整体跳过 MCP：既不发请求，也不把工具清单塞给模型。
+        只靠 `_get_mcp_tools` 的 try/except 兜底是不够的 —— 那会让每次调用
+        白等一次连接超时，并且在日志里留下「获取 MCP 工具失败」这种
+        指不到根因的告警。
+        """
+        url = self.mcp_base_url
+        if url is None:
+            return False
+        if not isinstance(url, str):
+            return True
+        return bool(url.strip())
 
     # ==================== 核心调用方法 ====================
 
@@ -146,6 +168,9 @@ class LLMBase:
 
     def _get_mcp_tools(self) -> List[Dict[str, Any]]:
         """获取 MCP 工具元数据（带实例级缓存）"""
+        if not self.mcp_enabled:
+            # 未配置 MCP：不缓存空列表，避免调用方误以为「已加载过、只是暂时为空」
+            return []
         if self._cached_tools is None:
             try:
                 resp = requests.get(f"{self.mcp_base_url}/tools", timeout=5)
@@ -158,6 +183,8 @@ class LLMBase:
 
     def _call_mcp_tool(self, function_name: str, parameters: dict) -> dict:
         """调用 MCP 工具接口"""
+        if not self.mcp_enabled:
+            return {"code": 503, "msg": "MCP 服务未配置（MCP_HOST 为空），无法调用工具", "data": None}
         try:
             resp = requests.post(
                 f"{self.mcp_base_url}/call",
@@ -200,14 +227,29 @@ class LLMBase:
         mcp_tools = self._get_mcp_tools()
         valid_function_names = {tool["function"]["name"] for tool in mcp_tools} if mcp_tools else set()
 
+        if not mcp_tools:
+            # 各调用点的 system prompt 常硬编码「请主动调用 MCP 工具取数」（见 job_check_signal
+            # / job_stock_dcf_model_analysis 的 role_base）。工具一个都没有时，这句指令会让
+            # 模型要么反复尝试调用不存在的函数、要么干脆编造实时数据 —— 两者都不可接受。
+            # 这里补一条 system 消息明确告知，让它只基于已给的上下文作答。
+            current_messages.insert(0, {
+                'role': 'system',
+                'content': '当前环境未挂载任何工具，无法获取实时行情/财务/新闻数据。'
+                           '请仅基于用户消息中已提供的上下文作答，'
+                           '并明确说明你无法获取实时数据，不要编造具体价格与财务数字。',
+            })
+            logger.info('MCP 未配置或不可用，本次以纯文本模式调用（无工具）')
+
         rounds = 0
         while True:
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=current_messages,
                 response_format={"type": self.response_format},
-                tools=mcp_tools,
-                tool_choice="auto" if mcp_tools else "none",
+                # ⚠️ 空列表不能传给 tools：部分 OpenAI 兼容网关会直接报参数错误，
+                # 这里统一成 None（不带工具字段）。
+                tools=mcp_tools if mcp_tools else None,
+                tool_choice="auto" if mcp_tools else None,
                 max_tokens=self.max_tokens,
                 extra_body=self._build_extra_body(),
                 stream=False

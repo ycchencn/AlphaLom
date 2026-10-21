@@ -32,7 +32,7 @@
  改用外部包 databull 后本模块**不再依赖 service 包**，该约束随之消失。
 """
 
-from databull import DataBull
+from databull import DataBull, DataBullError
 from config import databull_host, databull_key
 
 
@@ -64,6 +64,68 @@ class _DataBull(DataBull):
         if exchange:
             params['exchange'] = exchange
         return self._request(f'{market}/etfs/', params=params or None)
+
+    def get_stock_announcements_paged(self, stock: str, page: int = 1, page_size: int = 20,
+                                      keyword: str = None, start_date: str = None,
+                                      end_date: str = None):
+        """上市公司公告列表（带分页元信息）。
+
+        绕行：SDK 的 `get_stock_announcements` 能取到记录数组，但**丢掉了响应头** ——
+        而上游的分页信息（X-Total-Count / X-Page / X-Has-More）**只在响应头里**，
+        体内没有。所以 SDK 那个方法拿不到「总条数」，做不出「共 N 条 / 第 X 页」的
+        分页器，也不能判断「还有没有下一页」。
+
+        实测（2026-10-20）：`GET /cn/stock/announcements?stock=000001&page=1&page_size=10`
+        → 200，body 是裸数组 1 条，响应头带
+        `x-total-count: 1 / x-page: 1 / x-page-size: 10 / x-has-more: false`。
+
+        这里直接用 session 发请求，把响应头一起读出来，body 仍按 SDK 约定返回裸数组。
+        修法（SDK 侧）：让 `_request` 支持返回 `(payload, headers)`，或给
+        `get_stock_announcements` 加一个 `with_headers` 参数。
+
+        :return: (items: list, meta: dict)，meta 含 total / page / page_size / has_more
+                 / empty_reason
+        """
+        params = {'stock': stock, 'page': page, 'page_size': page_size}
+        if keyword:
+            params['keyword'] = keyword
+        if start_date:
+            params['start_date'] = start_date
+        if end_date:
+            params['end_date'] = end_date
+
+        url = f'{self.base_url.rstrip("/")}/cn/stock/announcements'
+        resp = self.session.get(url, params=params, timeout=self.timeout)
+        if resp.status_code == 429:
+            retry_after = resp.headers.get('Retry-After')
+            msg = '调用频率超限（429）'
+            if retry_after:
+                msg += f'，建议 {retry_after}s 后重试'
+            raise DataBullError(429, msg, resp.text)
+        if not resp.ok:
+            raise DataBullError(resp.status_code, f'HTTP 错误：{resp.text[:300]}', resp.text)
+        try:
+            payload = resp.json()
+        except ValueError:
+            raise DataBullError(resp.status_code, '响应不是合法 JSON', resp.text)
+
+        items = payload if isinstance(payload, list) else (payload or {}).get('data') or []
+        headers = resp.headers
+
+        def _int(name, default=0):
+            try:
+                return int(headers.get(name, default))
+            except (TypeError, ValueError):
+                return default
+
+        meta = {
+            'total': _int('X-Total-Count'),
+            'page': _int('X-Page', page),
+            'page_size': _int('X-Page-Size', page_size),
+            'has_more': str(headers.get('X-Has-More', 'false')).lower() == 'true',
+            'empty_reason': headers.get('X-Empty-Reason'),
+        }
+        return items, meta
 
 
 # ⚠️ 缺 DATABULL_KEY 时 SDK 会在**构造阶段**就抛 DataBullError（旧本地版会带着空 Bearer

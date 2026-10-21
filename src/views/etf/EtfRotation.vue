@@ -387,12 +387,13 @@ function renderHeatmap() {
             left: 'center', bottom: 0, itemWidth: 10, itemHeight: 70,
             textStyle: {fontSize: FONT.axis, color: COLORS.axisLabel},
             // 涨红跌绿：动量强 = 红，弱/负 = 绿
-            inRange: {color: ['#16a34a', '#f1f5f9', '#dc2626']},
+            inRange: {color: ['var(--app-down)', 'var(--app-bg-active)', 'var(--app-up)']},
         },
         series: [{
             type: 'heatmap', data,
             emphasis: {itemStyle: {borderColor: COLORS.text, borderWidth: 0.5}},
-            itemStyle: {borderColor: '#fff', borderWidth: 0.5},
+            // 格子描边用卡片底色：写死 #fff 在暗色下会变成满屏白网格线
+            itemStyle: {borderColor: COLORS.dotBg, borderWidth: 0.5},
         }],
     }, true);
 }
@@ -723,7 +724,7 @@ onBeforeUnmount(() => {
 }
 
 .rot-block {
-    border: 1px solid #eef1f6;
+    border: 1px solid var(--app-border-base);
     border-radius: 8px;
     padding: 12px 16px;
     margin-bottom: 12px;
@@ -739,12 +740,12 @@ onBeforeUnmount(() => {
     &__title {
         font-size: 13px;
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
     }
 
     &__meta {
         font-size: 12px;
-        color: #94a3b8;
+        color: var(--app-text-muted);
     }
 
     &__actions {
@@ -768,19 +769,19 @@ onBeforeUnmount(() => {
     gap: 6px;
     max-width: 100%;
     padding: 4px 6px 4px 10px;
-    border: 1px solid #e2e8f0;
+    border: 1px solid var(--app-border-base);
     border-radius: 14px;
-    background: #f8fafc;
+    background: var(--app-bg-subtle);
     font-size: 12px;
     min-width: 0;
 
     &__code {
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
     }
 
     &__name {
-        color: #64748b;
+        color: var(--app-text-secondary);
         max-width: 140px;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -790,13 +791,13 @@ onBeforeUnmount(() => {
     &__x {
         border: none;
         background: transparent;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         cursor: pointer;
         padding: 0 2px;
         line-height: 1;
 
         &:hover {
-            color: #dc2626;
+            color: var(--app-up);
         }
 
         i {
@@ -808,7 +809,7 @@ onBeforeUnmount(() => {
 .rot-hint {
     margin-top: 10px;
     font-size: 12px;
-    color: #94a3b8;
+    color: var(--app-text-muted);
 
     &--loading {
         padding: 24px 0;
@@ -820,8 +821,8 @@ onBeforeUnmount(() => {
     margin-top: 10px;
     padding: 10px 12px;
     border-radius: 6px;
-    background: #fef2f2;
-    color: #b91c1c;
+    background: var(--app-error-bg);
+    color: var(--app-error-text);
     font-size: 12px;
 }
 
@@ -844,7 +845,7 @@ onBeforeUnmount(() => {
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: #475569;
+    color: var(--app-text-secondary);
     min-width: 0;
 
     > span {
@@ -855,11 +856,11 @@ onBeforeUnmount(() => {
     select {
         width: 74px;
         padding: 3px 6px;
-        border: 1px solid #e2e8f0;
+        border: 1px solid var(--app-border-base);
         border-radius: 4px;
         font-size: 12px;
-        color: #1f2937;
-        background: #fff;
+        color: var(--app-text-primary);
+        background: var(--app-bg-card);
     }
 
     select {
@@ -868,7 +869,7 @@ onBeforeUnmount(() => {
 
     em {
         font-style: normal;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         white-space: nowrap;
     }
 
@@ -884,7 +885,7 @@ onBeforeUnmount(() => {
 /* 结果区 */
 .rot-meta {
     font-size: 12px;
-    color: #64748b;
+    color: var(--app-text-secondary);
     margin-bottom: 12px;
     overflow-wrap: anywhere;
 }
@@ -897,40 +898,40 @@ onBeforeUnmount(() => {
 }
 
 .rot-kpi {
-    background: #f8fafc;
+    background: var(--app-bg-subtle);
     border-radius: 8px;
     padding: 10px 12px;
 
     &__label {
         font-size: 12px;
-        color: #94a3b8;
+        color: var(--app-text-muted);
     }
 
     &__value {
         font-size: 16px;
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
         margin-top: 2px;
     }
 }
 
 .is-up {
-    color: #dc2626 !important;
+    color: var(--app-up) !important;
 }
 
 .is-down {
-    color: #16a34a !important;
+    color: var(--app-down) !important;
 }
 
 .rot-bench {
-    border: 1px solid #eef1f6;
+    border: 1px solid var(--app-border-base);
     border-radius: 8px;
     padding: 10px 16px;
     margin-bottom: 12px;
 
     &__title {
         font-size: 12px;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         margin-bottom: 6px;
     }
 
@@ -945,30 +946,30 @@ onBeforeUnmount(() => {
 
     &__label {
         width: 64px;
-        color: #475569;
+        color: var(--app-text-secondary);
         flex-shrink: 0;
     }
 
     &__val {
-        color: #1f2937;
+        color: var(--app-text-primary);
 
         &--bench {
-            color: #94a3b8;
+            color: var(--app-text-muted);
         }
     }
 
     &__diff {
         margin-left: auto;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         font-size: 12px;
 
         /* 优劣着色沿用全站色义：红 = 占优，绿 = 落后 */
         &.better {
-            color: #dc2626;
+            color: var(--app-up);
         }
 
         &.worse {
-            color: #16a34a;
+            color: var(--app-down);
         }
     }
 }
@@ -980,7 +981,7 @@ onBeforeUnmount(() => {
     &__title {
         font-size: 13px;
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
         margin-bottom: 8px;
     }
 }
@@ -1027,11 +1028,11 @@ onBeforeUnmount(() => {
         min-width: 0;
 
         &:hover {
-            background: #f8fafc;
+            background: var(--app-bg-subtle);
         }
 
         &.is-active {
-            background: #eff6ff;
+            background: var(--app-select-bg);
         }
 
         &.is-held .rot-rank__code::after {
@@ -1039,7 +1040,7 @@ onBeforeUnmount(() => {
             margin-left: 4px;
             padding: 0 3px;
             border-radius: 3px;
-            background: #dc2626;
+            background: var(--app-up);
             color: #fff;
             font-size: 10px;
         }
@@ -1053,7 +1054,7 @@ onBeforeUnmount(() => {
     &__no {
         width: 18px;
         text-align: right;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         flex-shrink: 0;
     }
 
@@ -1070,12 +1071,12 @@ onBeforeUnmount(() => {
 
     &__code {
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
         flex-shrink: 0;
     }
 
     &__text {
-        color: #94a3b8;
+        color: var(--app-text-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -1086,7 +1087,7 @@ onBeforeUnmount(() => {
         min-width: 40px;
         height: 8px;
         border-radius: 4px;
-        background: #f1f5f9;
+        background: var(--app-bg-active);
         overflow: hidden;
         display: block;
     }
@@ -1102,7 +1103,7 @@ onBeforeUnmount(() => {
         width: 56px;
         text-align: right;
         font-weight: 500;
-        color: #1f2937;
+        color: var(--app-text-primary);
         flex-shrink: 0;
     }
 
@@ -1115,7 +1116,7 @@ onBeforeUnmount(() => {
 
 .rot-legend {
     font-size: 11px;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     margin-top: 6px;
     overflow-wrap: anywhere;
 
@@ -1142,7 +1143,7 @@ onBeforeUnmount(() => {
     &__name {
         width: 64px;
         font-size: 12px;
-        color: #475569;
+        color: var(--app-text-secondary);
         flex-shrink: 0;
     }
 
@@ -1156,11 +1157,11 @@ onBeforeUnmount(() => {
     &__seg {
         height: 14px;
         border-radius: 2px;
-        background: #f1f5f9;
+        background: var(--app-bg-active);
         flex-basis: 0;
 
         &.is-held {
-            background: #dc2626;
+            background: var(--app-up);
         }
     }
 }
@@ -1171,7 +1172,7 @@ onBeforeUnmount(() => {
 
 .rot-warning {
     font-size: 11px;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     line-height: 1.8;
 
     i {

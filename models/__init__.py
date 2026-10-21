@@ -539,6 +539,130 @@ class StockFearGreed(Base):
         }
 
 
+class StockGubaSentiment(Base):
+    """个股「散户情绪」日频快照 —— 数据来自东方财富股吧发帖文本 + LLM 语义分析。
+
+    ⚠️ 与 `stocks_fear_greed` 是**两个东西**，绝不能混写：
+      - `stocks_fear_greed`：由 OHLCV 价量指标**计算**出来的技术性情绪（波动/动量/量能），
+        反映「价格行为隐含的情绪」，主键 (trade_date, index_code)。
+      - 本表：股吧**文本语义**分析得出的散户主观情绪，反映「散户嘴上在说什么」。
+    两者口径不同、更新链路不同、不可互相覆盖。写进 fear_greed 表会把个股恐贪历史覆盖掉。
+
+    ⚠️ 唯一键必须是 (symbol, trade_date)：`StockFearGreed` 曾因只把 trade_date 设主键，
+    导致 ORM 身份映射把「同一天不同标的」当成同一对象静默去重（见该类注释）。
+
+    情绪分的计算口径：**不让模型直接给 0~100 总分**，而是模型只输出看多/中性/看空三分类占比，
+    由 `StockGubaSentimentService.compute_score()` 用固定公式算出，保证可复现、换模型不断裂。
+    """
+
+    __tablename__ = 'stock_guba_sentiment'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), nullable=False, index=True, comment='股票代码，如 600519')
+    trade_date = Column(Date, nullable=False, index=True, comment='统计归属日期（采集当日）')
+
+    # ---- LLM 产出的三分类占比（合计 100） ----
+    bullish_ratio = Column(Numeric(precision=5, scale=2), nullable=True, comment='看多帖占比 0~100')
+    neutral_ratio = Column(Numeric(precision=5, scale=2), nullable=True, comment='中性帖占比 0~100')
+    bearish_ratio = Column(Numeric(precision=5, scale=2), nullable=True, comment='看空帖占比 0~100')
+
+    # ---- 派生指标 ----
+    sentiment_score = Column(Numeric(precision=5, scale=2), nullable=True,
+                             comment='散户情绪分 0~100（50=中性，由后端公式计算）')
+    confidence = Column(Numeric(precision=5, scale=2), nullable=True,
+                        comment='置信度 0~100（样本量不足时模型主动降级）')
+    heat_level = Column(String(10), nullable=True, comment='活跃度：冷清/正常/活跃/过热')
+
+    # ---- 原始统计（用于判断可信度与排查） ----
+    post_count = Column(Integer, nullable=False, default=0, comment='24h 内抓到的原始帖子数')
+    sample_size = Column(Integer, nullable=False, default=0,
+                         comment='实际送入 LLM 的帖子数（超过上限会采样）')
+    effective_count = Column(Integer, nullable=True,
+                             comment='模型判定的有效散户自发帖数（剔除资讯转贴后）')
+    close = Column(Numeric(precision=18, scale=4), nullable=True, comment='当日收盘价（画双轴用）')
+
+    # ---- 语义结论 ----
+    dominant_topic = Column(String(255), nullable=True, comment='当期最集中的话题')
+    reasoning = Column(Text, nullable=True, comment='模型给出的判断依据')
+    keywords = Column(JSON, nullable=True, comment='高频关键词')
+    notable_posts = Column(JSON, nullable=True, comment='代表性帖子（标题+立场）')
+
+    model = Column(String(120), nullable=True, comment='产出该条记录的模型名，便于回溯')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='写入时间')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'trade_date', name='uniq_guba_symbol_trade_date'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        def _f(v):
+            return float(v) if v is not None else None
+
+        return {
+            'symbol': self.symbol,
+            'trade_date': self.trade_date.isoformat() if self.trade_date else None,
+            'bullish_ratio': _f(self.bullish_ratio),
+            'neutral_ratio': _f(self.neutral_ratio),
+            'bearish_ratio': _f(self.bearish_ratio),
+            'sentiment_score': _f(self.sentiment_score),
+            'confidence': _f(self.confidence),
+            'heat_level': self.heat_level,
+            'post_count': self.post_count or 0,
+            'sample_size': self.sample_size or 0,
+            'effective_count': self.effective_count,
+            'close': _f(self.close),
+            'dominant_topic': self.dominant_topic,
+            'reasoning': self.reasoning,
+            'keywords': self.keywords or [],
+            'notable_posts': self.notable_posts or [],
+            'model': self.model,
+            'update_time': self.update_time.isoformat() if self.update_time else None,
+        }
+
+
+class StockFinancialReview(Base):
+    """个股「巴菲特视角 AI 财务点评」日频快照 —— 由每日定时任务 / 前端手动触发生成，
+    经系统 LLM（场景 stock_financial_review）基于真实财务数据产出，存库供卡片直接展示。
+
+    ⚠️ 与 `stock_guba_sentiment` / `stocks_fear_greed` 是**不同口径**，互不覆盖：
+      - 本表：基于财务报表文本的质量点评（巴菲特视角），主观分析产物；
+      - 那两张：价量技术情绪 / 股吧文本语义情绪，计算口径各异。
+    唯一键 (symbol, review_date)：每日定时任务按「生成日期」幂等写入；前端手动
+    「重新生成」会覆盖当天的记录。
+
+    ⚠️ 与 guba 表不同，本表额外存 `report_date`：点评所依据的「最新财报期」。
+    每日任务会比较 `report_date` 与已存最新记录的 `report_date`，财务期没变化就跳过
+    重新生成（避免财报空窗期每天烧一遍相同的 token）。
+    """
+
+    __tablename__ = 'stock_financial_review'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), nullable=False, index=True, comment='股票代码，如 600519')
+    review_date = Column(Date, nullable=False, index=True, comment='点评生成日期（每日任务归属日）')
+    report_date = Column(String(25), nullable=True, comment='点评所依据的最新财报期，如 2024-12-31')
+
+    content = Column(Text, nullable=True, comment='巴菲特视角点评全文（Markdown）')
+    model = Column(String(120), nullable=True, comment='产出该条记录的模型名，便于回溯')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='写入时间')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'review_date', name='uniq_fin_review_symbol_date'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'symbol': self.symbol,
+            'review_date': self.review_date.isoformat() if self.review_date else None,
+            'report_date': self.report_date,
+            'content': self.content,
+            'model': self.model,
+            'update_time': self.update_time.isoformat() if self.update_time else None,
+        }
+
+
 class DailyPnLRecord(Base):
     __tablename__ = 'daily_pnl_records'
 

@@ -1,5 +1,139 @@
-:root[class*='app-dark'] {
-    --surface-ground: var(--p-surface-950);
-    --code-background: var(--p-surface-800);
-    --code-color: var(--p-surface-100);
+// ⚠️ 选择器与 main.js 的 DARK_SELECTOR、tailwind.config.js 的 darkMode 三处必须一致。
+// 用精确类名，不要写成 [class*='app-dark']（子串匹配会误命中其他类名）。
+:root.app-dark {
+    // ⚠️ 与 _light.scss 同理：写死字面值，不依赖 JS 注入的 PrimeVue token。
+    --surface-ground: #09090b; // zinc-950
+    --code-background: #1f2937;
+    --code-color: #f1f5f9;
+
+    // ========== 语义化颜色层：暗色覆盖 ==========
+    // 亮色层在 _light.scss。这里只写**需要覆盖**的项，未覆盖的自动继承亮色值。
+
+    // 暗色下卡片要「浮」在页面上，比页面底色略亮（zinc-900 > zinc-950）
+    --app-bg-page: #09090b;
+    --app-bg-card: #18181b;
+    --app-bg-elevated: #27272a;
+    --app-bg-subtle: #1f2937;
+    --app-bg-hover: #27272a;
+    --app-bg-active: #3f3f46;
+
+    // 侧边栏：亮色下比页面底色深，暗色下反过来要比页面底色**亮**一档
+    // （zinc-900 > zinc-950）。深色里若沿用比页面更暗的值，侧边栏会
+    // 整个糊进背景、只剩菜单文字浮着，导航区就「消失」了。
+    // 顺带与卡片底同档 → 侧边栏与内容卡片是两个并列的面，靠右边框分隔。
+    --app-bg-sidebar: #18181b;
+    --app-border-sidebar: #3f3f46;
+
+    // 暗色下 muted 文本在深底上偏暗，提到 400 才够对比度。
+    // PrimeVue 官方也提示暗色模式不应使用 surface-700+ 作为 muted 前景色。
+    --app-text-primary: #fafafa; // zinc-50
+    --app-text-secondary: #d4d4d8; // zinc-300
+    --app-text-muted: #a1a1aa; // zinc-400
+    --app-text-inverse: #09090b;
+
+    --app-border-base: #3f3f46; // zinc-700
+    --app-border-strong: #52525b; // zinc-600
+
+    // 涨跌色在深底上必须提亮，否则红绿都糊成一片（这是暗色 A 股界面最常见的可读性问题）。
+    // ⚠️ 与 echartsTheme.js 的 COLORS 暗色档保持一致，两处必须同步改。
+    --app-up: #f87171; // red-400
+    --app-down: #4ade80; // green-400
+    --app-flat: #a1a1aa;
+
+    // 浅色阶在暗色下要「压暗」而不是继续提亮 —— 否则热力图中间档在深色里成为白洞。
+    --app-up-soft: #b04a4a;
+    --app-down-soft: #2f7d4f;
+
+    --app-up-strong: #fca5a5; // red-300
+    --app-down-strong: #86efac; // green-300
+
+    // 洗底档：深色下不能沿用亮色的浅粉/浅绿（会在深色卡片上糊出一块刺眼色块），
+    // 改为「暗红底 + 稍亮一档」做渐变。
+    --app-up-wash: #2d1516;
+    --app-up-wash-2: #3d1a1b;
+    --app-down-wash: #10251a;
+    --app-down-wash-2: #143224;
+
+    // 提示条：亮色版是「浅黄底 + 深棕字」，暗色下换成「深棕底 + 亮黄字」——
+    // 直接沿用亮色值会在深色卡片上出现一块刺眼的浅黄。
+    --app-warn-bg: #422c04;
+    --app-warn-border: #78500a;
+    --app-warn-text: #fcd34d; // amber-300
+
+    --app-accent: #fbbf24; // amber-400，亮色版 #b45309 在深底上看不清
+
+    // 错误提示条：深红底 + 亮红字，避免沿用亮色的浅红底（深色卡片上极刺眼）
+    --app-error-bg: #450a0a;
+    --app-error-border: #7f1d1d;
+    --app-error-text: #fca5a5; // red-300
+
+    --app-up-area: rgba(248, 113, 113, 0.16);
+    --app-down-area: rgba(74, 222, 128, 0.16);
+
+    // 品牌主按钮渐变：亮色版的两端饱和度本来就高，深底上偏刺眼 → 压暗一档。
+    --app-grad-hot-a: #c2410c; // orange-700
+    --app-grad-hot-b: #b91c1c; // red-700
+
+    // 选中态：深底上不能沿用 blue-50（会是一块刺眼的白蓝块），
+    // 改成「深蓝底 + 亮蓝字」，并保留蓝色左边框作为状态锚点。
+    --app-select-bg: #172554; // blue-950
+    --app-select-text: #93c5fd; // blue-300
+    --app-select-border: #3b82f6; // blue-500（这个亮度两套主题通用）
+
+    // 品牌主色实心块：PrimeVue 暗色把 --p-primary-color 提到 emerald-400，
+    // 但白字压 emerald-400 只有约 2.6:1 对比度，读不清 —— 压到600 才有反差。
+    --app-primary-solid: #059669; // emerald-600
+
+    --app-info-bg: #1e1b4b; // indigo-950
+    --app-info-border: #312e81; // indigo-900
+
+    // 虚线分隔线在深底上要比亮色版更亮一点才看得见轮廓
+    --app-border-weak: #3f3f46; // zinc-700
+
+    // 位置刻度条：深底上不能沿用亮色的淡粉/淡绿/淡橙（会糊成一块发白的脏色），
+    // 改为「压暗后的同色系」，保持低-中-高仍能分辨层次。
+    --app-scale-low: #2f5d3f;
+    --app-scale-mid: #5a4526;
+    --app-scale-high: #5c2e2e;
+
+    --app-track-bg: #3f3f46; // zinc-700
+
+    --app-link: #60a5fa; // blue-400，亮色版 #2563eb 在深底上偏暗
+
+    // ========== 暖色卡片族：暗色覆盖 ==========
+    // 卡片底从「暖白渐变」改为「深棕→深灰」渐变：既保留暖调识别度，
+    // 又不会像直接沿用 #fffaf5 那样在深色卡片上糊出一块刺眼的白。
+    --app-warm-card-from: #2a1e14; // 深棕，orange-950 一带
+    --app-warm-card-to: #1c1917; // stone-900
+    --app-warm-card-border: #4a3728;
+    --app-warm-divider: #44372c;
+
+    --app-warm-btn-bg: #3b2415;
+    --app-warm-btn-bg-hover: #4a2d19;
+    --app-warm-btn-border: #7c4a24;
+    --app-warm-btn-text: #fb923c; // orange-400
+
+    --app-tag-hot-bg: #3f1414;
+    --app-tag-hot-border: #7f2a2a;
+    --app-tag-hot-text: #fca5a5; // red-300
+
+    --app-warm-dot: #9a5b2e; // 深底上要压暗，否则亮点刺眼
+
+    // ========== 品牌红：暗色提亮 ==========
+    // #d64545 在深底上偏暗，读起来发闷；提到 red-400 亮度才够。
+    --app-brand: #f87171;
+    --app-brand-soft-bg: #2d1516; // 深酒红底，不是纯红（纯红在深底上刺眼）
+    --app-brand-ring: rgba(248, 113, 113, 0.28);
+    --app-brand-hover: #fca5a5; // red-300，hover 时更亮
+
+    // ========== 半透明边框：改用白色半透明 ==========
+    // 亮色版是黑色半透明，暗色版必须换成白色半透明，否则深底上完全看不见。
+    --app-line-soft: rgba(255, 255, 255, 0.14);
+    --app-line-strong: rgba(255, 255, 255, 0.30);
+
+    // 图标蓝：亮色版 blue-500 在深底上偏暗
+    --app-icon-info: #60a5fa; // blue-400
+
+    // 浮层投影：深底上必须用更浓的黑，否则浮层与背景糊在一起
+    --app-shadow-pop: 0 6px 20px rgba(0, 0, 0, 0.65);
 }

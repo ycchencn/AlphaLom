@@ -324,7 +324,7 @@ function fmtNum(v) {
         <div v-if="activeTab === 'screen'" class="fs-pane">
             <div class="fs-panel">
                 <div class="fs-panel-h">
-                    <span><i class="pi pi-sliders-h text-blue-500"></i> 条件构建</span>
+                    <span><i class="pi pi-sliders-h fs-icon-info"></i> 条件构建</span>
                     <span class="fs-sub" v-if="catalog">
                         可选因子 {{ Object.keys(catalogMap).length }} 个
                     </span>
@@ -403,7 +403,7 @@ function fmtNum(v) {
             <!-- 结果 -->
             <div class="fs-panel" v-if="screenResult">
                 <div class="fs-panel-h">
-                    <span><i class="pi pi-table text-blue-500"></i> 选股结果</span>
+                    <span><i class="pi pi-table fs-icon-info"></i> 选股结果</span>
                     <span class="fs-sub">
                         命中 <b>{{ screenResult.count }}</b> 只 · 截至 {{ screenResult.asof }}
                     </span>
@@ -444,7 +444,7 @@ function fmtNum(v) {
         <div v-else class="fs-pane">
             <div class="fs-panel">
                 <div class="fs-panel-h">
-                    <span><i class="pi pi-bolt text-blue-500"></i> 信号选择</span>
+                    <span><i class="pi pi-bolt fs-icon-info"></i> 信号选择</span>
                 </div>
                 <div class="fs-signal-grid">
                     <div v-for="s in signalCatalog" :key="s.key" class="fs-signal"
@@ -473,7 +473,7 @@ function fmtNum(v) {
 
             <div class="fs-panel" v-if="signalResult">
                 <div class="fs-panel-h">
-                    <span><i class="pi pi-table text-blue-500"></i> 扫描结果</span>
+                    <span><i class="pi pi-table fs-icon-info"></i> 扫描结果</span>
                     <span class="fs-sub">
                         {{ signalResult.signal_label }} · 命中 <b>{{ signalResult.count }}</b> 只 ·
                         截至 {{ signalResult.asof }}
@@ -532,30 +532,30 @@ function fmtNum(v) {
     gap: 6px;
     padding: 6px 14px;
     font-size: 13px;
-    border: 0.5px solid rgba(0, 0, 0, 0.12);
+    border: 0.5px solid var(--app-line-soft);
     border-radius: 10px;
-    background: #fff;
-    color: #4a4a4a;
+    background: var(--app-bg-card);
+    color: var(--app-text-primary);
     cursor: pointer;
     transition: all .15s;
 }
-.fs-tab:hover { border-color: rgba(0, 0, 0, 0.28); }
+.fs-tab:hover { border-color: var(--app-line-strong); }
 .fs-tab.active {
-    border-color: #d64545;
-    color: #d64545;
-    box-shadow: 0 0 0 1px rgba(214, 69, 69, 0.18);
+    border-color: var(--app-brand);
+    color: var(--app-brand);
+    box-shadow: 0 0 0 1px var(--app-brand-ring);
 }
 .fs-tabs-hint {
     font-size: 11px;
-    color: #9a9a9a;
+    color: var(--app-text-muted);
     margin-left: auto;
 }
 
 .fs-pane { display: flex; flex-direction: column; gap: 14px; }
 
 .fs-panel {
-    background: #fff;
-    border: 0.5px solid rgba(0, 0, 0, 0.1);
+    background: var(--app-bg-card);
+    border: 0.5px solid var(--app-line-soft);
     border-radius: 12px;
     padding: 14px 16px;
 }
@@ -567,8 +567,14 @@ function fmtNum(v) {
     font-weight: 500;
     margin-bottom: 12px;
 }
-.fs-sub { font-size: 11px; font-weight: 400; color: #9a9a9a; }
-.fs-sub b { color: #d64545; }
+
+/* 标题前的 pi 图标。原为写死的 Tailwind text-blue-500，
+   暗色下 blue-500 偏暗，且 Tailwind 类不受语义层控制。 */
+.fs-icon-info {
+    color: var(--app-icon-info);
+}
+.fs-sub { font-size: 11px; font-weight: 400; color: var(--app-text-muted); }
+.fs-sub b { color: var(--app-brand); }
 
 .fs-presets {
     display: flex;
@@ -577,17 +583,17 @@ function fmtNum(v) {
     gap: 8px;
     margin-bottom: 12px;
 }
-.fs-presets-k { font-size: 11px; color: #9a9a9a; }
+.fs-presets-k { font-size: 11px; color: var(--app-text-muted); }
 .fs-preset {
     padding: 4px 10px;
     font-size: 12px;
     border-radius: 12px;
-    border: 0.5px solid rgba(0, 0, 0, 0.12);
-    background: #fafafa;
-    color: #4a4a4a;
+    border: 0.5px solid var(--app-line-soft);
+    background: var(--app-bg-subtle);
+    color: var(--app-text-primary);
     cursor: pointer;
 }
-.fs-preset:hover { border-color: #d64545; color: #d64545; }
+.fs-preset:hover { border-color: var(--app-brand); color: var(--app-brand); }
 
 .fs-conds { display: flex; flex-direction: column; gap: 8px; }
 .fs-cond {
@@ -600,7 +606,7 @@ function fmtNum(v) {
 .fs-cond-val { width: 110px; flex: 0 0 110px; }
 .fs-cond-unit {
     font-size: 10px;
-    color: #a8a8a8;
+    color: var(--app-text-muted);
     white-space: nowrap;
     flex: 0 0 auto;
     min-width: 84px;
@@ -609,7 +615,7 @@ function fmtNum(v) {
 .fs-empty-hint {
     padding: 10px 0;
     font-size: 12px;
-    color: #9a9a9a;
+    color: var(--app-text-muted);
 }
 
 .fs-actions {
@@ -621,27 +627,27 @@ function fmtNum(v) {
     flex-wrap: wrap;
 }
 .fs-actions-right { display: flex; align-items: center; gap: 8px; }
-.fs-limit-k { font-size: 11px; color: #9a9a9a; }
+.fs-limit-k { font-size: 11px; color: var(--app-text-muted); }
 .fs-limit { width: 84px; }
 
 .fs-preview {
     margin-top: 12px;
     padding-top: 10px;
-    border-top: 0.5px dashed rgba(0, 0, 0, 0.1);
+    border-top: 0.5px dashed var(--app-line-soft);
     font-size: 12px;
-    color: #6b6b6b;
+    color: var(--app-text-secondary);
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: 6px;
 }
-.fs-and { color: #d64545; margin: 0 2px; }
+.fs-and { color: var(--app-brand); margin: 0 2px; }
 .fs-chip {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 10px;
-    background: #f4f6f9;
-    color: #4a4a4a;
+    background: var(--app-bg-subtle);
+    color: var(--app-text-primary);
     font-size: 11px;
 }
 
@@ -651,25 +657,25 @@ function fmtNum(v) {
     gap: 10px;
 }
 .fs-signal {
-    border: 0.5px solid rgba(0, 0, 0, 0.12);
+    border: 0.5px solid var(--app-line-soft);
     border-radius: 10px;
     padding: 10px 12px;
     cursor: pointer;
     transition: all .15s;
 }
-.fs-signal:hover { border-color: rgba(0, 0, 0, 0.28); }
+.fs-signal:hover { border-color: var(--app-line-strong); }
 .fs-signal.active {
-    border-color: #d64545;
-    background: #fffafa;
-    box-shadow: 0 0 0 1px rgba(214, 69, 69, 0.18);
+    border-color: var(--app-brand);
+    background: var(--app-brand-soft-bg);
+    box-shadow: 0 0 0 1px var(--app-brand-ring);
 }
 .fs-signal-name { font-size: 13px; font-weight: 500; margin-bottom: 3px; }
-.fs-signal-desc { font-size: 11px; color: #9a9a9a; line-height: 1.5; }
+.fs-signal-desc { font-size: 11px; color: var(--app-text-muted); line-height: 1.5; }
 
-.fs-scope { display: flex; gap: 14px; font-size: 12px; color: #4a4a4a; }
+.fs-scope { display: flex; gap: 14px; font-size: 12px; color: var(--app-text-primary); }
 .fs-radio { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 
-.fs-link { color: #3b82f6; }
+.fs-link { color: var(--app-icon-info); }
 .fs-link:hover { text-decoration: underline; }
 .fs-num { font-variant-numeric: tabular-nums; }
 </style>

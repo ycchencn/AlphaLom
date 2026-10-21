@@ -7,6 +7,7 @@
 from models import FactorValue
 from models.database import db_session as session
 from sqlalchemy import case, and_, func, Float
+from utils.common import ETF_PREFIXES
 from utils.logger import logger
 from datetime import date
 from typing import Optional, Dict, Any
@@ -17,6 +18,31 @@ from service.factor_desc import ALL_FACTOR_FIELDS, technical_fields
 # 取 1 天会漏掉绝大多数标的；取 5 天可把覆盖从 7 只提到 ~171 只，且查询仍是
 # 主键等值扫描（0.04s 级）。数值越大覆盖越全、但会引入更旧的值。
 LOOKBACK_DATES = 5
+
+
+def exclude_etf_condition():
+    """构造「排除 ETF」的 SQL 条件（作用于 FactorValue.ticker 列）。
+
+    ⚠️ 为什么用号段前缀而不是 `stocks.securities_type`：
+    因子落库走 `factor_cal_service`，ETF 与个股共用 `factor_values` 这张 EAV 表，
+    而 ETF 在 `stocks` 表里**根本没有对应行**（实测 159915 / 159258 / 512980
+    三个 ETF 都有因子数据但都不在 stocks 表中）。所以 join `stocks` 过滤反而会
+    因内连接把这些 ETF 连带漏掉、同时把「有因子但没登记 stocks 的个股」一起误杀。
+    号段前缀是全项目唯一的 ETF 判据（`utils/common.py:is_etf` 同源），这里与其保持
+    一致，不要另立一套。
+
+    ⚠️ 必须下推到 SQL 而不是查询后过滤：`select_stocks_by_factors_asof` 先 `.limit()`
+    再返回，若在路由层拿到结果后剔除 ETF，用户要 50 条只会回来 47 条 —— 等于把
+    「剔除 ETF」变成了「限量缩水」。
+
+    注意 `is_etf` 要求 6 位纯数字，前缀长度不一会漏判（如 `1` 开头不匹配 `15`），
+    所以这里保持 `startswith` 的语义，改用 `NOT LIKE '前缀%'`（等价且走不了索引，
+    但这只作用在已经按 trade_date IN 收敛后的小结果集上，实测无额外开销）。
+    """
+    return and_(*[
+        ~FactorValue.ticker.like(f'{p}%')
+        for p in ETF_PREFIXES
+    ])
 
 
 class FactorSelectorService:
@@ -194,6 +220,9 @@ class FactorSelectorService:
 
         # 第二步：只扫这些最近交易日，按 ticker 分组做条件聚合。
         # `trade_date IN (...)` 命中主键首列 → 扫描量从 1165 万行降到几十万行。
+        # ⚠️ ETF 排除放在这一层（而不是查询后过滤）——主查询下面才 `.limit()`，
+        # 事后剔除会让「要 50 条」只回来 47 条。选股器是选个股的入口，
+        # ETF 有自己独立的页面（ETF 洞察 / 轮动），不该混进这里。
         valid_latest = (
             session.query(
                 FactorValue.ticker.label('ticker'),
@@ -204,6 +233,7 @@ class FactorSelectorService:
                 FactorValue.trade_date.in_(sorted(latest_dates)),
                 FactorValue.factor_name.in_(factor_names),
                 FactorValue.value.isnot(None),
+                exclude_etf_condition(),
             )
             .subquery()
         )

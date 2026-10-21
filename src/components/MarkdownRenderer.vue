@@ -64,7 +64,9 @@ export default {
 .markdownContent {
     font-size: var(--md-font-size);
     line-height: 1.5;
-    color: #333;
+    /* 正文色走语义变量，暗色下自动反色。
+       KaTeX 公式自身不写颜色（走 currentColor 继承），这里改了公式跟着变。 */
+    color: var(--app-text-primary);
     max-width: none;
     margin: 0;
     padding: 5px;
@@ -105,7 +107,7 @@ export default {
 .markdownContent h1, .markdownContent h2, .markdownContent h3,
 .markdownContent h4, .markdownContent h5, .markdownContent h6 {
     font-weight: 600;
-    color: #2c3e50;
+    color: var(--app-text-primary);
     line-height: 1.3;
     border-bottom: none;
     padding: 0;
@@ -116,7 +118,7 @@ export default {
 }
 
 .markdownContent a {
-    color: #007bff;
+    color: var(--app-link);
     text-decoration: none;
 }
 
@@ -126,17 +128,18 @@ export default {
 
 /* 行内代码 */
 .markdownContent code {
-    background-color: #f6f8fa;
+    background-color: var(--app-bg-subtle);
     padding: 0.2em 0.4em;
     border-radius: 3px;
     font-size: 0.9em;
-    color: #d73a49;
+    /* 行内代码是标识符不是涨跌信号，用强调色而非 --app-up/--app-down */
+    color: var(--app-text-primary);
 }
 
 /* 代码块 */
 .markdownContent pre {
-    background-color: #f6f8fa;
-    border: 1px solid #eaecef;
+    background-color: var(--app-bg-subtle);
+    border: 1px solid var(--app-border-weak);
     border-radius: 4px;
     padding: 0.8em;
     overflow-x: auto;
@@ -148,7 +151,7 @@ export default {
 .markdownContent pre code {
     background: none;
     padding: 0;
-    color: #24292e;
+    color: var(--app-text-primary);
     font-size: inherit;
 }
 
@@ -156,9 +159,9 @@ export default {
 .markdownContent blockquote {
     margin: 0.8em 0;
     padding-left: 0.75em;
-    border-left: 3px solid #007bff;
-    background-color: #fafafa;
-    color: #555;
+    border-left: 3px solid var(--app-link);
+    background-color: var(--app-bg-subtle);
+    color: var(--app-text-secondary);
     font-style: normal;
     font-size: inherit;
 }
@@ -190,16 +193,17 @@ export default {
 .markdownContent th, .markdownContent td {
     padding: 0.45em 0.6em;
     text-align: left;
-    border: 1px solid #eaecef;
+    border: 1px solid var(--app-border-weak);
 }
 
 .markdownContent th {
-    background-color: #f8f9fa;
+    background-color: var(--app-bg-active);
     font-weight: 600;
 }
 
+/* 斑马纹用极淡的一档，暗色下再淡就等于没有条纹 */
 .markdownContent tr:nth-child(even) {
-    background-color: #fcfcfc;
+    background-color: var(--app-line-soft);
 }
 
 /* 公式 */

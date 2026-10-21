@@ -19,8 +19,8 @@ from pydantic import BaseModel
 from app.fastapi_app import api_prefix
 from llms import (_PLATFORM_REGISTRY, list_platform_models,
                   list_scenes as _list_llm_scenes, setting_key)
-from llms.llm_platform import (PLATFORM_META, get_platform_setting, list_platforms_view,
-                               platform_label)
+from llms.llm_platform import (PLATFORM_META, list_addable_platforms,
+                               list_platforms_view, platform_label)
 from service.system_setting_service import SystemSettingService
 from utils.auth import get_current_user, require_admin
 from utils.logger import logger
@@ -34,21 +34,20 @@ settings_router = APIRouter(prefix=f'{api_prefix}/settings', tags=['系统设置
 # 同步 `def` 路由：由 Starlette 丢进 anyio 线程池执行（读写库是阻塞调用），
 # 不要写成 async def —— 那会占死唯一事件循环、拖垮全站并发。
 
-# 平台展示名。没有登记的平台直接回退显示它的 key，不阻塞新平台接入。
-_PLATFORM_LABELS = {
-    'deepseek': 'DeepSeek',
-    'volcengine': '火山方舟',
-    'siliconflow': '硅基流动',
-    'aliyun': '阿里云百炼',
-    'zhipu': '智谱 AI',
-}
-
 
 def _platform_options() -> List[dict]:
-    """平台下拉选项，value 即 _PLATFORM_REGISTRY 的 key（前端原样回传）。"""
+    """
+    平台下拉选项，value 即 _PLATFORM_REGISTRY 的 key（前端原样回传）。
+
+    ⚠️ 只列**已添加**的平台（库里有配置行的那些）：未添加的平台没有 key，
+    选它必然调用失败。场景路由不应该允许选中一个根本没接入的平台。
+    展示名直接用后端给的 label，不再在前端维护一份硬编码映射 ——
+    那份表漏了 tencent/baidu，会让这两个平台在下拉里显示成英文 key 名。
+    """
+    from llms.llm_platform import list_platforms_view
     return [
-        {'label': _PLATFORM_LABELS.get(p, p), 'value': p}
-        for p in sorted(_PLATFORM_REGISTRY)
+        {'label': p['label'], 'value': p['platform']}
+        for p in list_platforms_view()
     ]
 
 
@@ -320,10 +319,11 @@ def _get_stored_platform_row(platform: str) -> Optional[dict]:
 
 
 def _platform_view() -> Dict[str, Any]:
-    """整组视图：平台列表（key 掩码） + 密钥是否已配置（前端据此提示）。"""
+    """整组视图：已添加平台（key 掩码）+ 待添加候选 + 密钥是否已配置。"""
     from utils.secret_box import is_configured as _secret_configured
     return {
         'platforms': list_platforms_view(),
+        'addable': list_addable_platforms(),
         'secret_key_configured': _secret_configured(),
         'secret_key_env': 'ALPHALOM_SECRET_KEY',
     }
@@ -334,44 +334,108 @@ def get_llm_platforms_setting(_admin: dict = Depends(require_admin)):
     """
     读取大模型平台配置（仅管理员）。
 
-    每个平台返回：启用状态、生效 base_url、key 掩码与来源（database / env / 无）、
-    代码默认 base_url、env 里对应的变量名。**不返回任何明文 key**。
+    返回三块：
+      - platforms：**已添加**的平台列表（库里有配置行的），含启用状态、生效 base_url、
+        key 掩码、代码默认 base_url。**不返回任何明文 key**；
+      - addable：**待添加**的候选平台（下拉「添加平台」的数据源），已添加的会排除；
+      - secret_key_configured：加解密主密钥是否就绪（没它就存不了 key）。
 
-    ⚠️ 平台清单来自代码里的 PLATFORM_META（5 个已注册平台），**不是数据库记录** ——
-    页面上的「启用/关闭、key、base_url」是**改**已有平台，没有「新增平台」这回事
-    （新增平台要在 `llms/` 里写一个 LLMBase 子类并注册，属于代码改动）。
-    这里额外兜一层兜底：万一解析层返回空（数据源异常），回退成最少标签列表，
-    避免前端显示「共 0 个平台」这种毫无线索的空态。
+    ⚠️ 语义：凭据只从数据库取。代码里的 PLATFORM_META 只决定「有哪些平台可以添加」，
+    平台是否被添加/启用一律看库里有没有那一行。未添加的平台不出现在 platforms 里，
+    也**不会**因为 .env 里残留了 key 就被激活。
     """
-    import os
-    rows = list_platforms_view()
-    if not rows:
-        # 兜底：至少把已注册的平台按 key 列出来，并标注没有可用 key 来源
-        logger.warning('list_platforms_view() 返回空，回退为最小平台清单（检查 PLATFORM_META 是否可导入）')
-        rows = [{
-            'platform': p,
-            'label': _PLATFORM_LABELS.get(p, p),
-            'docs': None,
-            'enabled': True,
-            'base_url': None,
-            'default_base_url': None,
-            'env_key_name': (PLATFORM_META.get(p) or {}).get('env_key'),
-            'has_env_key': bool((os.getenv((PLATFORM_META.get(p) or {}).get('env_key') or '')) if (PLATFORM_META.get(p) or {}).get('env_key') else False),
-            'api_key_masked': '',
-            'has_api_key': False,
-            'key_source': None,
-            'customized': False,
-        } for p in sorted(_PLATFORM_REGISTRY)]
-
     from utils.secret_box import is_configured as _secret_configured
-    view = {
-        'platforms': rows,
-        'secret_key_configured': _secret_configured(),
-        'secret_key_env': 'ALPHALOM_SECRET_KEY',
-        # 前端据此说明「平台清单是代码注册的，不可增删」
-        'platforms_are_code_defined': True,
-    }
+    view = _platform_view()
+    # ⚠️ 不做「空列表兜底成全部平台」的回退：那等于把未添加的平台伪装成已添加。
+    # 真的读不到配置时，前端会渲染「尚未添加任何平台 + 从下拉添加」，这才是对的空态。
+    view['platforms_are_code_defined'] = False
+    view['all_candidates'] = sorted(PLATFORM_META.keys())
     return {'code': 0, 'data': view, **view}
+
+
+class LlmPlatformAddRequest(BaseModel):
+    """
+    添加平台的入参。
+
+    - platform：必须是代码已注册的平台（PLATFORM_META）；
+    - api_key：明文 key，加密后落库；
+    - base_url：留空则用该平台的代码默认地址；
+    - label：可选，覆盖默认展示名（一般不需要，留给未来自定义场景）。
+
+    ⚠️ api_key 必填：凭据只认数据库，不添加等于不可用，让管理员先填 key 再加更符合直觉。
+    """
+    platform: str
+    api_key: str
+    base_url: Optional[str] = None
+    label: Optional[str] = None
+
+
+@settings_router.post('/llm_platforms')
+def add_llm_platform_setting(
+        req: LlmPlatformAddRequest,
+        _admin: dict = Depends(require_admin),
+):
+    """
+    从下拉添加一个新平台（仅管理员）。添加即在库里建一行，默认可用。
+
+    与 PUT 的区别：
+      - POST = 添加（库里必须没有这一行），必填 api_key；
+      - PUT  = 修改已添加平台的某几项（库里可以没有行 —— 那是「添加后先只开开关」的场景）。
+
+    幂等：重复添加同一个平台返 409，而不是静默覆盖已有 key（否则一次误点就把配好的 key 冲掉）。
+    """
+    platform = (req.platform or '').strip()
+    if platform not in PLATFORM_META:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的平台：{platform}，支持：{', '.join(sorted(PLATFORM_META))}",
+        )
+    if _get_stored_platform_row(platform) is not None:
+        raise HTTPException(status_code=409, detail=f'平台「{platform_label(platform)}」已添加，请直接修改其配置')
+
+    plain = (req.api_key or '').strip()
+    if not plain:
+        raise HTTPException(status_code=400, detail='添加平台时必须填写 API Key')
+
+    from utils.secret_box import encrypt, is_configured as _secret_configured
+    if not _secret_configured():
+        raise HTTPException(
+            status_code=400,
+            detail='未配置加解密主密钥（ALPHALOM_SECRET_KEY），无法安全保存 API Key。'
+                   '请在 .env 中设置一段随机口令并重启服务。',
+        )
+    try:
+        cipher = encrypt(plain)
+    except Exception as e:
+        logger.error(f'加密平台 key 失败 platform={platform}: {e}')
+        raise HTTPException(status_code=500, detail='API Key 加密失败，请检查 SECRET_KEY 配置')
+
+    base_url = (req.base_url or '').strip()
+    if base_url:
+        if not base_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail='base_url 必须以 http:// 或 https:// 开头')
+        base_url = base_url.rstrip('/')
+
+    value: Dict[str, Any] = {'enabled': True, 'api_key': cipher}
+    if base_url:
+        value['base_url'] = base_url
+
+    try:
+        SystemSettingService.upsert(
+            key=_platform_setting_key(platform),
+            value=value,
+            group=LLM_PLATFORM_GROUP,
+            value_type='json',
+            description=f'大模型平台配置（{platform_label(platform)}）：启用开关 / API Key / Base URL',
+            updated_by=_admin.get('username'),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f'添加平台配置失败 platform={platform}: {e}')
+        raise HTTPException(status_code=500, detail=f'添加失败：{e}')
+
+    return {'code': 0, 'message': 'ok', 'added': platform, 'data': _platform_view()}
 
 
 class LlmPlatformSettingRequest(BaseModel):
@@ -397,6 +461,9 @@ def update_llm_platform_setting(
     """
     写入某个平台的配置（存在则更新；未传的字段沿用当前值）。改完立即生效，无需重启。
 
+    与 POST 添加平台的分工：正常流程一律先用 POST 添加（必填 key），
+    这里用于添加之后的日常调整 —— 改开关、改 base_url、轮换 key。
+
     校验：
     - platform 必须是 llms 已登记的平台；
     - base_url 非空时必须是 http(s) 开头（防手滑写成裸域名导致 SDK 报难以定位的错）；
@@ -409,11 +476,13 @@ def update_llm_platform_setting(
             detail=f"不支持的平台：{platform}，支持：{', '.join(sorted(PLATFORM_META))}",
         )
 
-    # 以当前生效值 + 表内原始行为基础合并（表里没有行时 stored 为 None）
+    # 以表内原始行为基础合并（表里没有行时 stored 为空 dict）。
+    # ⚠️ enabled 的兜底必须用 True，不能用 get_platform_setting()：库里没行时
+    # _resolve 会返回 added=False / enabled=False（= 未添加），
+    # 拿它当兜底会把「首次给某平台写配置」的结果建成 enabled=False，平台添加了却用不了。
     stored = _get_stored_platform_row(platform) or {}
     merged: Dict[str, Any] = {
-        'enabled': stored.get('enabled', True) if isinstance(stored.get('enabled'), bool)
-        else bool(get_platform_setting(platform).get('enabled', True)),
+        'enabled': stored.get('enabled') if isinstance(stored.get('enabled'), bool) else True,
         'api_key': stored.get('api_key'),
         'base_url': stored.get('base_url'),
     }
@@ -446,7 +515,8 @@ def update_llm_platform_setting(
             logger.error(f'加密平台 key 失败 platform={platform}: {e}')
             raise HTTPException(status_code=500, detail='API Key 加密失败，请检查 SECRET_KEY 配置')
 
-    # 若三项都为空且表里本来没行，就不必建行（避免「建了行但内容等同默认」）
+    # 若三项都为空且表里本来没行，就不必建行（避免「建了行但内容等同默认」）。
+    # ⚠️ 语义：这等同于「没添加这个平台」，不是「添加了但没配」。
     if not merged.get('api_key') and not merged.get('base_url') and merged.get('enabled') is True \
             and stored == {}:
         return {'code': 0, 'message': 'ok', 'data': _platform_view()}
@@ -475,8 +545,10 @@ def reset_llm_platform_setting(
         _admin: dict = Depends(require_admin),
 ):
     """
-    删除某个平台的表内配置 = 完全恢复 env / 代码默认值（key、base_url、启用状态一起回退）。
+    移除某个平台 = 删除它的表内配置行。移除后该平台回到「未添加」状态，
+    路由到它的业务场景会明确报错（需改到其它平台或先重新添加）。
 
+    ⚠️ 不再是「恢复默认」：凭据只认数据库，删行 = key 彻底消失，不是回落到 .env。
     幂等：本来就没有配置行时也返回成功，只是 deleted=False。
     """
     platform = (platform or '').strip()

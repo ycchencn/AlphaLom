@@ -140,11 +140,11 @@ onBeforeMount(() => {
 <style scoped>
 
 .bg-red-500{
-    background: #ac312e;
+    background: var(--app-up);
 }
 
 .bg-green-500{
-    background: #12783c;
+    background: var(--app-down);
 }
 
 .custom-scrollbar::-webkit-scrollbar {

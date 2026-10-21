@@ -2,7 +2,7 @@
 
 import {FilterMatchMode, FilterOperator} from '@primevue/core/api';
 import {computed, onBeforeMount, ref} from 'vue';
-import {formatPercentage} from '@/utils/function';
+import {formatPercentage, toneClass} from '@/utils/function';
 import ToggleSwitch from 'primevue/toggleswitch';
 import axios from 'axios';
 import {useNotification} from '@/composables/useNotification';
@@ -41,15 +41,18 @@ async function closeMonitoring(row) {
 // ==================== 赔率过滤 ====================
 // 「赔率低」的判定口径：**保守情景空间 <= 0**。
 // 即哪怕按 DCF 最悲观的一档估值，价格也已经没有上行空间（估值 >= 现价），
-// 这种票风险收益比很差，默认不展示。
+// 这种票风险收益比很差。
 //
 // 为什么不看「中性空间」：中性情景偏乐观，很多票中性为正、保守为负，
 // 也就是说「合理估值下能涨，但一旦基本面走弱就要亏」，这恰恰是低赔率的典型特征。
 const MIN_ODDS_SPACE = 0;
 
-// 默认开启过滤（用户明确要求「赔率很低的不要显示」）；
-// 保留开关是为了不丢信息 —— 需要看全量时一键切回，且表头会告知隐藏了多少只。
-const hideLowOdds = ref(true);
+// 默认**不**隐藏低赔率（2026-10-20 用户要求：默认展示全量）。
+// ⚠️ 之前默认是 true（当时要求「赔率很低的不要显示」），后来发现默认过滤会让
+// 用户以为这些票不存在，且看不到它们的保守空间到底差多少 —— 低赔率本身就是
+// 有价值的信息（说明下行风险大于上行空间），不该被静默藏起来。
+// 开关保留：需要聚焦赔率合格的标的时可一键打开。
+const hideLowOdds = ref(false);
 
 // 判定单条记录是否属于「低赔率」。
 // ⚠️ cons_space 缺失（null）时**不算**低赔率 —— 缺数据不等于赔率差，
@@ -193,7 +196,7 @@ function initFilters1() {
             </Column>
             <Column field="opt_space" filterField="opt_space" header="乐观空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.opt_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.opt_space)">
                         {{ data.opt_space != null ? (data.opt_space * 100).toFixed(2) : '--' }}%
                     </span>
                 </template>
@@ -205,7 +208,7 @@ function initFilters1() {
             </Column>
             <Column field="mid_space" filterField="mid_space" header="中性空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.mid_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.mid_space)">
                         {{ data.mid_space != null ? (data.mid_space * 100).toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
@@ -217,7 +220,7 @@ function initFilters1() {
             </Column>
             <Column field="cons_space" filterField="cons_space" header="保守空间" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.cons_space > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.cons_space)">
                         {{ data.cons_space != null ? (data.cons_space * 100).toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
@@ -268,11 +271,11 @@ function initFilters1() {
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 贪婪 - 浅绿 */
+    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef5350 !important; /* 极度贪婪 - 绿 */
+    background: var(--app-up) !important; /* 极度贪婪 - 红 */
 }
 
 :deep(.p-progressbar) {
@@ -304,7 +307,7 @@ function initFilters1() {
 
 /* 靛紫色 - 洗盘 */
 .phase-tag--rise {
-    background-color: #389e0d;
+    background-color: var(--app-down);
 }
 
 /* 绿色 - 拉升 */

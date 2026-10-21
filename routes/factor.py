@@ -13,7 +13,9 @@
 只读为主：除 `/factor/screen`（纯查询选股）外不写任何数据。
 """
 
-from typing import Optional, List
+import time
+from datetime import datetime
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel, Field
@@ -21,12 +23,14 @@ from pydantic import BaseModel, Field
 from app.fastapi_app import api_prefix, json_resp
 from service.factor_analysis_service import FactorAnalysisService, TECH_FACTOR_GROUPS
 from service.factor_service import FactorValueService
-from service.factor_selector_service import FactorSelectorService
+from service.factor_selector_service import FactorSelectorService, exclude_etf_condition
 from service.factor_desc import factor_descriptions
 from service import StockService
 from service.trading_calendar_service import get_latest_trading_date
+from service.etf_service import FACTOR_BACKFILL_DAYS
 from utils.auth import get_current_user, get_current_user_id
 from utils.logger import logger
+from utils.redis_obj import redis_obj
 
 # 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
 # ⚠️ router 级依赖返回值不注入 endpoint，不污染缓存键、不改函数签名。
@@ -109,6 +113,123 @@ def get_factor_series(
     if len(fields) > 12:
         raise HTTPException(status_code=400, detail='一次最多查询 12 个因子')
     return json_resp(FactorAnalysisService.get_factor_series(symbol, fields, lookback_days=lookback_days))
+
+
+# ==================== L0 · 因子重算 ====================
+# 「一键重算」：看板上的数据是 factor_values 里的落库值，日更只按监控池跑一遍，
+# 新加的标的 / 因子算法升级过的标的不会立刻反映到看板上。这里提供手动触发口。
+#
+# ⚠️ 刻意**只投队列、不在请求里同步算**：单个标的 1100 天窗口的因子计算要几十秒
+# （上游行情请求 + pandas 全量因子 + 整段重写），放在请求里必然超时；而队列是
+# prefetch=1 串行消费，塞进一条重任务还会顶住后面所有人的任务（见 routes/market.py
+# 手动刷新闻同款取舍）。所以本接口只保证「已入队」，完成与否由前端轮询 status 判断。
+#
+# 冷却用 Redis SET NX EX（单键原子、多 worker 天然互斥），超时返 429 + Retry-After，
+# 与 routes/market.py::refresh_news_digest 同一套写法。
+FACTOR_RECALC_COOLDOWN_SEC = 300
+FACTOR_RECALC_LOCK_KEY = 'alphalom:factor_recalc'
+
+
+class FactorRecalcRequest(BaseModel):
+    asset_type: str = Field('stock', pattern='^(stock|etf)$', description=_ASSET_TYPE_DESC)
+    # full=True → save_last=False：先 delete_by_ticker 再整段重写，补齐 3 年历史（慢，~1分钟）
+    # full=False → save_last=True：只重算最新一个交易日，与日更口径一致（快，~几秒）
+    full: bool = Field(False, description='是否整段重写历史（true=补 3 年，false=只算最新一天）')
+
+
+@factor_router.put('/factor/stock/{symbol}/recalc')
+def recalc_factor(symbol: str, req: FactorRecalcRequest):
+    """手动触发因子重算（入队异步执行，个股与 ETF 同一入口）。
+
+    ⚠️ 需要登录（router 级已有 get_current_user）：本操作会向队列塞一条重任务
+    （full 模式单只实测约 1 分钟），不设门槛等于任何人都能无限塞队列堵住别人。
+
+    ⚠️ job_args **不新增任何键**，与 job_update_stock_factor 现有签名严格一致：
+    新增键会要求 web 与 job_server 同时部署，否则旧消费者 `job_func(**job_args)`
+    直接 TypeError（见 routes/stock.py::_dispatch_stock_analysis 的同类告诫）。
+
+    ⚠️ asset_type 必须由调用方显式传，不靠代码号段猜：562xxx 曾被当个股取数，
+    因子被 dropna 掉后整段重写 = 把已有的正确数据清成空。
+    """
+    symbol = (symbol or '').strip()
+    if not symbol:
+        raise HTTPException(status_code=400, detail='symbol 不能为空')
+
+    lock_key = f'{FACTOR_RECALC_LOCK_KEY}:{symbol}'
+    # 键值写**入队时刻的时间戳**（不是 '1'）：状态接口靠它与库里 MAX(update_time)
+    # 比较来判断重算是否已完成，冷却语义（NX + TTL）与去重语义共用一个键。
+    if not redis_obj.set(lock_key, str(int(time.time())), nx=True, ex=FACTOR_RECALC_COOLDOWN_SEC):
+        try:
+            waiting = max(int(redis_obj.ttl(lock_key)), 1)
+        except Exception:
+            waiting = FACTOR_RECALC_COOLDOWN_SEC
+        raise HTTPException(
+            status_code=429,
+            detail=f'该标的刚触发过重算，请 {waiting} 秒后再试',
+            headers={'Retry-After': str(waiting)},
+        )
+
+    try:
+        from service import JobService
+        JobService.send_job({
+            'job_func': 'job_update_stock_factor',
+            'job_args': {
+                'stock_code': symbol,
+                'asset_type': req.asset_type,
+                'save_last': not req.full,
+                'time_period': -FACTOR_BACKFILL_DAYS if req.full else -400,
+            },
+        })
+    except Exception as e:
+        # 投递失败要把冷却键放掉，否则用户要干等 5 分钟才能重试
+        try:
+            redis_obj.delete(lock_key)
+        except Exception:
+            pass
+        logger.error(f'[factor] 投递因子重算任务失败 {symbol}: {e}', exc_info=True)
+        raise HTTPException(status_code=500, detail='任务投递失败，请稍后重试')
+
+    return json_resp({
+        'symbol': symbol,
+        'asset_type': req.asset_type,
+        'full': req.full,
+        # 前端据此提示「已入队，稍后自动刷新」；full=True 要明说会重写全部历史
+        'message': '重算任务已提交',
+        'cooldown_sec': FACTOR_RECALC_COOLDOWN_SEC,
+    })
+
+
+@factor_router.get('/factor/stock/{symbol}/recalc_status')
+def get_factor_recalc_status(symbol: str):
+    """重算进度查询：是否已入队 + 当前因子的新鲜度（前端据此自动刷新）。
+
+    ⚠️ 队列本身不回报执行结果（Redis Stream 只有 ACK，job_server 也不写状态表），
+    所以这里的「是否完成」用**库里的最新 update_time 是否晚于冷却键的写入时间**判定，
+    而不是查任务状态 —— 冷却是 NX 写入、值即入队时刻，天然就是这个语义。
+    """
+    symbol = (symbol or '').strip()
+    lock_key = f'{FACTOR_RECALC_LOCK_KEY}:{symbol}'
+    dispatched_at = None
+    try:
+        raw = redis_obj.get(lock_key)
+        if raw:
+            dispatched_at = datetime.fromtimestamp(int(raw))
+    except Exception as e:
+        # Redis 抖动不该让「刷新中」这个辅助信息把整个状态接口打挂
+        logger.warning(f'[factor] 读取重算状态失败 {symbol}: {e}')
+
+    data = FactorValueService.get_ticker_stats(symbol)
+    last_update = data.get('last_update')
+    done = bool(dispatched_at and last_update and last_update >= dispatched_at)
+    return json_resp({
+        'symbol': symbol,
+        'dispatched_at': dispatched_at.strftime('%Y-%m-%d %H:%M:%S') if dispatched_at else None,
+        'done': done,
+        'last_update': last_update.strftime('%Y-%m-%d %H:%M:%S') if last_update else None,
+        'latest_trade_date': str(data.get('latest_trade_date')) if data.get('latest_trade_date') else None,
+        'history_days': data.get('history_days', 0),
+        'factor_count': data.get('factor_count', 0),
+    })
 
 
 # ==================== L1 · 技术面仪表盘 ====================
@@ -358,7 +479,8 @@ def _eval_signal(signal: str, universe: Optional[List[str]], asof, limit: int) -
                 func.max(FactorValue.trade_date).label('md'),
             )
             .filter(FactorValue.factor_name == factor_name,
-                    FactorValue.trade_date.in_(dates))
+                    FactorValue.trade_date.in_(dates),
+                    exclude_etf_condition())
             .group_by(FactorValue.ticker)
         )
         if universe:
@@ -402,7 +524,8 @@ def _eval_signal(signal: str, universe: Optional[List[str]], asof, limit: int) -
             )
             .filter(FactorValue.factor_name.in_(['macd', 'macd_signal']),
                     FactorValue.trade_date.in_(dates),
-                    FactorValue.value.isnot(None))
+                    FactorValue.value.isnot(None),
+                    exclude_etf_condition())
         )
         if universe:
             recent = recent.filter(FactorValue.ticker.in_(universe))

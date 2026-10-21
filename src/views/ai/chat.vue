@@ -367,15 +367,15 @@ onUnmounted(() => {
                 :key="agent.id"
                 @click="selectAgent(agent.id)"
                 :class="[
-                  'agent-item p-3 rounded-lg cursor-pointer mb-2 transition-colors',
+                  'agent-item p-3 rounded-lg cursor-pointer mb-2 transition-colors border',
                   currentAgentId === agent.id
-                    ? 'bg-primary-50 border border-primary-200'
-                    : 'hover:bg-gray-100 border border-transparent'
+                    ? 'is-selected'
+                    : 'hover:bg-gray-100 border-transparent'
                 ]"
               >
                 <div class="flex items-center gap-3">
                   <div
-                    class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-lg font-bold"
+                    class="w-10 h-10 rounded-full solid-primary flex items-center justify-center text-lg font-bold"
                   >
                     {{ agent.emoji || '🤖' }}
                   </div>
@@ -421,7 +421,7 @@ onUnmounted(() => {
             <!-- 当前智能体信息头部 -->
             <div v-if="currentAgent" class="p-4 bg-white border-b border-gray-200 flex items-center gap-3">
                 <div
-                    class="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center text-lg font-bold"
+                    class="w-10 h-10 rounded-full solid-primary flex items-center justify-center text-lg font-bold"
                 >
                     {{ currentAgent.emoji || '🤖' }}
                 </div>
@@ -439,7 +439,7 @@ onUnmounted(() => {
                 <div v-else class="mb-4" v-for="msg in currentAgent.messages" :key="msg.id">
                     <!-- 用户消息 -->
                     <div class="flex justify-end mb-2" v-if="msg.role === 'user'">
-                        <div class="bg-primary text-white rounded-lg px-4 py-2 max-w-[95%]">
+                        <div class="solid-primary rounded-lg px-4 py-2 max-w-[95%]">
                             <p>{{ msg.content }}</p>
                         </div>
                     </div>
@@ -541,20 +541,20 @@ onUnmounted(() => {
     width: 6px;
 }
 ::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--app-bg-subtle);
 }
 ::-webkit-scrollbar-thumb {
-    background: #888;
+    background: var(--app-text-muted);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--app-text-secondary);
 }
 /* 左侧智能体列表样式 */
 .agent-item {
     transition: all 0.2s;
 }
 .agent-item:hover {
-    background-color: #f3f4f6;
+    background-color: var(--app-bg-active);
 }
 </style>

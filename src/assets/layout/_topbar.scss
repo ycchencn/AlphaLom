@@ -2,7 +2,7 @@
 
 .layout-topbar {
     //position: fixed;
-    height: 4rem;
+    height: 4.4rem;
     z-index: 997;
     //left: 0;
     //top: 0;
@@ -14,7 +14,8 @@
     align-items: center;
     //box-shadow: 0 2px 6px rgba(0,0,0,.08);
     margin-left: var(--left-menu-grap);
-    border-bottom: 1px solid #eee;
+    // ⚠️ 原来写死 #eee —— 暗色下这条 1px 边框会变成刺眼的浅灰线。
+    border-bottom: 1px solid var(--app-border-base);
 
     .layout-topbar-logo-container {
         width: 20rem;

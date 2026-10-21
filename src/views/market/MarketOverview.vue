@@ -27,7 +27,10 @@ import * as echarts from 'echarts'
 import {
     COLORS, LINE, FONT,
     axisLabel, splitLine, tooltipBase, lineSeriesStyle, markLevels, areaGradient,
+    registerThemeRedraw,
 } from '@/utils/echartsTheme'
+import { fearGreedColor as fgColor } from '@/utils/function'
+import { isDark } from '@/composables/useTheme'
 import ProgressBar200p from '@/components/ProgressBar200p.vue'
 
 // ========================
@@ -109,15 +112,10 @@ const fearGreedLabel = (val) => {
     return '极度贪婪'
 }
 
-// 情绪色带：恐惧偏绿、贪婪偏红（与 A 股红涨绿跌一致）
-const fearGreedColor = (val) => {
-    if (val == null) return '#909399'
-    if (val < 25) return '#12783c'
-    if (val < 45) return '#4a9e6b'
-    if (val < 55) return '#909399'
-    if (val < 75) return '#e8874a'
-    return '#ef4444'
-}
+// 情绪色带：恐惧偏绿、贪婪偏红（与 A 股红涨绿跌一致）。
+// ⚠️ 直接复用 function.js 的 fearGreedColor —— 它内部走 COLORS（统一涨跌色 +
+//    随暗黑模式切换）。本页曾另写一份并硬编码中间档 hex，与档位定义脱钩。
+const fearGreedColor = (val) => fgColor(val);
 
 // ========================
 // 指数行情（F1）
@@ -279,7 +277,17 @@ const lazyInitChart = (el, existing) => {
 // ── 热力图 ──
 // 涨跌幅 → 红涨绿跌的分歧色带。上下限对称（min=-maxAbs, max=+maxAbs），
 // 这样 0 一定落在色带正中间（近白），不会因为数据整体偏红/偏绿而误导。
-const HEAT_COLORS = ['#12783c', '#6fbf8f', '#eef2f6', '#e88989', '#c0392b']
+// 热力图色阶：跌（绿）→ 平（中性）→ 涨（红）。
+// ⚠️ 中间两档原来写死 '#6fbf8f' / '#eef2f6'，暗色下前者偏亮、后者是浅灰底 ——
+//    浅灰格在深色热力图里会成一个显眼的白洞。改为按当前主题取色。
+//    两端用 COLORS（统一涨跌色），中间档用同族 soft 色 + 暗色下的中性格。
+const HEAT_COLORS = () => [
+    COLORS.down,                          // 深跌
+    isDark.value ? '#2f7d4f' : '#6fbf8f', // 浅跌（同族浅绿）
+    isDark.value ? '#3f3f46' : '#eef2f6', // 平（中性格）
+    isDark.value ? '#b04a4a' : '#e88989', // 浅涨（同族浅红）
+    COLORS.up,                            // 深涨
+]
 
 const rotHeatRef = ref(null)
 let rotHeatChart = null
@@ -292,7 +300,7 @@ let chartResizeObserver = null
 const heatColorFor = (row) => {
     // 气泡/格子里的数字要能看清：深色底用白字，浅色底用深字。
     // 阈值取色带的一半，超过就认为是"饱和色"。
-    return Math.abs(row) > 0.55 ? '#ffffff' : '#1f2937'
+    return Math.abs(row) > 0.55 ? COLORS.textStrong : COLORS.textStrong
 }
 
 const renderRotationHeat = async (maxAbs, rows) => {
@@ -372,7 +380,7 @@ const renderRotationHeat = async (maxAbs, rows) => {
             itemHeight: 150,
             text: [`+${maxAbs}%`, `-${maxAbs}%`],
             textStyle: {fontSize: FONT.axis, color: COLORS.axisLabel},
-            inRange: {color: HEAT_COLORS}
+            inRange: {color: HEAT_COLORS()}
         },
         series: [{
             type: 'heatmap',
@@ -392,10 +400,10 @@ const renderRotationHeat = async (maxAbs, rows) => {
 // x = 最新一个交易日涨跌幅（当日动量），y = 窗口累计涨幅（区间动量）。
 // 四象限解读：右上「强势延续」/ 右下「超跌反弹」/ 左上「高位回落」/ 左下「持续走弱」。
 const QUADRANTS = [
-    {name: '强势延续', color: '#dc2626', test: (x, y) => x >= 0 && y >= 0},
+    {name: '强势延续', color: COLORS.up, test: (x, y) => x >= 0 && y >= 0},
     {name: '超跌反弹', color: '#f97316', test: (x, y) => x >= 0 && y < 0},
     {name: '高位回落', color: '#3b82f6', test: (x, y) => x < 0 && y >= 0},
-    {name: '持续走弱', color: '#16a34a', test: (x, y) => x < 0 && y < 0}
+    {name: '持续走弱', color: COLORS.down, test: (x, y) => x < 0 && y < 0}
 ]
 
 // 标签层（独立 scatter series）的锚点常量：
@@ -594,8 +602,8 @@ const renderRotationQuad = async (rows) => {
             label: {fontSize: FONT.label, color: COLORS.axisLabel, position: 'insideTopLeft', distance: 8},
             data: [
                 [{name: '高位回落', xAxis: xMin, yAxis: 0, itemStyle: {color: '#3b82f6'}}, {xAxis: 0, yAxis: yMax}],
-                [{name: '强势延续', xAxis: 0, yAxis: 0, itemStyle: {color: '#dc2626'}}, {xAxis: xMax, yAxis: yMax}],
-                [{name: '持续走弱', xAxis: xMin, yAxis: yMin, itemStyle: {color: '#16a34a'}}, {xAxis: 0, yAxis: 0}],
+                [{name: '强势延续', xAxis: 0, yAxis: 0, itemStyle: {color: COLORS.up}}, {xAxis: xMax, yAxis: yMax}],
+                [{name: '持续走弱', xAxis: xMin, yAxis: yMin, itemStyle: {color: COLORS.down}}, {xAxis: 0, yAxis: 0}],
                 [{name: '超跌反弹', xAxis: 0, yAxis: yMin, itemStyle: {color: '#f97316'}}, {xAxis: xMax, yAxis: 0}]
             ]
         },
@@ -774,9 +782,9 @@ const renderFearGreedChart = async () => {
             data: rows.map((r) => r.fear_greed),
             smooth: true,
             showSymbol: false,
-            ...lineSeriesStyle({color: '#ef4444', shadow: false}),
+            ...lineSeriesStyle({color: COLORS.up, shadow: false}),
             areaStyle: {
-                color: areaGradient('#ef4444', 0.28, 0.02)
+                color: areaGradient(COLORS.up, 0.28, 0.02)
             },
             // 50 为多空分界参考线
             markLine: markLevels([50, 25, 75], {color: COLORS.guideStrong})
@@ -854,7 +862,7 @@ const gvPeriods = computed(() => growth_value.value?.periods || [])
 // 比值涨 → 成长占优（红）；跌 → 价值占优（绿）。与全站红涨绿跌一致。
 const ratioColor = computed(() => {
     const v = gvLatest.value?.ratio
-    if (v == null) return '#909399'
+    if (v == null) return COLORS.flat
     if (v > 1) return 'var(--color-up)'
     if (v < 1) return 'var(--color-down)'
     return 'var(--color-flat)'
@@ -886,7 +894,7 @@ const gvBarWidth = (norm) => {
 
 // 成分腿的颜色：>1 表示该腿跑赢（红），<1 表示跑输（绿）
 const gvLegColor = (norm) => {
-    if (norm == null) return '#909399'
+    if (norm == null) return COLORS.flat
     if (norm > 1) return 'var(--color-up)'
     if (norm < 1) return 'var(--color-down)'
     return 'var(--color-flat)'
@@ -932,7 +940,7 @@ const renderGrowthValueChart = async () => {
 
     // 比值线的颜色跟随「相对起点」的方向：>1 成长占优，<1 价值占优
     const lastRatio = ratio[ratio.length - 1]
-    const mainColor = lastRatio > 1 ? '#ef4444' : (lastRatio < 1 ? '#12783c' : '#909399')
+    const mainColor = lastRatio > 1 ? COLORS.up : (lastRatio < 1 ? COLORS.down : COLORS.flat)
 
     chart.setOption({
         // 右侧留白给副轴刻度
@@ -998,7 +1006,7 @@ const renderGrowthValueChart = async () => {
                 data: gNorm,
                 smooth: true,
                 showSymbol: false,
-                ...lineSeriesStyle({color: '#ef4444', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+                ...lineSeriesStyle({color: COLORS.up, width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             },
             {
                 name: '上证红利',
@@ -1007,7 +1015,7 @@ const renderGrowthValueChart = async () => {
                 data: vNorm,
                 smooth: true,
                 showSymbol: false,
-                ...lineSeriesStyle({color: '#12783c', width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
+                ...lineSeriesStyle({color: COLORS.down, width: LINE.secondary, type: 'dotted', opacity: 0.45, shadow: false})
             }
         ]
     })
@@ -1069,7 +1077,20 @@ onMounted(async () => {
     startTimers()
 })
 
+// ==================== 暗色模式：图表重绘 ====================
+// ECharts 的 setOption 是**快照** —— option 里的坐标轴/网格线颜色在调用那一刻就固化了，
+// CSS 变量对 canvas 无效（echartsTheme 的 COLORS 已按当前主题取值，但只在调用时读一次）。
+// 所以切主题后必须重跑一遍 renderXxx，否则会停留在旧配色。
+//
+// 直接复用已有的 render 函数，不重复实现绘图逻辑。
+const stopThemeRedraw = registerThemeRedraw(() => {
+    renderFearGreedChart()
+    renderGrowthValueChart()
+    renderRotationCharts()
+})
+
 onUnmounted(() => {
+    stopThemeRedraw()
     stopTimers()
     document.removeEventListener('visibilitychange', onVisibilityChange)
     disconnectCharts()
@@ -1564,7 +1585,8 @@ onUnmounted(() => {
     /* 页面外边距对齐全站约定：横向 2rem（=24px），与 .card 页内容左边缘一致（204）。
        原先是四边 1.5rem，横向比别人少 6px，看起来「缩了一点」。 */
     padding: 2rem;
-    background: #f5f7fb;
+    /* 原为 #f5f7fb。暗色下必须走语义变量 —— 写死会在深色主题里留一条白底带。 */
+    background: var(--app-bg-page);
     min-height: 100vh;
 }
 
@@ -1596,7 +1618,7 @@ onUnmounted(() => {
     .title {
         font-size: 1.8rem;
         font-weight: 700;
-        color: #1e293b;
+        color: var(--app-text-primary);
         margin: 0;
     }
 
@@ -1607,7 +1629,7 @@ onUnmounted(() => {
     }
 
     .update-time {
-        color: #64748b;
+        color: var(--app-text-secondary);
         font-size: 0.9rem;
     }
 
@@ -1616,7 +1638,7 @@ onUnmounted(() => {
         display: flex;
         align-items: center;
         gap: 0.4rem;
-        color: #475569;
+        color: var(--app-text-secondary);
         font-size: 0.9rem;
         cursor: pointer;
         user-select: none;
@@ -1662,7 +1684,8 @@ onUnmounted(() => {
 // ========================
 .fear-greed-card {
     margin-bottom: 1.5rem;
-    background: #fff;
+    /* 原为 #fff。恐惧贪婪 / 成长vs价值 两张卡片都是这块底色。 */
+    background: var(--app-bg-card);
 }
 
 .fear-greed-body {
@@ -1692,7 +1715,7 @@ onUnmounted(() => {
 
         .fg-date {
             font-size: 0.8rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-top: 0.25rem;
         }
 
@@ -1708,7 +1731,7 @@ onUnmounted(() => {
                 align-items: center;
                 gap: 0.4rem;
                 font-size: 0.9rem;
-                color: #64748b;
+                color: var(--app-text-secondary);
 
                 .score-name {
                     flex: 0 0 3.6rem;
@@ -1719,7 +1742,7 @@ onUnmounted(() => {
                 .score-track {
                     flex: 1;
                     height: 5px;
-                    background: #eef1f6;
+                    background: var(--app-bg-subtle);
                     border-radius: 3px;
                     overflow: hidden;
 
@@ -1735,7 +1758,7 @@ onUnmounted(() => {
                     flex: 0 0 3.2rem;
                     text-align: right;
                     font-weight: 600;
-                    color: #0f172a;
+                    color: var(--app-text-primary);
                     font-variant-numeric: tabular-nums;
                 }
 
@@ -1755,7 +1778,7 @@ onUnmounted(() => {
 
         .fg-chart-title {
             font-size: 0.85rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-bottom: 0.3rem;
         }
 
@@ -1785,7 +1808,7 @@ onUnmounted(() => {
     // 标题右侧的区间说明，弱化显示
     .gv-window {
         font-size: 0.8rem;
-        color: #94a3b8;
+        color: var(--app-text-muted);
         font-weight: 400;
     }
 }
@@ -1841,7 +1864,7 @@ onUnmounted(() => {
 }
 
 .text-muted {
-    color: #94a3b8;
+    color: var(--app-text-muted);
 }
 
 // ========================
@@ -1876,7 +1899,7 @@ onUnmounted(() => {
     font-size: 0.9rem;
 
     .rot-meta-text {
-        color: #64748b;
+        color: var(--app-text-secondary);
     }
 
     // ⚠️ 长中文文案必须给 min-width: 0 + 允许换行：否则 flex 子项的最小内容宽度
@@ -1885,16 +1908,16 @@ onUnmounted(() => {
         min-width: 0;
         padding: 0.2rem 0.6rem;
         border-radius: 4px;
-        background: #fef6e0;
-        border: 1px solid #f5dfa6;
-        color: #8a6100;
+        background: var(--app-warn-bg);
+        border: 1px solid var(--app-warn-border);
+        color: var(--app-warn-text);
         overflow-wrap: anywhere;
     }
 }
 
 .rot-section-title {
     font-size: 0.9rem;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     margin: 1rem 0 0.5rem;
 }
 
@@ -1912,32 +1935,32 @@ onUnmounted(() => {
         padding: 0.55rem 0.7rem;
         border: 1px solid var(--border-color);
         border-radius: 6px;
-        background: #fbfcfe;
+        background: var(--app-bg-subtle);
         font-size: 0.85rem;
         line-height: 1.7;
-        color: #475569;
+        color: var(--app-text-secondary);
 
         .rd-date {
             font-weight: 600;
-            color: #1e293b;
+            color: var(--app-text-primary);
 
             .rd-amt {
                 margin-left: 0.4rem;
                 font-weight: 400;
-                color: #94a3b8;
+                color: var(--app-text-muted);
                 font-size: 0.9em;
             }
         }
 
         .rd-mid .rd-disp {
             margin-left: 0.5rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             font-size: 0.9em;
         }
 
         .rd-breadth .rd-ratio {
             margin-left: 0.5rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             font-size: 0.9em;
         }
 
@@ -1947,7 +1970,7 @@ onUnmounted(() => {
             text-overflow: ellipsis;
 
             .rd-name {
-                color: #1e293b;
+                color: var(--app-text-primary);
                 font-weight: 600;
             }
 
@@ -1974,7 +1997,7 @@ onUnmounted(() => {
 
         .rot-chart-title {
             font-size: 0.85rem;
-            color: #94a3b8;
+            color: var(--app-text-muted);
             margin-bottom: 0.3rem;
         }
 
@@ -2002,7 +2025,7 @@ onUnmounted(() => {
     gap: 0.8rem;
     justify-content: center;
     font-size: 0.85rem;
-    color: #64748b;
+    color: var(--app-text-secondary);
     margin-top: 0.2rem;
 
     .rot-legend-item {
@@ -2039,7 +2062,7 @@ onUnmounted(() => {
 
     // "连续跑赢"是这张表里最像"当前主线"的字段，给个轻量高亮
     .rot-streak {
-        color: #b45309;
+        color: var(--app-accent);
         font-weight: 600;
     }
 
@@ -2048,8 +2071,8 @@ onUnmounted(() => {
         margin-left: 0.3rem;
         padding: 0 0.3rem;
         border-radius: 3px;
-        background: #eef2f6;
-        color: #94a3b8;
+        background: var(--app-bg-subtle);
+        color: var(--app-text-muted);
         font-size: 0.9em;
         white-space: nowrap;
         cursor: help;
@@ -2069,7 +2092,7 @@ onUnmounted(() => {
 .empty-tip {
     padding: 2rem 1rem;
     text-align: center;
-    color: #94a3b8;
+    color: var(--app-text-muted);
     font-size: 0.9rem;
 }
 

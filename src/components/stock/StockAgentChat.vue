@@ -45,7 +45,24 @@ const placeholderText = computed(() =>
 const messages = ref([])  // {id, role: user|assistant|tool, content, isLoading, name?, args?, summary?}
 const inputMessage = ref('')
 const isLoading = ref(false)
-const useTools = ref(true)  // agent 模式开关，默认开
+// Agent 模式开关。默认值不是写死的 true —— 后端 MCP_HOST 未配置时会静默降级为纯文本，
+// 此时开关若仍显示为开启，用户会以为在用工具，实际拿到的是纯模型回答。
+// 所以先问后端「这台部署到底有没有 MCP」，再决定默认值和可用性。
+const useTools = ref(false)
+const mcpEnabled = ref(true)
+function fetchMcpStatus() {
+    return axios.get('/api/v1/chat/mcp_status')
+        .then((r) => {
+            const on = !!r.data?.data?.mcp_enabled
+            mcpEnabled.value = on
+            useTools.value = on
+        })
+        .catch(() => {
+            // 拿不到状态时保守处理：按不可用处理，避免又出现「以为在用工具」
+            mcpEnabled.value = false
+            useTools.value = false
+        })
+}
 const scrollAnchor = ref(null)
 const abortController = ref(new AbortController())
 
@@ -210,7 +227,7 @@ const sendMessage = async () => {
 }
 
 onMounted(async () => {
-    await fetchAgents()
+    await Promise.all([fetchAgents(), fetchMcpStatus()])
     if (currentAgentId.value !== null) {
         await loadAgentSession(currentAgentId.value)
     }
@@ -236,8 +253,12 @@ onMounted(async () => {
                 </option>
             </select>
 
-            <label class="flex items-center gap-1 text-xs text-gray-600 cursor-pointer ml-1">
-                <input type="checkbox" v-model="useTools"/>
+            <label
+                class="flex items-center gap-1 text-xs ml-1"
+                :class="mcpEnabled ? 'text-gray-600 cursor-pointer' : 'text-gray-400 cursor-not-allowed'"
+                :title="mcpEnabled ? '调用本系统 MCP 工具获取行情/财务/新闻' : '当前部署未配置 MCP_HOST，Agent 模式不可用'"
+            >
+                <input type="checkbox" v-model="useTools" :disabled="!mcpEnabled"/>
                 Agent 模式（调用本系统数据）
             </label>
 
@@ -262,14 +283,14 @@ onMounted(async () => {
                 <div v-for="msg in messages" :key="msg.id" class="mb-3">
                     <!-- 用户消息 -->
                     <div v-if="msg.role === 'user'" class="flex justify-end">
-                        <div class="bg-primary text-white rounded-lg px-4 py-2 max-w-[85%] whitespace-pre-wrap break-words">
+                        <div class="solid-primary rounded-lg px-4 py-2 max-w-[85%] whitespace-pre-wrap break-words">
                             {{ msg.content }}
                         </div>
                     </div>
                     <!-- 工具步骤卡片（可折叠） -->
                     <div v-else-if="msg.role === 'tool'">
-                        <details class="rounded-lg border border-blue-200 bg-blue-50/60 text-sm">
-                            <summary class="cursor-pointer px-3 py-2 text-blue-700">
+                        <details class="rounded-lg border p-0 text-sm tool-step">
+                            <summary class="cursor-pointer px-3 py-2 tool-step-title">
                                 🔧 调用工具：{{ msg.name }}
                             </summary>
                             <div class="px-3 pb-3 text-gray-700 space-y-1">
@@ -319,13 +340,27 @@ onMounted(async () => {
     width: 6px;
 }
 ::-webkit-scrollbar-track {
-    background: #f1f1f1;
+    background: var(--app-bg-subtle);
 }
 ::-webkit-scrollbar-thumb {
-    background: #888;
+    background: var(--app-text-muted);
     border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-    background: #555;
+    background: var(--app-text-secondary);
+}
+
+/* 工具调用步骤卡片：原本写的是 border-blue-200 / bg-blue-50/60 / text-blue-700，
+   暗色下 bg-blue-50/60 是一层浅蓝白雾、和白字叠在一起读不清。
+   走 --app-info-* 语义层（浅色淡蓝底 / 暗色深靛底），并显式声明 color ——
+   summary 在部分浏览器里不继承 details 的 color。 */
+.tool-step {
+    background: var(--app-info-bg);
+    border-color: var(--app-info-border);
+    color: var(--app-text-primary);
+}
+
+.tool-step-title {
+    color: var(--app-icon-info);
 }
 </style>

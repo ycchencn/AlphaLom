@@ -74,7 +74,7 @@ const formatCurrency = (value) => {
 
 .range-track {
     height: 5px;
-    background-color: #eef0f2;
+    background-color: var(--app-track-bg);
     border-radius: 4px;
     position: relative;
     overflow: visible; /* 允许指示器超出一点视觉效果 */
@@ -95,8 +95,11 @@ const formatCurrency = (value) => {
     transform: translateY(-50%);
     width: 10px;
     height: 10px;
-    background-color: #fff;
-    border: 2px solid #3b82f6;
+    /* 圆点内芯跟随卡片底色：写死 #fff 在暗色下会成为轨道上的一个白点。
+       描边用图标蓝而非品牌红 —— 这里是「当前价位」的位置标记，不是涨跌，
+       用涨跌色会和旁边的行情数字撞成同一套含义。 */
+    background-color: var(--app-bg-card);
+    border: 2px solid var(--app-icon-info);
     border-radius: 50%;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
@@ -106,7 +109,7 @@ const formatCurrency = (value) => {
     justify-content: space-between;
     margin-top: 5px;
     font-size: .685rem;
-    color: #888;
+    color: var(--app-text-muted);
 }
 
 .min-price {

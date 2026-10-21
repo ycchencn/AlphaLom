@@ -18,9 +18,29 @@
     --focus-ring-offset: var(--p-focus-ring-offset);
     --focus-ring-shadow: var(--p-focus-ring-shadow);
     --left-menu-grap: 15rem;
-    --color-up: #ef4444;
-    --color-down: #12783c;
-    --color-flat: #909399;
-    --header-bg: #f5f7fa;
-    --border-color: #e4e7ed;
+    // 旧涨跌色变量。⚠️ 这三个已**降级为语义层的别名**（原为独立字面值
+    // #ef4444 / #12783c / #909399），原因是：
+    //   1) 数值与全站统一基准不一致（统一后是 --app-up #dc2626 / --app-down #16a34a）；
+    //   2) 原先只有亮色值、_dark.scss 里没有暗色覆盖 → 暗色下用到它们的地方
+    //      （大盘两页的涨跌比 / 成长价值条 / IndexCard 涨跌色）显示的是暗色系红绿，
+    //      深底上几乎看不清，也和走势图里的提亮红绿对不上。
+    // 现在别名到 --app-*，暗色覆盖自动生效，且只有一处真值。
+    // 存量调用点只剩大盘两页 + IndexCard，新代码直接用 --app-up/down。
+    --color-up: var(--app-up);
+    --color-down: var(--app-down);
+    --color-flat: var(--app-flat);
+    // 表头底色与描边。同样降级为语义层别名（原为 #f5f7fa 近白 / #e4e7ed 近白灰）：
+    // 暗色下没有覆盖 = DataTable 表头在深色页面上是一块刺眼的浅色条。
+    // 表头用 --app-bg-subtle、描边用 --app-border-base，暗色自动反色。
+    --header-bg: var(--app-bg-subtle);
+    --border-color: var(--app-border-base);
+
+    // 切主题时的过渡。⚠️ 不要给 * 加全局 transition：
+    // 会连带过渡 layout 尺寸、图表容器等，导致明显的拖影和抖动。
+    // 只过渡「颜色」属性，且排除初次加载（.theme-ready 之前不生效）。
+    --app-theme-transition: none;
+}
+
+:root.theme-ready {
+    --app-theme-transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }

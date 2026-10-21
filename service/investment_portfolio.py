@@ -5,7 +5,10 @@
 """
 
 from sqlalchemy.exc import IntegrityError
-from models import InvestmentPortfolio
+from models import (
+    InvestmentPortfolio, PortfolioAssets, DailyPnLRecord,
+    PortfolioDailySummary, PortfolioTransaction,
+)
 from models.database import db_session
 from utils.logger import logger
 
@@ -181,9 +184,77 @@ class InvestmentPortfolioService:
         return False
 
     @staticmethod
+    def _related_tables(portfolio_id):
+        """策略的 4 张关联子表及其查询参数。
+
+        ⚠️ 子表的 `portfolio_id` 列类型与主表**不一致**（`portfolio_assets` /
+        `daily_pnl_records` / `portfolio_daily_summary` 是 varchar，`portfolio_transaction`
+        是 int），所以必须按各列真实类型分别传参：给 varchar 列传 int 会触发 MySQL
+        隐式转换，既走不上索引也可能匹配到意外的值。
+        """
+        pid_int = as_portfolio_id(portfolio_id)
+        return [
+            ('assets', PortfolioAssets, PortfolioAssets.portfolio_id, str(pid_int)),
+            ('daily_pnl', DailyPnLRecord, DailyPnLRecord.portfolio_id, str(pid_int)),
+            ('daily_summary', PortfolioDailySummary, PortfolioDailySummary.portfolio_id, str(pid_int)),
+            ('transactions', PortfolioTransaction, PortfolioTransaction.portfolio_id, pid_int),
+        ]
+
+    @staticmethod
+    def delete_related(portfolio_id) -> dict:
+        """删除某策略在 4 张关联子表里的全部数据。
+
+        ⚠️ 这几张表与主表之间**没有外键**（`portfolio_assets.portfolio_id` 是 varchar(36)、
+        主表是 int，类型本就不兼容，线上也确实没有 FK 约束），数据库不会级联。
+        只删主表会留下永久孤儿：净值曲线、交易记录再也关联不到任何策略，却仍会被
+        `get_last_by_portfolio_id` 这类查询扫到。
+
+        ⚠️ 只做 `delete()` 不 commit —— 由调用方与主表删除放在同一个事务里提交，
+        保证「主表删了子表没删」这种半截状态不会出现。
+        """
+        stats = {}
+        for key, model, col, val in InvestmentPortfolioService._related_tables(portfolio_id):
+            stats[key] = int(db_session.query(model).filter(col == val)
+                             .delete(synchronize_session=False) or 0)
+        return stats
+
+    @staticmethod
+    def delete_with_related(portfolio_id):
+        """删除策略本体 + 全部关联子表数据（同一事务，任一步失败整体回滚）。
+
+        @param portfolio_id: 投资组合唯一ID
+        @type portfolio_id: str
+
+        @return: (是否删除成功, 各子表被清理的行数统计)
+        @rtype: (bool, dict)
+
+        @example:
+            # 示例用法
+            ok, stats = InvestmentPortfolioService.delete_with_related(8)
+            print(ok, stats)      # True, {'assets': 5, 'daily_pnl': 120, ...}
+        """
+        try:
+            portfolio = db_session.query(InvestmentPortfolio).filter_by(
+                portfolio_id=as_portfolio_id(portfolio_id)).first()
+            if not portfolio:
+                logger.warning(f"InvestmentPortfolio with portfolio_id {portfolio_id} not found.")
+                return False, {}
+            stats = InvestmentPortfolioService.delete_related(portfolio_id)
+            db_session.delete(portfolio)
+            db_session.commit()
+            return True, stats
+        except Exception as e:
+            db_session.rollback()
+            logger.error(f"An error occurred while deleting portfolio {portfolio_id}: {e}")
+            return False, {}
+
+    @staticmethod
     def delete_by_portfolio_id(portfolio_id):
         """
-        @brief 根据 portfolio_id 删除 InvestmentPortfolio 记录
+        @brief 根据 portfolio_id 删除 InvestmentPortfolio 记录及其全部关联子表数据
+
+        ⚠️ 2026-10-18：从「只删主表」升级为级联清理（持仓 / 每日盈亏 / 每日汇总 / 交易记录）。
+        这几张表没有外键，原实现会在库里留下永久孤儿数据。
 
         @param portfolio_id: 投资组合唯一ID
         @type portfolio_id: str
@@ -191,26 +262,15 @@ class InvestmentPortfolioService:
         @return: 是否成功删除记录
         @rtype: bool
 
-        @throws: Exception 如果发生其他错误
+        @throws: Exception 如果发生其他错误（内部已捕获并回滚）
 
         @example:
             # 示例用法
-            success = InvestmentPortfolioService.delete_by_portfolio_id('12345678-1234-5678-1234-567812345678')
+            success = InvestmentPortfolioService.delete_by_portfolio_id(8)
             print(success)
         """
-        try:
-            portfolio = db_session.query(InvestmentPortfolio).filter_by(
-                portfolio_id=as_portfolio_id(portfolio_id)).first()
-            if portfolio:
-                db_session.delete(portfolio)
-                db_session.commit()
-                return True
-            else:
-                logger.warning(f"InvestmentPortfolio with portfolio_id {portfolio_id} not found.")
-        except Exception as e:
-            db_session.rollback()
-            logger.error(f"An error occurred: {e}")
-        return False
+        ok, _ = InvestmentPortfolioService.delete_with_related(portfolio_id)
+        return ok
 
     @staticmethod
     def get_all(enable=1, fields=None, user_id=None):

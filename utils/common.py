@@ -573,7 +573,10 @@ def send_feishu_markdown_message(title, webhook_url=feishu_webhook_url, markdown
 #   与旧行为一致地不当作 ETF。
 # 深市：159 为 ETF（深市股票在 000/001/002/003/300/301，不冲突）；
 #   508/180 为沪深公募 REITs，沿用旧行为也按基金接口取数。
-_ETF_PREFIXES = (
+#
+# ⚠️ 公开名（去掉下划线）供跨模块复用 —— 需要「在 SQL 层按号段排除 ETF」的地方
+# （如因子选股器）要与 `is_etf` 保持同一份真值，改这里一处即可全站生效。
+ETF_PREFIXES = (
     "51", "52", "53", "55", "56", "58",   # 沪市 ETF 号段
     "508", "180",                          # 沪深公募 REITs
     "159",                                 # 深市 ETF
@@ -592,7 +595,7 @@ def is_etf(stock_code):
         return False
 
     # 前缀按号段匹配（含 2 位与 3 位两种长度，统一用 startswith 判断）
-    return stock_code.startswith(_ETF_PREFIXES)
+    return stock_code.startswith(ETF_PREFIXES)
 
 
 # 归一化评分

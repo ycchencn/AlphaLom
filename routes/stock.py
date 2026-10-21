@@ -9,9 +9,10 @@ import io
 from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request, HTTPException, Depends, Body
-from fastapi.responses import Response
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
+import anyio
 from fastapi.concurrency import run_in_threadpool
 from fastapi_cache import FastAPICache
 from fastapi_cache.decorator import cache
@@ -21,10 +22,13 @@ from service import StockService, FactorValueService
 from service import JobService, ResearchReportService
 from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
+from service.stock_guba_sentiment_service import StockGubaSentimentService
+from service.stock_financial_review import StockFinancialReviewService
 from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
 from utils.logger import logger
+from llms import get_model_by_setting
 
 # 全站登录制：整个 router 加登录鉴权（见 etf.py 顶部说明）。
 # 写接口（入池/分组/重新分析）同时有各自的 get_current_user_id 精确校验。
@@ -745,6 +749,54 @@ def get_stocks_greed_data(
     return greed_data
 
 
+@stock_router.get('/stock/retail_sentiment/{symbol}')
+def get_stock_retail_sentiment(
+    symbol: str,
+    limit: int = Query(60, ge=1, le=365, description='返回最近 N 个采集日'),
+):
+    """个股散户情绪（股吧文本语义）—— 最新读数 + 历史序列。
+
+    ⚠️ 与 `/stock/greed_data/{symbol}`（恐惧贪婪）是**两个不同指标**：
+    恐贪由价量指标算出，本接口是股吧发帖的 LLM 语义分析结果。前端不要混用文案。
+
+    ⚠️ 刻意**不加 `@cache`**：数据写入频率低（每只票每天一条），单股历史最多几十行，
+    查询本身很轻；而加了缓存会导致「手动刷新后仍看到旧值」，排查成本高于收益。
+
+    返回的 history 按 trade_date **倒序**（与 greed_data 一致），前端画图前需 reverse。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+
+    history = StockGubaSentimentService.get_history(symbol, limit=limit)
+    return {
+        'symbol': symbol,
+        'latest': history[0] if history else None,
+        'history': history,
+        'meta': {
+            'total': len(history),
+            # 历史深度上限约 8~10 天（股吧列表页翻页深度有限），趋势要靠上线后逐日积累
+            'note': '数据自功能上线日起逐日积累，早期样本天数较少',
+        },
+    }
+
+
+@stock_router.put('/stock/retail_sentiment/{symbol}')
+def refresh_stock_retail_sentiment(symbol: str, user_id: int = Depends(get_current_user_id)):
+    """手动触发某只股票的散户情绪重算（投递队列，异步执行）。
+
+    ⚠️ 需要登录：该操作会真实抓取东方财富股吧并发起一次大模型调用。
+    抓取层有全局 20 秒限速与反爬冷却（见 service/eastmoney_guba.py），
+    因此这里只投递任务、不阻塞 HTTP 请求 —— 单只实测约 5~25 秒。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid stock code")
+    JobService.send_job({
+        'job_func': 'job_stock_guba_sentiment',
+        'job_args': {'_stock_code': symbol},
+    })
+    return {'code': 0, 'message': '已提交分析任务，请稍后刷新查看'}
+
+
 @stock_router.get('/stock_search')
 def search_stock_catalog(
     keyword: str = Query('', description='代码或名称关键字'),
@@ -1007,4 +1059,291 @@ def get_financial_data(
         'report_type': report_type,
         'periods': periods,
         'items': items,
+    }
+
+
+# ==================== AI 财务点评（巴菲特视角）====================
+# 个股详情页「财务分析」Tab 里的 AI 财务点评 Card 调用。
+# 复用系统的 LLM 配置（场景 stock_financial_review），以巴菲特视角基于真实财务数据流式生成点评。
+# 角色设定（system_prompt）写死在服务层，避免前端篡改人格；模型走系统配置 = 「用系统的智能体去做点评」。
+
+class FinancialReviewRequest(BaseModel):
+    stock_name: str = ''
+    periods: int = 12
+
+
+@stock_router.get('/stock/financial_review/{symbol}')
+async def financial_review_get(symbol: str, user: dict = Depends(get_current_user)):
+    """返回该股票最新一条已生成的「巴菲特视角财务点评」。
+
+    每日定时任务会在盘后预生成并落库；本接口让前端卡片直接展示已生成结果，
+    无需每次打开都重新生成（省 token）。没有则 review=null。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail='Invalid symbol')
+    review = StockFinancialReviewService.get_latest(symbol)
+    return {'symbol': symbol, 'review': review}
+
+
+@stock_router.post('/stock/financial_review/{symbol}')
+async def financial_review(symbol: str, req: FinancialReviewRequest, user: dict = Depends(get_current_user)):
+    """以巴菲特视角对个股财务数据做一次 AI 点评（流式纯文本）。
+
+    前端通过 fetch 读取流，逐段拼接到 Markdown 渲染。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail='Invalid symbol')
+
+    # 1. 取财务数据（databull 是阻塞 HTTP 调用，丢进线程池避免卡住事件循环）
+    periods = max(1, min(int(req.periods or 12), 40))
+    try:
+        data = await anyio.to_thread.run_sync(
+            lambda: StockFinancialReviewService.fetch_review_data(symbol, periods)
+        )
+    except Exception as e:
+        logger.error(f'财务点评取数失败 symbol={symbol}: {e}')
+        raise HTTPException(status_code=502, detail=f'财务数据获取失败：{e}')
+
+    # 2. 构建 prompt（system 写死在后端）
+    system_prompt, user_content = StockFinancialReviewService.build_review_messages(
+        symbol, req.stock_name, data
+    )
+
+    async def response_generator():
+        assistant_reply = ''
+        _usage = None
+        try:
+            def _stream_call():
+                # 在线程里构建 LLM 客户端（避免在事件循环做同步初始化），
+                # 并启动流式请求；stream_options 失败回退到不带 usage。
+                staff = get_model_by_setting('stock_financial_review')
+                model_name = staff.model
+                messages = [
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_content},
+                ]
+                try:
+                    stream = staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        stream=True,
+                        stream_options={'include_usage': True},
+                    )
+                except Exception:
+                    stream = staff.client.chat.completions.create(
+                        model=model_name,
+                        messages=messages,
+                        stream=True,
+                    )
+                # 把 staff 透传出来供用量统计使用
+                return staff, model_name, stream
+
+            staff, model_name, stream = await anyio.to_thread.run_sync(_stream_call)
+            platform = getattr(staff, 'platform', '')
+            scene = getattr(staff, 'scene', 'stock_financial_review')
+
+            for chunk in stream:
+                if getattr(chunk, 'usage', None) is not None:
+                    _usage = chunk.usage
+                content = chunk.choices[0].delta.content or ''
+                if content:
+                    assistant_reply += content
+                    yield content.encode('utf-8')
+
+            # 记录 token 用量（失败不影响主链路）
+            if assistant_reply:
+                try:
+                    from llms.usage_recorder import record_llm_usage
+                    from utils.auth import request_user_id_var
+                    record_llm_usage(
+                        user_id=request_user_id_var.get() or user.get('id'),
+                        scene=scene,
+                        platform=platform,
+                        model=model_name,
+                        prompt_tokens=getattr(_usage, 'prompt_tokens', 0) or 0,
+                        completion_tokens=getattr(_usage, 'completion_tokens', 0) or 0,
+                        total_tokens=getattr(_usage, 'total_tokens', 0) or 0,
+                        input_text=system_prompt + '\n' + user_content,
+                        output_text=assistant_reply,
+                    )
+                except Exception as e:
+                    logger.warning(f'财务点评 token 记录失败（已忽略）：{e}')
+
+            # 落库：前端手动「重新生成」与每日任务共用同一张表，下次打开直接展示、省 token
+            if assistant_reply:
+                try:
+                    StockFinancialReviewService.save(
+                        symbol=symbol,
+                        content=assistant_reply,
+                        model=model_name,
+                        report_date=data.get('latest_date') or None,
+                    )
+                except Exception as e:
+                    logger.warning(f'财务点评落库失败（已忽略）：{e}')
+        except Exception as e:
+            logger.error(f'财务点评生成失败 symbol={symbol}: {e}')
+            # 流已开启，只能以文本片段形式把错误回传（前端会原样展示）
+            yield f'\n\n（生成失败：{str(e)}）'.encode('utf-8')
+
+    return StreamingResponse(response_generator(), media_type='text/plain; charset=utf-8')
+
+
+# ==================== 上市公司公告 ====================
+# 上游：GET /cn/stock/announcements?stock=<裸码>&page&page_size
+#   - 返回**裸数组**（不是 {code,data} 信封），分页信息在响应头 X-Total-Count / X-Has-More；
+#   - SDK 的 get_stock_announcements 丢弃响应头 → 拿不到总条数，故走
+#     utils/data_loader.py 里的绕行方法 get_stock_announcements_paged。
+#
+# ⚠️ 三个已实测的上游事实（别当成 bug 去"修"）：
+# 1. **覆盖不完整**：并非所有 A 股都有公告数据。实测 600519 / 600036 / 601899
+#    放宽到 2020 年起仍返回空数组 + X-Empty-Reason: no_match（茅台/招行/紫金
+#    这种票反而没有 —— 上游只同步了部分标的）。所以**空列表是合法结果**，
+#    前端要显示「该标的暂无公告数据」而不是「加载失败」。
+# 2. **category 是巨潮内部多级码**，以 '||' 连接（如 '01010503||010112||012399'），
+#    且**各段语义不唯一**（01010503 同时覆盖「对外担保」和「H股公告」）。
+#    上游没有分类字典端点，所以**不要在前端硬编码码→中文的映射表**（那是猜测，
+#    会给用户错误标签）。真实分类由前端按标题关键词规则推断，原始码仅作次要信息。
+# 3. **PDF 链接指向巨潮**（static.cninfo.com.cn），公开可访问，直链即可。
+#
+# ⚠️ 缓存：上游有日调用配额（实测响应头 x-ratelimit-limit: 10000），
+#    而公告数据是「盘后集中披露」的低频数据，缓存 1 小时足够且能省配额。
+
+# 公告分类标签：按标题关键词规则推断（与同花顺/东财的公告分类思路一致）。
+# ⚠️ 这是**关键词匹配**而非上游分类码映射 —— 上游码表不可得，只能走这条确定性路径。
+# 顺序有意义：先匹配的特征更具体，必须放在前面（例如「回购」要先于「股份」，
+# 否则「关于回购股份的进展公告」会被「股份」规则抢走）。
+ANNOUNCEMENT_CATEGORY_RULES = [
+    ('定期报告', ('年度报告', '半年度报告', '季度报告', '三季度报告', '年报', '季报', '业绩预告', '业绩快报')),
+    ('重大事项', ('重大资产', '资产重组', '要约收购', '吸收合并', '分拆上市')),
+    ('融资事项', ('非公开发行', '定向增发', '可转债', '配股', '募集说明书', '发行股票', '债券发行')),
+    ('股权激励', ('股权激励', '股票期权', '限制性股票')),
+    ('回购增持', ('回购', '增持', '减持', '股份回购')),
+    ('担保事项', ('担保', '抵押', '质押')),
+    ('股东变动', ('股东变动', '股份变动', '权益变动', '限售股', '解除限售', '转增', '减持计划')),
+    # ⚠️ 治理类关键词要能跨越「第六届」「第十一次」这类插入词，
+    #    所以用「董事会」「监事会」「股东大会」等**机构词**而不是「董事会决议」这种
+    #    固定短语 —— 否则「第六届董事会第十一次会议决议公告」会漏判。
+    ('公司治理', ('董事会', '监事会', '股东大会', '股东会', '公司章程', '选举', '聘任', '辞职', '辞任',
+                  '任职资格', '换届', '高级管理人员')),
+    ('关联交易', ('关联交易', '关联方')),
+    # 「重大合同」放在经营情况而非重大事项：签合同是日常经营动作，
+    # 资产重组/要约收购才是真正的「重大事项」。所以「重大合同」必须排在重大事项之后。
+    ('经营情况', ('重大合同', '中标', '签订', '合同', '产销快报', '经营情况', '获批', '取得',
+                  '对外投资', '参与投资', '基金备案')),
+    ('风险提示', ('风险提示', '问询函', '关注函', '监管措施', '立案调查', '处罚', '违规', '诉讼', '仲裁')),
+]
+
+
+def _classify_announcement(title: str) -> str:
+    """按标题关键词推断公告分类标签。
+
+    纯函数、只读标题、规则表在上方 —— 便于单测与后续调整。
+    命中不了时返回 '其他公告'（不返回空串：前端要统一渲染一个标签位）。
+    """
+    if not title:
+        return '其他公告'
+    for label, keywords in ANNOUNCEMENT_CATEGORY_RULES:
+        for kw in keywords:
+            if kw in title:
+                return label
+    return '其他公告'
+
+
+# 巨潮的板块栏目码 → 可读名。上游只给 `page_column` 这样的内部码。
+# 实测取值：SZZB(深主板) / SZCY(创业板) / SHZB(沪主板) / SHKCB(科创板)。
+ANNOUNCEMENT_COLUMN_NAMES = {
+    'SZZB': '深主板',
+    'SZCY': '创业板',
+    'SHZB': '沪主板',
+    'SHKCB': '科创板',
+    'BJ': '北交所',
+}
+
+
+@stock_router.get('/stock/announcements/{symbol}')
+@cache(expire=3600)
+def get_stock_announcements(
+    symbol: str,
+    page: int = Query(1, ge=1, le=200, description='页码，从 1 开始'),
+    page_size: int = Query(20, ge=1, le=100, description='每页条数，最大 100'),
+):
+    """获取个股上市公司公告列表。
+
+    ⚠️ 同步 `def` 路由：上游是 requests 阻塞实现，走线程池才是正确形态
+       （async def 会让并发退化为 1，见本文件头部说明）。
+    """
+    if not validate_stock_code(symbol):
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    # 上游该端点只覆盖 A 股（/cn/ 前缀）。港股/美股直接返回空结构，
+    # 而不是发一个必然 404 的请求 —— 前端也据此隐藏「公司公告」Tab。
+    stock = StockService.get_stock_by_symbol(symbol, fields=['market', 'name'])
+    market = (stock or {}).get('market') or 'cn'
+    if market != 'cn':
+        return {
+            'symbol': symbol,
+            'stock_name': (stock or {}).get('name'),
+            'market': market,
+            'supported': False,
+            'items': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'has_more': False,
+            'empty_reason': 'market_not_supported',
+        }
+
+    try:
+        items, meta = databull.get_stock_announcements_paged(
+            stock=symbol, page=page, page_size=page_size
+        )
+    except Exception as e:
+        # 上游异常不能炸 500：公告只是个股页的一个补充区块，失败就返回空 + 原因，
+        # 前端显示「加载失败」而不是整页报错。
+        logger.warning(f"get_stock_announcements failed ({symbol}): {e}")
+        return {
+            'symbol': symbol,
+            'stock_name': (stock or {}).get('name'),
+            'market': market,
+            'supported': True,
+            'items': [],
+            'total': 0,
+            'page': page,
+            'page_size': page_size,
+            'has_more': False,
+            'empty_reason': 'upstream_error',
+            'error': str(e)[:200],
+        }
+
+    out = []
+    for row in items or []:
+        if not isinstance(row, dict):
+            continue
+        title = (row.get('title') or '').strip()
+        out.append({
+            'id': row.get('id'),
+            'announcement_id': row.get('announcement_id'),
+            'title': title,
+            'date': row.get('announcement_date'),
+            # 分类标签：标题关键词推断（不是上游 category 码，后者无语义）
+            'category': _classify_announcement(title),
+            # 上游原始分类码，保留但不作为主标签展示（码表不可得）
+            'raw_category': row.get('category'),
+            'column': row.get('page_column'),
+            'column_name': ANNOUNCEMENT_COLUMN_NAMES.get(row.get('page_column')),
+            'pdf_url': row.get('pdf_url'),
+            'pdf_size_kb': row.get('pdf_size_kb'),
+        })
+
+    return {
+        'symbol': symbol,
+        'stock_name': (stock or {}).get('name'),
+        'market': market,
+        'supported': True,
+        'items': out,
+        'total': meta.get('total', len(out)),
+        'page': meta.get('page', page),
+        'page_size': meta.get('page_size', page_size),
+        'has_more': meta.get('has_more', False),
+        'empty_reason': meta.get('empty_reason'),
     }

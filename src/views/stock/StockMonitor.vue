@@ -4,7 +4,7 @@ import { FilterMatchMode } from '@primevue/core/api';
 import { useNotification } from '@/composables/useNotification';
 import { computed, onActivated, onBeforeMount, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { getMarketByCode, fearGreedToText, fearGreedLevel } from '@/utils/function';
+import { getMarketByCode, fearGreedToText, fearGreedLevel, toneClass } from '@/utils/function';
 import Dialog from 'primevue/dialog';
 import Menu from 'primevue/menu';
 import axios from 'axios';
@@ -1029,14 +1029,14 @@ async function deleteGroup(groupName) {
             </Column>
             <Column field="close" filterField="close" header="最新" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.chg_pct > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.chg_pct)">
                         {{ data.close != null ? data.close.toFixed(2) : '--' }}
                     </span>
                 </template>
             </Column>
             <Column field="chg_pct" filterField="chg_pct" header="涨跌幅" sortable>
                 <template #body="{ data }">
-                    <span :style="{ color: data.chg_pct > 0 ? 'red' : 'green' }">
+                    <span :class="toneClass(data.chg_pct)">
                         {{ data.chg_pct != null ? data.chg_pct.toFixed(2) + '%' : '--' }}
                     </span>
                 </template>
@@ -1197,11 +1197,11 @@ async function deleteGroup(groupName) {
    且行尾注释写的颜色名与实际色值完全相反（「柔和红」实为灰、「浅绿」实为红），
    已一并纠正。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #12783c !important; /* 极度恐惧 - 深绿 */
+    background: var(--app-down) !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: #4a9e6b !important; /* 恐惧 - 浅绿 */
+    background: var(--app-down-soft) !important; /* 恐惧 - 浅绿 */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {
@@ -1209,11 +1209,11 @@ async function deleteGroup(groupName) {
 }
 
 :deep(.fg-greed .p-progressbar-value) {
-    background: #e8874a !important; /* 贪婪 - 橙 */
+    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
 }
 
 :deep(.fg-extreme-greed .p-progressbar-value) {
-    background: #ef4444 !important; /* 极度贪婪 - 红 */
+    background: var(--app-up) !important; /* 极度贪婪 - 红 */
 }
 
 :deep(.p-progressbar) {

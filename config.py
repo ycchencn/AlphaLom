@@ -48,21 +48,15 @@ is_debug = os.getenv('DEBUG', False)
 # 数据库连接串（如 mysql+pymysql://user:pwd@host:port/db），env: DATABASE_CONN_STR
 database_conn_str = os.getenv('DATABASE_CONN_STR')
 
-# ===== 各厂商 LLM / 平台 API Key =====
-# 火山方舟（Doubao / Deepseek on VolcEngine）密钥，env: DOUBAO_APIKEY
-ark_apikey = os.getenv('DOUBAO_APIKEY')
-# DeepSeek 官方密钥，env: DEEPSEEK_APIKEY
-deepseek_apikey = os.getenv('DEEPSEEK_APIKEY')
-# 阿里云百炼密钥，env: ALIYUN_BAILIAN_APIKEY
-aliyun_bailian_apikey = os.getenv('ALIYUN_BAILIAN_APIKEY')
-# SiliconFlow 密钥，env: SILICONFLOW_APIKEY
-siliconflow_apikey = os.getenv('SILICONFLOW_APIKEY')
-# 腾讯混元密钥，env: TENCENT_APIKEY
-tencent_api = os.getenv('TENCENT_APIKEY')
-# 智谱 GLM 密钥，env: ZHIPU_APIKEY
-zhipu_api = os.getenv('ZHIPU_APIKEY')
-# 百度云千帆密钥，env: BAIDU_QIANFAN_APIKEY
-baidu_qianfan_apikey = os.getenv('BAIDU_QIANFAN_APIKEY')
+# ===== 大模型平台凭据 =====
+# ⚠️ 平台 API Key **不再从 .env 读取**（原 DEEPSEEK_APIKEY / DOUBAO_APIKEY /
+#    ALIYUN_BAILIAN_APIKEY / SILICONFLOW_APIKEY / TENCENT_APIKEY / ZHIPU_APIKEY /
+#    BAIDU_QIANFAN_APIKEY 全部废弃）。
+# 改为在「系统设置 → 大模型配置」里下拉添加平台并填写 Key，加密存进
+# system_setting 表（llm_platform_setting 组），由 llms/llm_platform.py 运行时解析。
+# 这么做的原因：改 key 要连库带加密主密钥、后台点几下即可，不必再改环境变量 + 重启；
+# 而且 .env 里的明文 key 是备份/日志/误提交时最容易泄露的地方。
+# 主密钥 ALPHALOM_SECRET_KEY 仍在 .env（它不是某家平台的凭据，是本系统的加解密口令）。
 
 # ===== 通知 =====
 # 飞书机器人 Webhook 地址，用于告警 / 推送，env: FEISHU_WEBHOOK_URL
@@ -228,6 +222,18 @@ llm_model_setting = {
         # 否则会出现「同一任务时好时坏」的诡异现象。
         'model': ['doubao-seed-2-0-mini-260428', 'doubao-seed-2-1-lite-260915']
     },
+    'stock_retail_sentiment': {        # 个股散户情绪（股吧发帖标题，每只票每日一次）
+        # 只做「看多/中性/看空」三分类计数 + 一句话归因，属于短文本分类任务，
+        # mini 档足够；实测 80 条标题约 3k 输入 tokens，500 只/天约 150 万 tokens。
+        'platform': 'volcengine',
+        'model': 'doubao-seed-2-0-mini-260428'
+    },
+    'stock_financial_review': {         # 个股财务点评（巴菲特视角，个股详情页财务分析 Tab）
+        # 需要较强的财务综合与长文写作能力，用主研报同档推理模型；
+        # 输入侧会把多张报表近 3 年数据塞进 prompt，前端默认 periods=12，注意别调太大。
+        'platform': 'volcengine',
+        'model': 'deepseek-v4-flash-ga-260731'
+    },
 }
 
 # ===== 外部数据接口 =====
@@ -237,8 +243,45 @@ databull_host = os.getenv('DATABULL_HOST')
 # 数据接口（DataBull）密钥
 databull_key = os.getenv('DATABULL_KEY')
 
+# ===== 东方财富股吧（个股散户情绪）=====
+# ⚠️ 股吧没有公开 API，只能解析列表页内嵌的 `var article_list` JSON。
+#    2026-10 实测：约 80~100 请求 / 10 分钟即触发「身份核实」验证页，
+#    **返回 HTTP 200 + 2826 字节**（不是 403，只看状态码会误判成功），
+#    封锁在 IP 级、全站生效、且 ≥9 分钟不恢复，需人工过验证码才能解。
+#    因此必须有全局最小请求间隔 —— 这是硬约束，不是性能优化。
+#    默认 20 秒（=180 请求/小时，约为触发阈值的 30%）。调小会自动放大被封风险。
+guba_min_interval = int(os.getenv('GUBA_MIN_INTERVAL', 20))
+
+# 单只股票最多翻几页（每页约 80 条；3 页 ≈ 240 条，足够覆盖热门股 24h）
+guba_max_pages = int(os.getenv('GUBA_MAX_PAGES', 3))
+
+# 每日批量任务的股票数上限。单 IP 可持续的量级约 50 只；
+# 要覆盖全监控池（数百只）必须上代理池，否则必然触发封锁。
+guba_max_symbols = int(os.getenv('GUBA_MAX_SYMBOLS', 50))
+
+# 单次送入 LLM 的帖子数上限（超出按互动量分层采样，控制 token 与信噪比）
+guba_max_posts_for_llm = int(os.getenv('GUBA_MAX_POSTS_FOR_LLM', 80))
+
+# 「巴菲特视角财务点评」批量任务的股票池上限。单只比股吧情绪重得多
+# （4 次财务取数 + 一次长文 LLM），token 消耗显著；默认 100 只，覆盖监控池主力。
+# 扩大覆盖需评估 token 预算（与代理池无关，瓶颈在 LLM 成本而非抓取封锁）。
+fin_review_max_symbols = int(os.getenv('FIN_REVIEW_MAX_SYMBOLS', 100))
+
+# 每小时批量任务「本轮点评几只」。配合 7 天点评间隔，池子较大时多轮即可铺满一轮。
+fin_review_per_run = int(os.getenv('FIN_REVIEW_PER_RUN', 5))
+
+# 同一只股票两次自动点评的最小间隔（天）。一周内点评过的不再点评。
+fin_review_interval_days = int(os.getenv('FIN_REVIEW_INTERVAL_DAYS', 7))
+
+# 命中验证页后的冷却秒数：冷却期内所有抓取直接跳过，不再发请求（避免越试越封）
+guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))
+
 # ===== MCP 服务 =====
-mcp_host = os.getenv('MCP_HOST')      # MCP 服务器地址
+# ⚠️ 必须归一化，不能直接用 os.getenv 的原值：未配置时原值是 None，
+#    而 f"{None}/tools" 会拼成字符串 "None/tools" 发出去 —— requests 抛 MissingSchema
+#    才被调用方的 except 吞掉，表现为「每次新建 LLM 实例都白等一次超时 + 刷一条
+#    看不出根因的 warning」。这里统一成 None 表示「不启用 MCP」，由 LLM 基类显式短路。
+mcp_host = (os.getenv('MCP_HOST') or '').strip() or None
 
 # ===== 策略参数 =====
 strategy_setting = {

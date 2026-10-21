@@ -79,8 +79,8 @@ function formatPct(value) {
 .nav-side-panel {
     width: 168px;
     flex: 0 0 168px;
-    border-right: 1px solid #e5e7eb;
-    background: #fff;
+    border-right: 1px solid var(--app-border-base);
+    background: var(--app-bg-card);
     display: flex;
     flex-direction: column;
     box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
@@ -91,8 +91,8 @@ function formatPct(value) {
 /* 表头：p-4 border-b bg-gray-50 */
 .nav-side-header {
     padding: 16px;
-    border-bottom: 1px solid #e5e7eb;
-    background: #f9fafb;
+    border-bottom: 1px solid var(--app-border-base);
+    background: var(--app-bg-subtle);
 }
 
 /* 标题：font-semibold text-base text-gray-700 → 12px */
@@ -100,14 +100,14 @@ function formatPct(value) {
     margin: 0;
     font-weight: 600;
     font-size: 12px;
-    color: #374151;
+    color: var(--app-text-primary);
 }
 
 /* 副标题：text-xs text-gray-400 mt-1 leading-snug → 9px */
 .nav-side-sub {
     margin: 4px 0 0;
     font-size: 9px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
     line-height: 1.375;
 }
 
@@ -130,21 +130,21 @@ function formatPct(value) {
     border-radius: 6px;
     cursor: pointer;
     font-size: 12px;
-    color: #374151;
+    color: var(--app-text-primary);
     border-left: 4px solid transparent;
     transition: all 0.2s;
 }
 
 .nav-side-item:hover {
-    background: #eff6ff; /* blue-50 */
+    background: var(--app-select-bg); /* blue-50 */
 }
 
 /* 选中：bg-blue-50 text-blue-700 font-semibold border-l-4 border-blue-500 */
 .nav-side-item.active {
-    background: #eff6ff;
-    color: #1d4ed8;
+    background: var(--app-select-bg);
+    color: var(--app-select-text);
     font-weight: 600;
-    border-left-color: #3b82f6;
+    border-left-color: var(--app-select-border);
 }
 
 .nav-side-label {
@@ -169,15 +169,15 @@ function formatPct(value) {
     font-size: 9px;
     font-weight: 600;
     font-variant-numeric: tabular-nums;
-    color: #6b7280;            /* 中性：涨跌幅为 0 或无数据 */
+    color: var(--app-text-secondary);            /* 中性：涨跌幅为 0 或无数据 */
 }
 
 .nav-side-pct.is-up {
-    color: #ef4444;            /* 涨 - 红 */
+    color: var(--app-up);            /* 涨 - 红 */
 }
 
 .nav-side-pct.is-down {
-    color: #12783c;            /* 跌 - 绿 */
+    color: var(--app-down);            /* 跌 - 绿 */
 }
 
 .nav-side-actions {
@@ -197,11 +197,11 @@ function formatPct(value) {
     padding: 0 2px;
     font-size: 10px;
     line-height: 1;
-    color: #6b7280;
+    color: var(--app-text-secondary);
 }
 
 .nav-side-action-btn:hover {
-    color: #1d4ed8;
+    color: var(--app-select-text);
 }
 
 /* 窄屏：左侧栏 → 顶部横向滚动条 */
@@ -212,7 +212,7 @@ function formatPct(value) {
         flex-direction: row;
         align-items: center;
         border-right: none;
-        border-bottom: 1px solid #e5e7eb;
+        border-bottom: 1px solid var(--app-border-base);
         box-shadow: none;
         overflow-x: auto;
         position: sticky;

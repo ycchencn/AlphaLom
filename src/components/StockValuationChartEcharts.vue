@@ -103,9 +103,9 @@ const props = defineProps({
     cardStyle: { type: Object, default: () => ({ width: '100%' }) },
     /** 配色：涨红跌绿（A 股习惯），故乐观=红、保守=绿 */
     historyLineColor: { type: String, default: '#3b82f6' },
-    conservativeLineColor: { type: String, default: '#22c55e' },
+    conservativeLineColor: { type: String, default: COLORS.down },
     neutralLineColor: { type: String, default: '#94a3b8' },
-    optimisticLineColor: { type: String, default: '#ef4444' }
+    optimisticLineColor: { type: String, default: COLORS.up }
 })
 
 /* ==================== 常量 ==================== */
@@ -413,8 +413,8 @@ const buildScenarioSeries = () =>
         endLabel: {
             show: true,
             distance: 6,
-            backgroundColor: '#fff',
-            borderColor: '#eef0f3',
+            backgroundColor: COLORS.tooltipBg,
+            borderColor: COLORS.tooltipBorder,
             borderWidth: 1,
             borderRadius: 4,
             padding: [3, 6],
@@ -563,13 +563,13 @@ watch(
     margin: 0;
     font-size: 0.85rem;
     font-weight: 700;
-    color: #1f2937;
+    color: var(--app-text-primary);
 }
 
 .svc-rating {
     margin: 0 0 0 auto;
     font-size: 10px;
-    color: #6b7280;
+    color: var(--app-text-secondary);
 }
 
 .svc-chart-wrap {
@@ -592,14 +592,14 @@ watch(
     align-items: center;
     justify-content: center;
     font-size: 10px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
 }
 
 .svc-xlabel {
     display: flex;
     box-sizing: border-box;
     font-size: 10px;
-    color: #9ca3af;
+    color: var(--app-text-muted);
     margin-top: 2px;
 }
 
@@ -615,7 +615,7 @@ watch(
     justify-content: center;
     margin-top: 8px;
     font-size: 10px;
-    color: #6b7280;
+    color: var(--app-text-secondary);
 }
 
 .svc-legend-item {
@@ -634,14 +634,14 @@ watch(
 .svc-advice {
     margin-top: 10px;
     font-size: 10px;
-    color: #374151;
-    background: #f8fafc;
+    color: var(--app-text-secondary);
+    background: var(--app-bg-subtle);
     border-radius: 8px;
     padding: 8px 12px;
 }
 
 .svc-advice-title {
     font-weight: 600;
-    color: #1f2937;
+    color: var(--app-text-primary);
 }
 </style>

@@ -155,7 +155,11 @@ const visibleModel = computed(() => {
 <template>
     <div class="menu-logo-wrap">
         <router-link to="/market/cn_market_overview" class="layout-topbar-logo">
-            <img src="/images/alphalom-logo-220.png" alt="AlphaLom" class="menu-logo"/>
+            <!-- 亮/暗两版叠放：主题切换只改 opacity，不换 src。
+                 换 src 会先卸载旧图再加载新图，深色底上是一帧空白；叠放则两图
+                 都在首屏下载完，切主题零延迟。 -->
+            <img src="/images/alphalom-logo-220.png" alt="AlphaLom" class="menu-logo menu-logo--light" />
+            <img src="/images/alphalom-logo-dark.png" alt="" aria-hidden="true" class="menu-logo menu-logo--dark" />
         </router-link>
     </div>
     <Divider/>
@@ -184,6 +188,8 @@ const visibleModel = computed(() => {
 .layout-topbar-logo {
     display: inline-flex;
     align-items: center;
+    /* 叠放基准：暗版绝对定位压在亮版上，否则两张图会并排把 logo 撑成两倍宽 */
+    position: relative;
 }
 
 /* 源图 976×204，这里按 CSS 缩放显示；用 height 定高、宽度自适应以保持比例。
@@ -195,5 +201,23 @@ const visibleModel = computed(() => {
     max-width: 10rem;
     object-fit: contain;
     display: block;
+}
+
+/* 暗色版（Lom 段为白字）在深色侧栏上才看得见；浅色时反过来。
+   用 opacity 而非 display，切换才有淡入过渡，且不会引起回流。 */
+.menu-logo--dark {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.app-dark .menu-logo--light {
+    opacity: 0;
+}
+
+.app-dark .menu-logo--dark {
+    opacity: 1;
 }
 </style>
