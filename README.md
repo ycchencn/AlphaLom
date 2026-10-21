@@ -10,7 +10,7 @@
 **以 Alpha（超额收益）为标的、以 Loom（织机）为喻**
 把散落在行情、财务、新闻与另类数据中的市场信号，编织成可执行的投资决策。
 
-[![Version](https://img.shields.io/badge/version-v4.4.0-D63C33?style=flat-square)](#)
+[![Version](https://img.shields.io/badge/version-v1.1.0-D63C33?style=flat-square)](#更新日志)
 [![License](https://img.shields.io/badge/license-Apache--2.0-4C8BF5?style=flat-square)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?style=flat-square&logo=fastapi&logoColor=white)](#)
@@ -36,12 +36,13 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 | | 模块 | 能力 |
 |:--:|:--|:--|
 | 📈 | **市场监控** | 沪深大盘（指数、申万行业涨跌、板块情绪、市场温度计、板块轮动）与美股大盘（11 个指数日线卡片，VIX 反向配色）；事件驱动流按题材聚合全市场新闻，附关联个股、标签与多空情绪，每小时 AI 速览 |
-| 🎯 | **个股监控** | 支持 A 股 / 港股 / 美股关键字搜索添加；详情整合 K 线与技术指标、主力行为阶段、恐贪指数、财务评分与 DCF 估值；列表页 KeepAlive 缓存，返回保留分组与分页记忆 |
-| 🧮 | **技术面因子分析** | 基于 2130 万行 / 1888 标的 / 107 因子的因子库：因子看板、技术面仪表盘、因子雷达与行业对比、因子选股器与技术信号扫描（纯规则计算，不消耗大模型额度） |
+| 🎯 | **个股监控** | 支持 A 股 / 港股 / 美股关键字搜索添加；详情整合 K 线与技术指标、主力行为阶段、恐贪指数、股吧散户情绪、上市公司公告、财务评分、DCF 估值，以及**巴菲特视角 AI 财务点评**（基于真实报表，每日自动预生成、打开即读、可折叠）；列表页 KeepAlive 缓存，返回保留分组与分页记忆 |
+| 🧮 | **技术面因子分析** | 基于 2130 万行 / 1888 标的 / 107 因子的因子库：因子看板、技术面仪表盘、因子雷达与行业对比、因子选股器与技术信号扫描（纯规则计算，不消耗大模型额度），因子看板支持一键重算 |
 | 🛰️ | **ETF 监控** | 监控清单持久化，支持搜索添加与删除，**添加即自动回填因子历史**（不等日更）；详情含 K 线与量价指标、基本资料、成分股穿透与技术面分析面板 |
 | 💼 | **投资组合** | 总资产 / 仓位 / 浮动盈亏 / 夏普比率 / 最大回撤 / 年化收益，净值曲线、持仓行业分布、交易复盘与 AI 调仓计划 |
 | 🔁 | **量化策略与回测** | 多策略账户信号总览、回测参数设置、回测记录与逐笔明细、QuantStats 绩效报告 |
-| 🧠 | **AI 分析** | 统一封装多路 LLM 按任务画像路由：研报生成、多模型新闻投票、策略代码生成，以及支持 MCP 工具调用的 AI 对话 |
+| 🧠 | **AI 分析** | 统一封装多路 LLM 按任务画像路由：研报生成、多模型新闻投票、策略代码生成、巴菲特视角财务点评，以及支持 MCP 工具调用的 AI 对话 |
+| 🌙 | **暗黑模式** | 全站三态切换（跟随系统 / 亮色 / 暗色），语义化颜色层统一驱动两套主题；涨跌色全站同口径（红涨绿跌） |
 | 👥 | **多用户与权限** | 管理员建号（不开放自助注册），令牌存 Redis、7 天滑动续期；股票池 / 投资组合 / ETF 自选按账号隔离；越权一律返回 404 |
 | 🧩 | **数据接口** | 覆盖市场、股票、ETF、组合、回测、因子六大域的 REST 接口；另提供 API Key 鉴权的对外开放 API，可直接对接第三方交易系统 |
 
@@ -59,7 +60,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 | `news_server` | — | `job/news_server.py` | 新闻聚合 |
 | `log_comsumer` | — | `log_comsumer.py` | 日志消费 |
 
-**后端模块**：`app/`（应用工厂 · 缓存 · 统一响应）· `routes/`（16 个路由）· `service/`（33 个业务模块）· `llms/`（多模型封装 + 提示词模板）· `backtest/`（回测引擎）· `job/`（17 个离线任务）· `models/`（DB / Redis / 任务队列）· `utils/`
+**后端模块**：`app/`（应用工厂 · 缓存 · 统一响应）· `routes/`（24 个路由文件）· `service/`（45 个业务模块）· `llms/`（多模型封装 + 提示词模板）· `backtest/`（回测引擎）· `job/`（20 个离线任务）· `models/`（DB / Redis / 任务队列）· `utils/`
 
 **前端视图**（`src/views/`）：`market` · `stock` · `etf` · `portfolios` · `quant` · `ai` · `trading` · `user` · `system` · `auth` · `uikit`
 
@@ -76,6 +77,9 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 
 ## 🎯 关键设计
 
+- **语义化颜色与暗黑模式**：颜色只在 `_light.scss` / `_dark.scss` 的语义层定义（`--app-bg-*` / `--app-text-*` / `--app-border-*` / `--app-up|down`），页面底色唯一来源是 `--app-bg-page`；切换主题只改 `<html>` 上的 `app-dark` 类（Tailwind 类由 `_darkmode.scss` 兜底）。⚠️ 语义层**写字面值、不引用 `var(--p-surface-*)`**——后者运行时注入会导致首帧闪白；容器换底色时须连它的 PrimeVue token 一起换。
+- **涨跌色口径**：唯一基准 `#dc2626` 涨 / `#16a34a` 跌（暗色 `#f87171` / `#4ade80`），canvas / SVG 取 `COLORS.*`，DOM 一律用 `toneClass()`。绝不写 `:style="{color: v>0?'red':'green'}"`——CSS 关键字色是另一套颜色，且内联值渲染时固化成字符串、切主题不重算。
+- **AI 财务点评**：角色设定（巴菲特视角）写死后端而非前端传参，避免人格被篡改；点评基于 DataBull 4 张核心报表，缺失字段显式标「数据未披露」而不臆测。定时任务**每小时挑 5 只、7 天间隔**，靠时间门控节流 token；卡片读库直显，避免每次打开都重新生成。
 - **交易时段缓存**：15:00–09:00（盘后）强制更换缓存键回源，避免盘后行情被长期缓存。
 - **指数卡片双页复用**：沪深与美股大盘页共用 `IndexCard.vue` 与 `index_card_common.py`；美股指数只有日线无盘中实时价，当日涨跌用相邻收盘价自算；VIX 为波动率指数，卡片反向着色（涨 = 恐慌）。
 - **列表页状态记忆**：股票池 / ETF 页用 `<KeepAlive :include>` 只缓存列表组件，返回时分组、分页与排序不重置。
@@ -83,7 +87,7 @@ AlphaLom 面向个人量化投资者与投研团队，提供 **多源数据采�
 - **长假后调度保护**：交易日历缓存键随日期变化，防止长假后「日历缓存固化」把当天日更整体跳过。
 - **多模型 LLM 路由**：按场景分配模型（DCF 走 `deepseek-v4-flash`、技术面走 `doubao-seed-2-0-mini`、新闻分析按序回退等）；路由表只登记实测可用模型，避免「模型列表存在 ≠ 账号可用」。
 - **因子库查询红线**：`factor_values` 为 EAV 长表，取最新值必须先以 `trade_date IN (<最近 K 个交易日>)` 命中主键首列，**绝不写 range 条件**（实测 57s → 1.3s）；「最新交易日」取最近 K 个有数据交易日的并集，不能取全表 `MAX`。
-- **定时调度**：`scheduler.py` 加载 `scheduler_jobs.yaml`（Asia/Shanghai），16:00 起依次执行回测、调仓、数据刷新、因子、信号、估值等任务；改时间只动 YAML，部署前 `python scheduler.py --check` 校验。
+- **定时调度**：`scheduler.py` 加载 `scheduler_jobs.yaml`（Asia/Shanghai，当前 16 个任务），16:00 起依次执行回测、调仓、数据刷新、因子、信号、估值等任务，另有**每小时整点**的 AI 财务点评；改时间只动 YAML，部署前 `python scheduler.py --check` 校验。⚠️ 改任务函数名或新增任务后**需重启 scheduler 进程**才会加载。
 - **并发模型**：绝大多数路由为同步 `def`，由 anyio 线程池承接阻塞调用获得真并发；worker 数与线程池上限配置化。
 - **真实 IP**：维护可信代理白名单，仅信任来自可信代理的 `X-Forwarded-For`，防 IP 伪造。
 - **增量数据库迁移**：`create_all(checkfirst=True)` 只建「不存在的表」，对已有表加的列不会自动出现。所有**已存在表**的后续变更（新增列、新增索引）统一在 `models/init_db.py` 的 `_SCHEMA_UPGRADES` / `_INDEX_UPGRADES` / `_NONUNIQUE_INDEX_UPGRADES` 三个元组里登记一条，`ensure_schema_upgrades()` 在服务启动时幂等补列/补索引——无需手写迁移脚本，部署即生效。
@@ -124,6 +128,7 @@ alphalom/
 ├── scheduler.py          # 定时任务入口（配置驱动，任务见 scheduler_jobs.yaml）
 ├── log_comsumer.py       # 日志消费入口
 ├── config.py             # 全局配置（按 ENV 加载 .env / .env.<env>）
+├── CHANGELOG.md          # 更新日志（语义化版本）
 ├── app/ routes/ service/ llms/ backtest/ job/ models/ utils/
 ├── src/                  # Vue 前端源码
 ├── public/               # 静态资源（images/ 品牌资源、readme/ 配图、docs/ 专题文档）
