@@ -18,6 +18,16 @@ const loadingStored = ref(false)    // 拉取每日生成结果中
 const errorMsg = ref('')            // 错误提示
 const abortController = ref(null)
 
+// 折叠状态：持久化到 localStorage，刷新后保持用户上次的展开/折叠选择。
+// 用项目统一的 localStorage 键前缀风格（与暗黑模式键同源）。
+const COLLAPSE_KEY = 'alphalom_fin_review_collapsed'
+const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === '1')
+
+function toggleCollapsed() {
+    collapsed.value = !collapsed.value
+    localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0')
+}
+
 async function loadStored() {
     loadingStored.value = true
     errorMsg.value = ''
@@ -137,9 +147,19 @@ watch(() => props.stockCode, (nv, ov) => {
 
 <template>
     <Card class="buffett-card">
-        <!-- 头部：巴菲特品牌标识 -->
+        <!-- 头部：巴菲特品牌标识（整行可点击折叠/展开） -->
         <template #header>
-            <div class="buffett-head">
+            <div
+                class="buffett-head"
+                :class="{'buffett-head--collapsed': collapsed}"
+                role="button"
+                tabindex="0"
+                :aria-expanded="!collapsed"
+                :aria-label="collapsed ? '展开财务点评' : '折叠财务点评'"
+                @click="toggleCollapsed"
+                @keydown.enter.prevent="toggleCollapsed"
+                @keydown.space.prevent="toggleCollapsed"
+            >
                 <div class="buffett-avatar">🎩</div>
                 <div class="buffett-title">
                     <div class="buffett-title__main">
@@ -148,61 +168,75 @@ watch(() => props.stockCode, (nv, ov) => {
                     </div>
                     <div class="buffett-title__sub">由系统智能体基于最新财务数据生成，以价值投资视角点评这门生意</div>
                 </div>
+                <i
+                    class="pi pi-chevron-down buffett-caret"
+                    :class="{'buffett-caret--open': !collapsed}"
+                ></i>
             </div>
         </template>
 
-        <!-- 生成中（手动流式） -->
-        <div v-if="loading" class="buffett-loading">
-            <div class="buffett-loading__bar">
-                <i class="pi pi-spin pi-spinner buffett-spinner"></i>
-                <span>巴菲特正在研读财报…</span>
-                <Button label="停止" icon="pi pi-stop" severity="secondary" text size="small" class="ml-auto" @click="stop"/>
-            </div>
-            <div v-if="reviewText" class="buffett-stream">
-                <MarkdownRenderer fontSize="12px" :markdown="reviewText"/>
-                <span class="buffett-cursor"></span>
-            </div>
-            <div v-else class="buffett-loading__hint">正在拉取财务数据并组织点评…</div>
-        </div>
+        <!-- ⚠️ PrimeVue 4 的 Card **不渲染默认插槽**，正文必须显式放进 #content，
+             否则卡片只剩标题栏、正文被静默丢弃（本项目 IndexCard / ETFDetail / MarketOverview 同此约定）。 -->
+        <template #content>
+            <!-- 折叠动画：用 grid-template-rows 0fr→1fr 过渡，能自适应正文真实高度，
+                 不需要 JS 测量 max-height。:inert 让折叠态内容退出 Tab 焦点序与朗读。 -->
+            <div class="buffett-collapse" :class="{'buffett-collapse--closed': collapsed}" :inert="collapsed">
+                <div class="buffett-collapse__inner">
+                    <!-- 生成中（手动流式） -->
+                    <div v-if="loading" class="buffett-loading">
+                        <div class="buffett-loading__bar">
+                            <i class="pi pi-spin pi-spinner buffett-spinner"></i>
+                            <span>巴菲特正在研读财报…</span>
+                            <Button label="停止" icon="pi pi-stop" severity="secondary" text size="small" class="ml-auto" @click="stop"/>
+                        </div>
+                        <div v-if="reviewText" class="buffett-stream">
+                            <MarkdownRenderer fontSize="12px" :markdown="reviewText"/>
+                            <span class="buffett-cursor"></span>
+                        </div>
+                        <div v-else class="buffett-loading__hint">正在拉取财务数据并组织点评…</div>
+                    </div>
 
-        <!-- 结果态（每日生成结果 / 手动生成结果） -->
-        <div v-else-if="reviewText" class="buffett-result">
-            <div v-if="errorMsg" class="buffett-error">
-                <Message severity="error" :closable="false">{{ errorMsg }}</Message>
-            </div>
-            <div v-if="storedMeta" class="buffett-meta">
-                <span>基于 <strong>{{ storedMeta.report_date || '最新' }}</strong> 财报</span>
-                <span class="buffett-meta__dot">·</span>
-                <span>生成于 {{ storedMeta.review_date }}</span>
-            </div>
-            <MarkdownRenderer fontSize="12px" :markdown="reviewText"/>
-            <div class="buffett-actions">
-                <Button label="重新生成" icon="pi pi-refresh" severity="warning" outlined @click="regenerate"/>
-            </div>
-        </div>
+                    <!-- 结果态（每日生成结果 / 手动生成结果） -->
+                    <div v-else-if="reviewText" class="buffett-result">
+                        <div v-if="errorMsg" class="buffett-error">
+                            <Message severity="error" :closable="false">{{ errorMsg }}</Message>
+                        </div>
+                        <div v-if="storedMeta" class="buffett-meta">
+                            <span>基于 <strong>{{ storedMeta.report_date || '最新' }}</strong> 财报</span>
+                            <span class="buffett-meta__dot">·</span>
+                            <span>生成于 {{ storedMeta.review_date }}</span>
+                        </div>
+                        <MarkdownRenderer fontSize="12px" :markdown="reviewText"/>
+                        <div class="buffett-actions">
+                            <Button label="重新生成" icon="pi pi-refresh" severity="warning" outlined @click="regenerate"/>
+                        </div>
+                    </div>
 
-        <!-- 拉取每日结果中 -->
-        <div v-else-if="loadingStored" class="buffett-loading">
-            <div class="buffett-loading__bar">
-                <i class="pi pi-spin pi-spinner buffett-spinner"></i>
-                <span>正在读取已生成的财务点评…</span>
-            </div>
-        </div>
+                    <!-- 拉取每日结果中 -->
+                    <div v-else-if="loadingStored" class="buffett-loading">
+                        <div class="buffett-loading__bar">
+                            <i class="pi pi-spin pi-spinner buffett-spinner"></i>
+                            <span>正在读取已生成的财务点评…</span>
+                        </div>
+                    </div>
 
-        <!-- 空状态：尚无每日生成结果 -->
-        <div v-else class="buffett-empty">
-            <p class="buffett-empty__text">
-                让系统智能体以巴菲特的视角，读一遍这家公司的财报，
-                从<strong>护城河、盈利质量、负债、自由现金流、估值安全边际</strong>几个维度给出点评。
-                <br/>（该标的暂无预生成的财务点评，可手动触发一次。）
-            </p>
-            <Button
-                label="生成巴菲特视角点评"
-                icon="pi pi-sparkles"
-                severity="warning"
-                @click="generate"
-            />
-        </div>
+                    <!-- 空状态：尚无每日生成结果 -->
+                    <div v-else class="buffett-empty">
+                        <p class="buffett-empty__text">
+                            让系统智能体以巴菲特的视角，读一遍这家公司的财报，
+                            从<strong>护城河、盈利质量、负债、自由现金流、估值安全边际</strong>几个维度给出点评。
+                            <br/>（该标的暂无预生成的财务点评，可手动触发一次。）
+                        </p>
+                        <Button
+                            label="生成巴菲特视角点评"
+                            icon="pi pi-sparkles"
+                            severity="warning"
+                            @click="generate"
+                        />
+                    </div>
+                </div>
+            </div>
+        </template>
     </Card>
 </template>
 
@@ -217,6 +251,69 @@ watch(() => props.stockCode, (nv, ov) => {
     gap: 0.75rem;
     padding: 0.9rem 1.1rem;
     border-bottom: 1px solid var(--p-content-border-color, #e5e7eb);
+    // 整行可点：手型 + hover 反馈，让「可折叠」这件事一眼可见
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+        // 用项目的 --surface-hover（= PrimeVue content hover 色），暗色下自动跟随，
+        // 不要写字面灰否则暗色模式会变成一块死板色块
+        background-color: var(--surface-hover, var(--p-content-hover-background, #f4f4f5));
+    }
+
+    // 键盘可达：Tab 聚焦到标题栏时给出清晰焦点环（仅键盘触发，鼠标点击不显示）
+    &:focus-visible {
+        outline: 2px solid var(--p-primary-color, #3b82f6);
+        outline-offset: -2px;
+    }
+}
+
+// 折叠后不再需要那条分隔线，否则会留下一条「下面还有东西」的误导性横线
+.buffett-head--collapsed {
+    border-bottom-color: transparent;
+}
+
+.buffett-caret {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    color: var(--p-text-muted-color, #6b7280);
+    // 折叠态朝下（-），展开态旋转 180° 朝上
+    transform: rotate(-90deg);
+    transition: transform 0.22s ease;
+}
+
+.buffett-caret--open {
+    transform: rotate(0deg);
+}
+
+// grid-template-rows 0fr→1fr 的经典自高度折叠：
+// 父级 1 行 grid，子级 overflow:hidden 撑开行高，展开时行高跟随内容自适应，
+// 无需 JS 测量 max-height（正文是 Markdown 渲染，高度不可预知）。
+.buffett-collapse {
+    display: grid;
+    grid-template-rows: 1fr;
+    transition: grid-template-rows 0.24s ease;
+}
+
+.buffett-collapse--closed {
+    grid-template-rows: 0fr;
+}
+
+.buffett-collapse__inner {
+    overflow: hidden;
+    // grid 行高为 0fr 时，子项 min-height:auto 会拒绝收缩到 0，必须显式置 0
+    min-height: 0;
+}
+
+// ⚠️ 降低动效偏好（prefers-reduced-motion）时不做高度过渡，直接切换
+@media (prefers-reduced-motion: reduce) {
+    .buffett-collapse,
+    .buffett-caret,
+    .buffett-head {
+        transition: none;
+    }
 }
 
 .buffett-avatar {
