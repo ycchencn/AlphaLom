@@ -262,10 +262,16 @@ guba_max_symbols = int(os.getenv('GUBA_MAX_SYMBOLS', 50))
 # 单次送入 LLM 的帖子数上限（超出按互动量分层采样，控制 token 与信噪比）
 guba_max_posts_for_llm = int(os.getenv('GUBA_MAX_POSTS_FOR_LLM', 80))
 
-# 每日「巴菲特视角财务点评」批量任务的股票数上限。单只比股吧情绪重得多
+# 「巴菲特视角财务点评」批量任务的股票池上限。单只比股吧情绪重得多
 # （4 次财务取数 + 一次长文 LLM），token 消耗显著；默认 100 只，覆盖监控池主力。
 # 扩大覆盖需评估 token 预算（与代理池无关，瓶颈在 LLM 成本而非抓取封锁）。
 fin_review_max_symbols = int(os.getenv('FIN_REVIEW_MAX_SYMBOLS', 100))
+
+# 每小时批量任务「本轮点评几只」。配合 7 天点评间隔，池子较大时多轮即可铺满一轮。
+fin_review_per_run = int(os.getenv('FIN_REVIEW_PER_RUN', 5))
+
+# 同一只股票两次自动点评的最小间隔（天）。一周内点评过的不再点评。
+fin_review_interval_days = int(os.getenv('FIN_REVIEW_INTERVAL_DAYS', 7))
 
 # 命中验证页后的冷却秒数：冷却期内所有抓取直接跳过，不再发请求（避免越试越封）
 guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))

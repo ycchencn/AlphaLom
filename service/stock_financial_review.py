@@ -18,7 +18,7 @@
    与 src/views/stock/StockDetail.vue 的 FIN_INDICATORS 对齐。
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_
@@ -328,6 +328,19 @@ class StockFinancialReviewService:
         except Exception as e:  # noqa: BLE001
             logger.error(f'[fin_review] get_latest_by_symbols 失败: {e}')
             return {}
+
+    @staticmethod
+    def get_reviewed_symbols_within_days(days: int) -> set:
+        """返回近 days 天内已有点评记录的 symbol 集合（用于「一周内不再点评」的候选过滤）。"""
+        cutoff = date.today() - timedelta(days=max(0, int(days)))
+        try:
+            rows = db_session.query(StockFinancialReview.symbol).filter(
+                StockFinancialReview.review_date >= cutoff
+            ).all()
+            return {r[0] for r in rows if r[0]}
+        except Exception as e:  # noqa: BLE001
+            logger.error(f'[fin_review] get_reviewed_symbols_within_days 失败: {e}')
+            return set()
 
 
 # ⚠️ 角色设定写死在后端（不是前端传参），避免用户篡改人格；
