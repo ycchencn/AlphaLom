@@ -281,11 +281,11 @@ onBeforeMount(() => {
 /* 恐惧贪婪进度条配色（与股票列表 StockMonitor 一致，对应 utils/function.js 的
    FEAR_GREED_LEVELS，A 股口径：恐惧绿、贪婪红）。改这里务必同步那个常量。 */
 :deep(.fg-extreme-fear .p-progressbar-value) {
-    background: var(--app-down) !important; /* 极度恐惧 - 深绿 */
+    background: var(--app-down-strong) !important; /* 极度恐惧 - 深绿 */
 }
 
 :deep(.fg-fear .p-progressbar-value) {
-    background: var(--app-down-soft) !important; /* 恐惧 - 浅绿 */
+    background: var(--app-down) !important; /* 恐惧 - 绿（与成长 vs 价值卡片同色） */
 }
 
 :deep(.fg-neutral .p-progressbar-value) {

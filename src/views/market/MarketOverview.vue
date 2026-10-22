@@ -113,8 +113,10 @@ const fearGreedLabel = (val) => {
 }
 
 // 情绪色带：恐惧偏绿、贪婪偏红（与 A 股红涨绿跌一致）。
-// ⚠️ 直接复用 function.js 的 fearGreedColor —— 它内部走 COLORS（统一涨跌色 +
-//    随暗黑模式切换）。本页曾另写一份并硬编码中间档 hex，与档位定义脱钩。
+// ⚠️ 直接复用 function.js 的 fearGreedColor —— 它现在返回 CSS 变量
+//    （var(--app-down) / var(--app-up) …），与「成长 vs 价值」卡片用的
+//    var(--color-down)（= var(--app-down)）完全是同一个绿，
+//    且暗黑模式切换会自动跟随。
 const fearGreedColor = (val) => fgColor(val);
 
 // ========================
