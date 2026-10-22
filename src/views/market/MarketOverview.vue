@@ -872,6 +872,59 @@ const gvChartRef = ref(null)
 let gvChart = null
 
 /**
+ * **比值相对上一交易日的涨跌幅**（日涨跌），以及两条成分腿各自的当日涨跌幅。
+ *
+ * ⚠️ 优先用 points 里的 growth_close / value_close 原始收盘价重算，而不是直接用
+ *    points[-1].ratio / points[-2].ratio：
+ *    ratio 被后端 round(4) 过（比值量级 ~1.03），单点舍入误差就有 ~0.005%，
+ *    而日涨跌幅本身常常只有 0.1%~0.5% —— 直接相减会被舍入误差污染到小数第二位。
+ *    close 是 round(2) 的绝对点位（量级几千），相对精度高一个量级，且
+ *    (g_t/g_{t-1}) ÷ (v_t/v_{t-1}) 与比值的变化完全等价（首日归一系数相消）。
+ */
+const gvDay = computed(() => {
+    const pts = growth_value.value?.points || []
+    if (pts.length < 2) return null
+    const cur = pts[pts.length - 1]
+    const prev = pts[pts.length - 2]
+    const num = (v) => (v == null ? null : Number(v))
+    const gC = num(cur.growth_close), gP = num(prev.growth_close)
+    const vC = num(cur.value_close), vP = num(prev.value_close)
+
+    let ratioPct = null, growthPct = null, valuePct = null
+    if (gC > 0 && gP > 0 && vC > 0 && vP > 0) {
+        growthPct = (gC / gP - 1) * 100
+        valuePct = (vC / vP - 1) * 100
+        ratioPct = ((1 + growthPct / 100) / (1 + valuePct / 100) - 1) * 100
+    } else {
+        // 兜底：退化用 round 过的 ratio 相除（精度差但不至于空白）
+        const rC = num(cur.ratio), rP = num(prev.ratio)
+        if (rC > 0 && rP > 0) ratioPct = (rC / rP - 1) * 100
+    }
+    return {
+        prev_date: prev.trade_date,
+        ratio_pct: ratioPct,
+        growth_pct: growthPct,
+        value_pct: valuePct,
+    }
+})
+
+// 日涨跌幅文本（比值口径），与「成长/价值」主数字并排显示
+const gvDayPctText = computed(() => {
+    const v = gvDay.value?.ratio_pct
+    return v == null ? '--' : `${v > 0 ? '+' : ''}${v.toFixed(2)}%`
+})
+
+/** 日涨跌幅的 tooltip：说明口径，并附两条成分腿各自的当日涨跌 */
+const gvDayTitle = computed(() => {
+    const d = gvDay.value
+    if (!d || d.ratio_pct == null) return ''
+    const legs = []
+    if (d.growth_pct != null) legs.push(`创业板指 ${d.growth_pct > 0 ? '+' : ''}${d.growth_pct.toFixed(2)}%`)
+    if (d.value_pct != null) legs.push(`上证红利 ${d.value_pct > 0 ? '+' : ''}${d.value_pct.toFixed(2)}%`)
+    return `相对上一交易日（${d.prev_date}）比值的涨跌` + (legs.length ? `\n${legs.join('　')}` : '')
+})
+
+/**
  * 相对强度（归一化净值或比值）→ 迷你条宽度（%）。
  *
  * ⚠️ 不能用 `(值 - 1) * 100` 直接当宽度：成分腿一年期的偏离常见 10%~20%，
@@ -1208,10 +1261,18 @@ onUnmounted(() => {
             </template>
             <template #content>
                 <div v-if="gvLatest" class="fear-greed-body">
-                    <!-- 左：当前比值 + 区间涨跌幅 -->
+                    <!-- 左：当前比值 + 日涨跌幅 -->
                     <div class="fg-current">
-                        <div class="fg-value" :style="{ color: ratioColor }">
-                            {{ gvLatest.ratio.toFixed(4) }}
+                        <div class="fg-value-row">
+                            <div class="fg-value" :style="{ color: ratioColor }">
+                                {{ gvLatest.ratio.toFixed(4) }}
+                            </div>
+                            <!-- 日涨跌幅：紧贴主数字右侧，一眼看出今天风格有没有切换 -->
+                            <div class="fg-day-pct"
+                                 :class="getPctColorClass(gvDay?.ratio_pct)"
+                                 :title="gvDayTitle">
+                                {{ gvDayPctText }}
+                            </div>
                         </div>
                         <div class="fg-label" :style="{ color: ratioColor }">
                             {{ gvLatest.ratio > 1 ? '成长占优' : (gvLatest.ratio < 1 ? '价值占优' : '风格均衡') }}
@@ -1810,6 +1871,24 @@ onUnmounted(() => {
         font-size: 0.8rem;
         color: var(--app-text-muted);
         font-weight: 400;
+    }
+
+    // 主数字 + 日涨跌幅 同一行。用 flex 而不是让 pct 直接跟在大数字后面，
+    // 因为 .fg-value 是 3rem 大字，inline 混排会让基线很难对齐。
+    .fg-value-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: center;
+        gap: 0.45rem;
+    }
+
+    // 日涨跌幅：字号约为大数字的 1/3，垂直基线对齐（align-items: baseline）
+    .fg-day-pct {
+        font-size: 1rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        cursor: help;
     }
 }
 
