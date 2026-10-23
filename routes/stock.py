@@ -24,6 +24,11 @@ from service.stock_financial_score import StockFinancialScoreService
 from service.stock_fear_greed_service import StockFearGreedService
 from service.stock_guba_sentiment_service import StockGubaSentimentService
 from service.stock_financial_review import StockFinancialReviewService
+from service.stock_announcement_service import (
+    ANNOUNCEMENT_CATEGORY_RULES as ANNOUNCEMENT_CATEGORY_RULES_IMPL,
+    ANNOUNCEMENT_COLUMN_NAMES as ANNOUNCEMENT_COLUMN_NAMES_IMPL,
+    classify_announcement,
+)
 from utils.auth import get_current_user, get_current_user_id
 from utils.data_loader import databull
 from utils.common import get_today, get_date_by_n, validate_stock_code
@@ -1208,56 +1213,12 @@ async def financial_review(symbol: str, req: FinancialReviewRequest, user: dict 
 # ⚠️ 缓存：上游有日调用配额（实测响应头 x-ratelimit-limit: 10000），
 #    而公告数据是「盘后集中披露」的低频数据，缓存 1 小时足够且能省配额。
 
-# 公告分类标签：按标题关键词规则推断（与同花顺/东财的公告分类思路一致）。
-# ⚠️ 这是**关键词匹配**而非上游分类码映射 —— 上游码表不可得，只能走这条确定性路径。
-# 顺序有意义：先匹配的特征更具体，必须放在前面（例如「回购」要先于「股份」，
-# 否则「关于回购股份的进展公告」会被「股份」规则抢走）。
-ANNOUNCEMENT_CATEGORY_RULES = [
-    ('定期报告', ('年度报告', '半年度报告', '季度报告', '三季度报告', '年报', '季报', '业绩预告', '业绩快报')),
-    ('重大事项', ('重大资产', '资产重组', '要约收购', '吸收合并', '分拆上市')),
-    ('融资事项', ('非公开发行', '定向增发', '可转债', '配股', '募集说明书', '发行股票', '债券发行')),
-    ('股权激励', ('股权激励', '股票期权', '限制性股票')),
-    ('回购增持', ('回购', '增持', '减持', '股份回购')),
-    ('担保事项', ('担保', '抵押', '质押')),
-    ('股东变动', ('股东变动', '股份变动', '权益变动', '限售股', '解除限售', '转增', '减持计划')),
-    # ⚠️ 治理类关键词要能跨越「第六届」「第十一次」这类插入词，
-    #    所以用「董事会」「监事会」「股东大会」等**机构词**而不是「董事会决议」这种
-    #    固定短语 —— 否则「第六届董事会第十一次会议决议公告」会漏判。
-    ('公司治理', ('董事会', '监事会', '股东大会', '股东会', '公司章程', '选举', '聘任', '辞职', '辞任',
-                  '任职资格', '换届', '高级管理人员')),
-    ('关联交易', ('关联交易', '关联方')),
-    # 「重大合同」放在经营情况而非重大事项：签合同是日常经营动作，
-    # 资产重组/要约收购才是真正的「重大事项」。所以「重大合同」必须排在重大事项之后。
-    ('经营情况', ('重大合同', '中标', '签订', '合同', '产销快报', '经营情况', '获批', '取得',
-                  '对外投资', '参与投资', '基金备案')),
-    ('风险提示', ('风险提示', '问询函', '关注函', '监管措施', '立案调查', '处罚', '违规', '诉讼', '仲裁')),
-]
-
-
-def _classify_announcement(title: str) -> str:
-    """按标题关键词推断公告分类标签。
-
-    纯函数、只读标题、规则表在上方 —— 便于单测与后续调整。
-    命中不了时返回 '其他公告'（不返回空串：前端要统一渲染一个标签位）。
-    """
-    if not title:
-        return '其他公告'
-    for label, keywords in ANNOUNCEMENT_CATEGORY_RULES:
-        for kw in keywords:
-            if kw in title:
-                return label
-    return '其他公告'
-
-
-# 巨潮的板块栏目码 → 可读名。上游只给 `page_column` 这样的内部码。
-# 实测取值：SZZB(深主板) / SZCY(创业板) / SHZB(沪主板) / SHKCB(科创板)。
-ANNOUNCEMENT_COLUMN_NAMES = {
-    'SZZB': '深主板',
-    'SZCY': '创业板',
-    'SHZB': '沪主板',
-    'SHKCB': '科创板',
-    'BJ': '北交所',
-}
+# 公告分类规则（关键词表 + 板块码表）已迁到 service/stock_announcement_service.py：
+# 定时落库任务、列表页筛选与这里的实时接口必须共用同一套规则，规则表留在 routes 里
+# 会让 job 反向依赖 FastAPI 模块。这里保留模块级别名，调用方（含单测）无需改动。
+ANNOUNCEMENT_CATEGORY_RULES = ANNOUNCEMENT_CATEGORY_RULES_IMPL
+ANNOUNCEMENT_COLUMN_NAMES = ANNOUNCEMENT_COLUMN_NAMES_IMPL
+_classify_announcement = classify_announcement
 
 
 @stock_router.get('/stock/announcements/{symbol}')

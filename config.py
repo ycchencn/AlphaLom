@@ -276,6 +276,29 @@ fin_review_interval_days = int(os.getenv('FIN_REVIEW_INTERVAL_DAYS', 7))
 # 命中验证页后的冷却秒数：冷却期内所有抓取直接跳过，不再发请求（避免越试越封）
 guba_block_cooldown = int(os.getenv('GUBA_BLOCK_COOLDOWN', 1800))
 
+# ===== 公司公告（巨潮资讯网原文，经 DataBull 接入）=====
+# 公告是「按单只股票分页」的接口，一轮同步 = 池内票数 × 页数。上游日配额实测
+# x-ratelimit-limit: 10000，正常量级（数百只 × 1~2 页）远低于上限，但仍要留出间隔，
+# 避免瞬时并发把配额打在几秒内。
+announcement_sync_page_size = int(os.getenv('ANNOUNCEMENT_SYNC_PAGE_SIZE', 100))
+
+# 增量抓取最多翻几页：翻到「已入库的最新日期」就停，正常情况下第 1 页就够。
+announcement_sync_max_pages = int(os.getenv('ANNOUNCEMENT_SYNC_MAX_PAGES', 3))
+
+# 首次回填（该票库里没有记录）最多翻几页。100 条/页 × 6 页 ≈ 600 条，
+# 覆盖多数标的近年公告；翻更多对列表页没有价值，只吃配额。
+announcement_backfill_pages = int(os.getenv('ANNOUNCEMENT_BACKFILL_PAGES', 6))
+
+# 两只票之间的最小请求间隔（秒）。只防瞬时峰值，不追求吞吐。
+announcement_sync_interval = float(os.getenv('ANNOUNCEMENT_SYNC_INTERVAL', 0.5))
+
+# 单轮同步的票数上限（防止池子异常膨胀时把配额一次打满）
+announcement_sync_symbol_limit = int(os.getenv('ANNOUNCEMENT_SYNC_SYMBOL_LIMIT', 800))
+
+# 公告保留天数：超过则每日任务顺手清理。0 = 不清理。
+# 默认 3 年：公告的历史查询价值集中在近一两年，再往前只占空间。
+announcement_retention_days = int(os.getenv('ANNOUNCEMENT_RETENTION_DAYS', 1095))
+
 # ===== MCP 服务 =====
 # ⚠️ 必须归一化，不能直接用 os.getenv 的原值：未配置时原值是 None，
 #    而 f"{None}/tools" 会拼成字符串 "None/tools" 发出去 —— requests 抛 MissingSchema

@@ -49,6 +49,7 @@ from routes.chat_stream import chat_router
 from routes.token_usage import token_usage_router
 from routes.api_key import api_key_router
 from routes.factor import factor_router
+from routes.announcement import stock_announcement_router
 from app.external_api import create_external_app
 
 app.include_router(auth_router)
@@ -71,6 +72,8 @@ app.include_router(chat_router)
 app.include_router(token_usage_router)
 app.include_router(api_key_router)
 app.include_router(factor_router)
+# 公司公告（投资组合 → 公司公告）：本地副本查询 + 手动同步投递
+app.include_router(stock_announcement_router)
 
 # ==================== 自托管 Swagger UI / ReDoc ====================
 # 默认的 /docs、/redoc 指向 jsdelivr CDN，被 reset 后无法加载。这里用本地

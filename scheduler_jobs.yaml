@@ -166,3 +166,25 @@ jobs:
     cron:
       minute: 0
     replace_existing: true
+
+  # 公司公告同步（巨潮资讯网原文，经 DataBull 接入 → 本地 stock_announcements 表）
+  # 「投资组合 → 公司公告」页面的数据源。公告是盘后集中披露，19:30 覆盖大部分；
+  # 22:40 再补一次，收掉晚间陆续发布的公告（次日页面打开即是完整清单）。
+  # ⚠️ 这里**不限 mon-fri**（与股吧情绪不同）：周末（尤其周日晚上）也会有公告披露，
+  #    只跑工作日会让周一早上的清单停留在上周五，漏掉的正是"周末突发事项"这类关键信息。
+  #    全池 87 只跑一轮约 20 秒、不到 100 次请求，配额完全不敏感。
+  # ⚠️ 任务内部单只票之间串行 + 0.5 秒间隔；上游 start_date 参数不生效，
+  #    增量靠「翻页到已入库日期为止」，别改成按日期过滤。
+  - id: job_stock_announcement_sync_daily_evening
+    func: job.job_stock_announcement:job_stock_announcement_sync_daily
+    cron:
+      hour: 19
+      minute: 30
+    replace_existing: true
+
+  - id: job_stock_announcement_sync_daily_night
+    func: job.job_stock_announcement:job_stock_announcement_sync_daily
+    cron:
+      hour: 22
+      minute: 40
+    replace_existing: true

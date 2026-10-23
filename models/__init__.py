@@ -6,7 +6,7 @@
 
 from sqlalchemy import Text, DateTime, BigInteger
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, Enum, Numeric, Boolean, SmallInteger
-from sqlalchemy import Float, DECIMAL, JSON, UniqueConstraint
+from sqlalchemy import Float, DECIMAL, JSON, UniqueConstraint, Index
 from sqlalchemy.sql import func
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
@@ -660,6 +660,125 @@ class StockFinancialReview(Base):
             'content': self.content,
             'model': self.model,
             'update_time': self.update_time.isoformat() if self.update_time else None,
+        }
+
+
+class StockAnnouncement(Base):
+    """上市公司公告清单（巨潮资讯网原文，经 DataBull 接口接入）—— 定时任务落库的本地副本。
+
+    为什么落库而不是每次实时查上游：
+      1. 上游是「按单只股票查」的接口，股票池里几十只票就要几十次请求，页面打开要等
+         十几秒；一次拉取落库后，列表页变成一次本地 SQL 查询（毫秒级）。
+      2. 上游有日配额（实测 x-ratelimit-limit: 10000），列表页每刷新一次就烧一轮配额
+         不可持续；落库后只有定时任务在消耗配额。
+      3. 公告是「盘后集中披露 + 历史不变」的低频数据，本地副本天然适合做增量和筛选。
+
+    ⚠️ 唯一键 (symbol, announcement_id) 而不是 announcement_id 单列：巨潮的
+    announcement_id 理论上全局唯一，但上游按股票返回，同一份公告若被归到两只票
+    （吸收合并、AB 股重复披露等）单列唯一会直接撞库；复合键让「同票同公告」幂等、
+    「同公告多票」各自留痕。
+
+    ⚠️ 上游覆盖不完整（部分 A 股恒为空，如 600519/600036），所以「某只票查不到公告」
+    是合法状态，不能当成同步失败 —— `stock_announcement_sync_state` 表记录每只票的
+    最近同步时间与结果，用于增量判断与排查。
+
+    ⚠️ `category` 是**标题关键词推断**的展示标签，不是上游 classification 码。
+    上游码是巨潮内部多级码（'01010503||010112||012303'），各段语义不唯一且无字典端点，
+    原码留在 raw_category 里备查，不作为展示与筛选口径。
+    """
+
+    __tablename__ = 'stock_announcements'
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True, comment='自增主键')
+    symbol = Column(String(25), nullable=False, index=True, comment='股票代码，如 000001')
+    stock_name = Column(String(50), nullable=True, comment='上游返回的股票名称快照（JOIN stocks 可能缺失）')
+    announcement_id = Column(String(64), nullable=False, comment='巨潮公告 ID（如 1225601360，PDF 文件名同源）')
+
+    title = Column(String(500), nullable=False, comment='公告标题')
+    category = Column(String(20), nullable=False, default='其他公告', index=True,
+                      comment='展示分类：标题关键词推断（定期报告/重大事项/风险提示…）')
+    raw_category = Column(String(255), nullable=True, comment='上游原始多级分类码（仅备查，无中文映射）')
+
+    announce_date = Column(Date, nullable=False, index=True, comment='公告日期')
+    announce_time = Column(DateTime, nullable=True, comment='公告披露时间（上游多为 00:00:00，仅供排序兜底）')
+
+    column_code = Column(String(20), nullable=True, comment='巨潮板块码：SZZB/SZCY/SHZB/SHKCB/BJ')
+    column_name = Column(String(20), nullable=True, comment='板块可读名：深主板/创业板/沪主板/科创板')
+
+    pdf_url = Column(String(500), nullable=True, comment='公告原文 PDF 直链（巨潮 static.cninfo.com.cn）')
+    pdf_size_kb = Column(Integer, nullable=True, comment='PDF 大小（KB）')
+
+    source = Column(String(20), nullable=False, default='databull', comment='数据来源标记')
+    create_time = Column(DateTime, default=datetime.now, comment='首次入库时间')
+    update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='最近更新时间')
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'announcement_id', name='uniq_ann_symbol_aid'),
+        # 列表页的固定查询形态：WHERE symbol IN (...) [+ 日期区间] ORDER BY announce_date DESC
+        # 复合索引让「按票 + 按时间」一次命中；单列 announce_date 索引供「全池按日」排序。
+        Index('ix_ann_symbol_date', 'symbol', 'announce_date'),
+        Index('ix_ann_date_symbol', 'announce_date', 'symbol'),
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'symbol': self.symbol,
+            'stock_name': self.stock_name,
+            'announcement_id': self.announcement_id,
+            'title': self.title,
+            'category': self.category,
+            'raw_category': self.raw_category,
+            'announce_date': self.announce_date.isoformat() if self.announce_date else None,
+            'announce_time': self.announce_time.strftime('%Y-%m-%d %H:%M:%S') if self.announce_time else None,
+            'column_code': self.column_code,
+            'column_name': self.column_name,
+            'pdf_url': self.pdf_url,
+            'pdf_size_kb': self.pdf_size_kb,
+            'source': self.source,
+            'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
+            'update_time': self.update_time.strftime('%Y-%m-%d %H:%M:%S') if self.update_time else None,
+        }
+
+
+class StockAnnouncementSync(Base):
+    """公告同步状态（每只票一行）—— 增量抓取的判据与运维排查依据。
+
+    ⚠️ 为什么不把「最近同步时间」塞进 `stocks.setting` JSON：那是业务扩展字段，
+    日更任务会整块覆盖写，同步状态会被顺手洗掉；而且按「最近同步时间」批量选票
+    （下一轮抓谁）用 JSON 里的字段做不了索引。独立小表 + symbol 主键最省事。
+
+    `last_sync_status` 取值：
+      - ok      本轮成功拿到数据并落库
+      - empty   上游返回空数组（覆盖不完整，合法结果，不是错误）
+      - error   上游异常/网络失败（下一轮会被优先重试）
+      - skipped 本轮因限流或配额主动跳过
+    """
+
+    __tablename__ = 'stock_announcement_sync'
+
+    symbol = Column(String(25), primary_key=True, comment='股票代码')
+    last_sync_time = Column(DateTime, nullable=True, comment='最近一次同步时间')
+    last_announce_date = Column(Date, nullable=True, comment='已入库的最新公告日期（增量翻页的停止条件）')
+    last_sync_status = Column(String(20), nullable=True, comment='ok/empty/error/skipped')
+    last_error = Column(String(255), nullable=True, comment='最近一次失败的简要原因')
+    fetched_pages = Column(Integer, nullable=False, default=0, comment='最近一次抓取的页数')
+    fetched_rows = Column(Integer, nullable=False, default=0, comment='最近一次写入/更新的行数')
+
+    __table_args__ = (
+        {'mysql_charset': 'utf8mb4', 'mysql_collate': 'utf8mb4_unicode_ci', 'mysql_engine': 'InnoDB'},
+    )
+
+    def to_dict(self):
+        return {
+            'symbol': self.symbol,
+            'last_sync_time': self.last_sync_time.strftime('%Y-%m-%d %H:%M:%S') if self.last_sync_time else None,
+            'last_announce_date': self.last_announce_date.isoformat() if self.last_announce_date else None,
+            'last_sync_status': self.last_sync_status,
+            'last_error': self.last_error,
+            'fetched_pages': self.fetched_pages or 0,
+            'fetched_rows': self.fetched_rows or 0,
         }
 
 
