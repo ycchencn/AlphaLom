@@ -101,9 +101,15 @@ def get_etfs(user_id: int = Depends(get_current_user_id)):
     是否命中看响应头 X-FastAPI-Cache: HIT|MISS。
     """
     rows = EtfService.list_watchlist(user_id)
+    symbols = [r.symbol for r in rows]
     # 批量取每只 ETF 最新的恐惧贪婪值（一次查询，避免 N+1）。该表与个股共用
     # stocks_fear_greed，按 index_code（即 symbol）自然落入，不需要单独建表。
-    greed_map = StockFearGreedService.get_latest_by_index_codes([r.symbol for r in rows])
+    greed_map = StockFearGreedService.get_latest_by_index_codes(symbols)
+    # PE-TTM（ETF 市盈率）同理一次批量查完，不在循环里再叠一对 N+1。
+    # 口径见 FactorCalService.update_etf_pe_factor：成分股 PE 按占净值比加权、只计 PE>0
+    # 的成分再归一。**跨境/商品 ETF 没有 A 股篮子，因子从未落库**（513050 / 513100 /
+    # 513600 / 159981 实测如此），此时键不存在 → 前端显示占位而不是 0。
+    pe_map = FactorValueService.get_latest_factor_values(symbols, ['etf_pe_ttm'])
     result = []
     for row in rows:
         symbol = row.symbol
@@ -139,6 +145,11 @@ def get_etfs(user_id: int = Depends(get_current_user_id)):
         # 无数据（尚未计算/刚入池）时置 None，前端显示占位、不报错。
         _g = greed_map.get(symbol)
         etf['fear_greed'] = (_g or {}).get('fear_greed')
+        # PE-TTM 最新值。DECIMAL → float（jsonable_encoder 对 Decimal 的处理随版本变化，
+        # 显式转一次省得前端拿到字符串再判断）。<=0 一律当无值：因子口径只纳入正 PE，
+        # 出现非正只可能是历史脏数据，负 PE 字面上像「很便宜」，是最容易被误读的形态。
+        _pe = pe_map.get((symbol, 'etf_pe_ttm'))
+        etf['pe_ttm'] = float(_pe) if _pe not in (None, '') and float(_pe) > 0 else None
         result.append(etf)
 
     return result

@@ -48,6 +48,23 @@ function getFearGreedClass(value) {
     return FG_LEVEL_CLASS[fearGreedLevel(value).text] || 'fg-neutral';
 }
 
+// PE-TTM（ETF 市盈率）单元格：后端字段 pe_ttm 为 float，null 表示「没有可信数字」——
+// 两种成因对用户是同一件事（现在这一列没数），故合并为一个占位符：
+//   1) 跨境/商品 ETF 没有 A 股成分篮子 → 该因子永不计算（513050 / 513100 / 513600 / 159981）；
+//   2) 新入池的 ETF 还没跑过盘后日更。
+const PE_TTM_TITLE = 'ETF 市盈率(TTM)：成分股 PE 按占净值比加权，仅纳入盈利成分，每日盘后更新';
+const PE_TTM_EMPTY_TITLE = '暂无 ETF 市盈率：跨境/商品 ETF 无 A 股成分篮子不计算；新入池标的待盘后日更后可见';
+
+function peTtmCell(raw) {
+    const v = (raw === null || raw === undefined || raw === '') ? NaN : Number(raw);
+    // <=0 当无值：因子口径只纳入正 PE，非正只可能是历史脏数据。负 PE 字面上像「很便宜」，
+    // 是这一列最容易被误读的形态，宁可不显示。
+    if (!Number.isFinite(v) || v <= 0) {
+        return { text: '—', title: PE_TTM_EMPTY_TITLE, empty: true };
+    }
+    return { text: v.toFixed(2), title: `${PE_TTM_TITLE}（当前 ${v.toFixed(2)}）`, empty: false };
+}
+
 function loadETFList() {
     loading1.value = true;
     return axios.get(`/api/v1/etfs`).then(response => {
@@ -226,6 +243,20 @@ onBeforeMount(() => {
                     {{ formatStockTradeAmount(data.ohlc_last.amount) }}
                 </template>
             </Column>
+            <!-- PE-TTM（ETF 市盈率）：成分股 PE 按占净值比加权、只纳入盈利成分后的整体估值，
+                 由日更任务盘后落库（backend: FactorCalService.update_etf_pe_factor）。
+                 ⚠️ 刻意**不做**像个股页那样的分档着色：ETF 的 PE 水平由行业结构决定
+                 （银行 6.8、科创半导体 202），同一套「<15 便宜 / >80 很贵」的阈值套在
+                 行业 ETF 上会把高成长行业一律标红，读起来像风险信号而不是行业特性。
+                 宁可不给颜色，也不给一个会误导的判断。 -->
+            <Column field="pe_ttm" filterField="pe_ttm" header="PE-TTM" sortable dataType="numeric">
+                <template #body="{ data }">
+                    <span
+                        :class="{ 'etf-pe-empty': peTtmCell(data.pe_ttm).empty }"
+                        :title="peTtmCell(data.pe_ttm).title"
+                    >{{ peTtmCell(data.pe_ttm).text }}</span>
+                </template>
+            </Column>
             <Column header="52周价格范围">
                 <template #body="{ data }">
                     <PriceRange52Week
@@ -302,6 +333,11 @@ onBeforeMount(() => {
 
 .etf-fg-empty {
     font-size: 11px;
+    color: var(--app-text-muted);
+}
+
+/* PE-TTM 无值占位：弱化到「一眼看出没数」，但不至于像缺列 */
+.etf-pe-empty {
     color: var(--app-text-muted);
 }
 
