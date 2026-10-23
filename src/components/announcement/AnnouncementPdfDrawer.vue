@@ -220,11 +220,21 @@ function retry() {
 </script>
 
 <template>
+    <!-- ⚠️ 抽屉内容区的 padding/overflow 必须走 pt 的内联 style：
+         PrimeVue 4 没有 body-class（v3 的 API），而且 Drawer 是 Teleport 出去的，
+         整条 DOM 都不带本组件的 data-v 属性，scoped 里的 :deep(.p-drawer-content)
+         一个也匹配不到（编译成 [data-v-xxx] .p-drawer-content，祖先上没这个属性）。
+         内联样式没有这个问题，也不依赖选择器优先级。 -->
     <Drawer
         v-model:visible="open"
         position="right"
         :footer="false"
-        body-class="p-0"
+        :pt="{
+            content: {
+                class: 'pdf-drawer-content',
+                style: { padding: '0', overflow: 'hidden' },
+            },
+        }"
         class="!w-full md:!w-[88vw] lg:!w-[76rem]"
     >
         <template #header>
@@ -239,73 +249,80 @@ function retry() {
             </div>
         </template>
 
-        <!-- 顶栏：元信息 + 操作。单独一行，避免和 Drawer 自带的关闭按钮挤在一起 -->
-        <div class="pdf-toolbar">
-            <div class="pdf-meta">
-                <span>{{ ann.announce_date || '--' }}</span>
-                <span v-if="ann.stock_name" class="pdf-meta-strong">{{ ann.stock_name }}</span>
-                <span v-if="ann.category" class="pdf-tag">{{ ann.category }}</span>
-            </div>
-            <div class="pdf-actions">
-                <Button
-                    type="button"
-                    icon="pi pi-external-link"
-                    label="新窗口"
-                    size="small"
-                    text
-                    severity="secondary"
-                    :disabled="!openInNewTabUrl"
-                    title="在浏览器新标签页打开（同源代理，支持分页加载）"
-                    @click="openInNewTab"
-                />
-                <Button
-                    type="button"
-                    icon="pi pi-download"
-                    label="下载"
-                    size="small"
-                    text
-                    severity="secondary"
-                    title="下载这份 PDF"
-                    @click="download"
-                />
-            </div>
-        </div>
-
-        <div class="pdf-body">
-            <!-- 加载中：给百分比。拿不到总长（无 content-length）时显示不定态 -->
-            <div v-if="loading" class="pdf-state">
-                <i class="pi pi-spin pi-spinner pdf-state-icon"></i>
-                <div class="pdf-state-title">正在加载公告原文…</div>
-                <div v-if="progress > 0" class="pdf-state-bar">
-                    <div class="pdf-state-bar-inner" :style="{ width: `${progress}%` }"></div>
+        <!-- ⚠️ 这一层 wrapper 是必须的：Drawer 的 .p-drawer-content 是 overflow-y:auto
+             + height:100%，页面里如果有「固定高工具栏 + height:100% 的正文」两个兄弟，
+             两者相加必然超过内容区高度 → 抽屉内凭空多出一整条外层滚动条（正文区域
+             自己还要滚）。这里让 wrapper 独占 100%，内部用 flex 分配，工具栏不收缩、
+             正文吃掉剩余高度，内容区的滚动被 :deep 关掉。 -->
+        <div class="pdf-root">
+            <!-- 顶栏：元信息 + 操作。单独一行，避免和 Drawer 自带的关闭按钮挤在一起 -->
+            <div class="pdf-toolbar">
+                <div class="pdf-meta">
+                    <span>{{ ann.announce_date || '--' }}</span>
+                    <span v-if="ann.stock_name" class="pdf-meta-strong">{{ ann.stock_name }}</span>
+                    <span v-if="ann.category" class="pdf-tag">{{ ann.category }}</span>
                 </div>
-                <div v-if="progress > 0" class="pdf-state-hint">{{ progress }}%</div>
-            </div>
-
-            <!-- 失败：说清原因，并给「新窗口」这条退路（代理挂了但直链可能仍可打开） -->
-            <div v-else-if="errorTitle" class="pdf-state">
-                <i class="pi pi-exclamation-circle pdf-state-icon pdf-state-icon-warn"></i>
-                <div class="pdf-state-title">{{ errorTitle }}</div>
-                <div class="pdf-state-hint">{{ errorDetail }}</div>
-                <div class="pdf-state-actions">
-                    <Button type="button" label="重试" size="small" severity="secondary" @click="retry" />
-                    <a
-                        v-if="ann.pdf_url"
-                        :href="ann.pdf_url"
-                        target="_blank"
-                        rel="noopener"
-                        class="pdf-fallback-link"
-                    >直接打开巨潮原文</a>
+                <div class="pdf-actions">
+                    <Button
+                        type="button"
+                        icon="pi pi-external-link"
+                        label="新窗口"
+                        size="small"
+                        text
+                        severity="secondary"
+                        :disabled="!openInNewTabUrl"
+                        title="在浏览器新标签页打开（同源代理，支持分页加载）"
+                        @click="openInNewTab"
+                    />
+                    <Button
+                        type="button"
+                        icon="pi pi-download"
+                        label="下载"
+                        size="small"
+                        text
+                        severity="secondary"
+                        title="下载这份 PDF"
+                        @click="download"
+                    />
                 </div>
             </div>
 
-            <!-- 正常：iframe 铺满。PDF 由浏览器内置阅读器渲染（白底文档，暗色主题下也是白底，属正常） -->
-            <iframe
-                v-else-if="pdfUrl"
-                :src="pdfUrl"
-                :title="ann.title || '公告原文'"
-                class="pdf-frame"
-            ></iframe>
+            <div class="pdf-body">
+                <!-- 加载中：给百分比。拿不到总长（无 content-length）时显示不定态 -->
+                <div v-if="loading" class="pdf-state">
+                    <i class="pi pi-spin pi-spinner pdf-state-icon"></i>
+                    <div class="pdf-state-title">正在加载公告原文…</div>
+                    <div v-if="progress > 0" class="pdf-state-bar">
+                        <div class="pdf-state-bar-inner" :style="{ width: `${progress}%` }"></div>
+                    </div>
+                    <div v-if="progress > 0" class="pdf-state-hint">{{ progress }}%</div>
+                </div>
+
+                <!-- 失败：说清原因，并给「新窗口」这条退路（代理挂了但直链可能仍可打开） -->
+                <div v-else-if="errorTitle" class="pdf-state">
+                    <i class="pi pi-exclamation-circle pdf-state-icon pdf-state-icon-warn"></i>
+                    <div class="pdf-state-title">{{ errorTitle }}</div>
+                    <div class="pdf-state-hint">{{ errorDetail }}</div>
+                    <div class="pdf-state-actions">
+                        <Button type="button" label="重试" size="small" severity="secondary" @click="retry" />
+                        <a
+                            v-if="ann.pdf_url"
+                            :href="ann.pdf_url"
+                            target="_blank"
+                            rel="noopener"
+                            class="pdf-fallback-link"
+                        >直接打开巨潮原文</a>
+                    </div>
+                </div>
+
+                <!-- 正常：iframe 铺满。PDF 由浏览器内置阅读器渲染（白底文档，暗色主题下也是白底，属正常） -->
+                <iframe
+                    v-else-if="pdfUrl"
+                    :src="pdfUrl"
+                    :title="ann.title || '公告原文'"
+                    class="pdf-frame"
+                ></iframe>
+            </div>
         </div>
     </Drawer>
 </template>
@@ -355,8 +372,11 @@ function retry() {
     white-space: nowrap;
 }
 
-/* 抽屉内部要撑满整高：工具栏固定，iframe 吃掉剩余空间 */
-.pdf-body {
+/* 内容区的 padding/overflow 在 <Drawer :pt> 里用内联 style 处理（原因见模板注释：
+   Drawer 是 Teleport 出去的，整条 DOM 不带本组件的 data-v，:deep 匹配不到）。 */
+
+/* 撑满内容区。100% 只在这里算一次，内层全部按 flex 分配，不做百分比高度相加 */
+.pdf-root {
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -364,7 +384,16 @@ function retry() {
     background: var(--app-bg-page);
 }
 
+.pdf-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--app-bg-page);
+}
+
 .pdf-toolbar {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;

@@ -217,11 +217,21 @@ defineExpose({ regenerate });
 </script>
 
 <template>
+    <!-- ⚠️ 内容区 padding 必须走 pt 的内联 style：
+         PrimeVue 4 没有 body-class（那是 v3 的 API，写了会被当普通属性透传到根元素、
+         完全不生效）；而且 Drawer 是 Teleport 出去的，整条 DOM 不带本组件的 data-v，
+         scoped 里的 :deep(.p-drawer-content) 匹配不到。内容区自带 padding-bottom，
+         而 .ai-body 是 height:100%，叠起来正好多出十几像素 → 抽屉里多一条外层滚动条。 -->
     <Drawer
         v-model:visible="open"
         position="right"
         :footer="false"
-        body-class="p-0"
+        :pt="{
+            content: {
+                class: 'ai-drawer-content',
+                style: { padding: '0', overflow: 'hidden' },
+            },
+        }"
         class="!w-full md:!w-[42rem] lg:!w-[50rem]"
     >
         <template #header>
@@ -324,6 +334,9 @@ defineExpose({ regenerate });
 </template>
 
 <style scoped lang="scss">
+/* 内容区的 padding/overflow 在 <Drawer :pt> 里用内联 style 处理（原因见模板注释：
+   Drawer 是 Teleport 出去的，整条 DOM 不带本组件的 data-v，:deep 匹配不到）。 */
+
 .ai-head {
     display: flex;
     flex-direction: column;
