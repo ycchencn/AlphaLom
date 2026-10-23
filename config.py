@@ -234,6 +234,13 @@ llm_model_setting = {
         'platform': 'volcengine',
         'model': 'deepseek-v4-flash-ga-260731'
     },
+    'stock_announcement_ai': {          # 公司公告 AI 解读（投资组合 → 公司公告，点「AI 解读」）
+        # 单条公告解读属「读懂一段文书 + 判断影响」的任务，输入侧最多 9 千字符正文，
+        # 但要求区分「事实/推断」、指出待确认条款，mini 档容易把推断写成结论，
+        # 故与研报同档。首轮结果落库复用，同一公告不会重复计费。
+        'platform': 'volcengine',
+        'model': 'deepseek-v4-flash-ga-260731'
+    },
 }
 
 # ===== 外部数据接口 =====

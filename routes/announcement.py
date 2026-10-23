@@ -27,14 +27,21 @@
     「上游未覆盖该标的」，而不是让用户以为接口挂了。
 """
 
+import json
 import time
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Dict, List, Optional
+from urllib.parse import quote, urlparse
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+import anyio.to_thread
+import requests
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
 from app.fastapi_app import api_prefix
 from service import JobService, StockService
+from service import announcement_ai_service as ai_svc
 from service.stock_announcement_service import (
     ANNOUNCEMENT_CATEGORIES,
     StockAnnouncementService,
@@ -216,3 +223,292 @@ def trigger_announcement_sync(
 
     return {'code': 0, 'queued': True, 'scope': 'all',
             'message': '已提交股票池公告同步任务，几分钟后刷新查看'}
+
+
+# ==================== AI 解读（列表页「AI 解读」抽屉） ====================
+#
+# 协议：NDJSON（每行一个完整 JSON），与 /api/v1/chat/agent_stream 保持一致，
+# 前端按 \n 切分、逐行 JSON.parse。事件类型：
+#   {"type":"status","data":"正在读取公告正文…"}     —— 长耗时阶段的提示（正文抽取最慢）
+#   {"type":"meta",  ...}                        —— 正文状态/字数/是否命中缓存/模型名
+#   {"type":"text",  "data":"片段"}                —— 解读正文增量
+#   {"type":"error", "data":"..."}                 —— 出错（流已开启，只能以事件回传）
+#
+# ⚠️ 为什么不复用 /chat/agent_stream：那个接口的设计前提是「用户自建智能体 + 可调用 MCP 工具」，
+#    而这里的角色、prompt、上下文全部由后端固定（避免用户改人格），也不需要工具 ——
+#    公告正文已经由我们自己抽好了。硬套过去只会多一层 agent 与会话存储的耦合。
+
+
+class AnnouncementAiRequest(BaseModel):
+    """AI 解读入参。
+
+    - `question` 为空 → 首轮解读（命中 `ai_summary` 缓存则直接回放，不调用模型）
+    - `question` 非空 → 追问，需带 `history`（首轮解读在 history[0]，通常是 assistant）
+    - `regenerate` → 强制重新生成首轮解读（忽略缓存），追问时忽略此字段
+    """
+    question: Optional[str] = None
+    history: Optional[List[Dict[str, str]]] = None
+    regenerate: bool = False
+
+
+def _ndjson(obj: dict) -> bytes:
+    return (json.dumps(obj, ensure_ascii=False) + '\n').encode('utf-8')
+
+
+def _load_announcement_for_user(announcement_id: int, user_id: int):
+    """取公告并做「是否属于当前用户股票池」的校验。
+
+    ⚠️ 越权与不存在**都返回 404**（不返 403）：公告是公开信息，但「我的股票池」这个
+       口径不该被用来探测别人的持仓 —— 返回 403 等于确认「这条公告存在且不属于你」。
+    """
+    row = ai_svc.get_announcement(announcement_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail='公告不存在')
+    pool = set(StockService.get_user_pool_symbols(user_id))
+    if row.symbol not in pool:
+        raise HTTPException(status_code=404, detail='公告不存在')
+    return row
+
+
+@stock_announcement_router.post('/announcements/{announcement_id}/ai/stream')
+async def announcement_ai_stream(announcement_id: int, req: AnnouncementAiRequest = Body(...),
+                                 user: dict = Depends(get_current_user)):
+    """流式生成公告 AI 解读（首轮解读 / 多轮追问）。"""
+    row = await anyio.to_thread.run_sync(_load_announcement_for_user, announcement_id, user['id'])
+
+    question = (req.question or '').strip()
+    history = req.history or []
+    first_turn = not question
+
+    # 命中缓存：首轮解读已有结果且没要求重生成 → 直接回放，不花一次模型调用。
+    # 追问时即使有缓存也继续走模型（问题不同，不能回放）。
+    if first_turn and not req.regenerate and (row.ai_summary or '').strip():
+        cached = row.ai_summary.strip()
+
+        async def replay_generator():
+            yield _ndjson({
+                'type': 'meta',
+                'cached': True,
+                'content_status': row.content_status or None,
+                'content_chars': int(row.content_chars or 0),
+                'model': row.ai_model,
+                'ai_update_time': (row.ai_update_time.strftime('%Y-%m-%d %H:%M:%S')
+                                   if row.ai_update_time else None),
+                'symbol': row.symbol,
+                'title': row.title,
+            })
+            yield _ndjson({'type': 'text', 'data': cached})
+
+        return StreamingResponse(replay_generator(), media_type='application/x-ndjson')
+
+    model_settings_failed = ''
+    try:
+        from llms import get_model_by_setting
+        staff = await anyio.to_thread.run_sync(lambda: get_model_by_setting('stock_announcement_ai'))
+        model_name = staff.model
+        platform = getattr(staff, 'platform', '')
+    except Exception as e:  # noqa: BLE001 - 配置缺失不该 500，前端要能显示原因
+        staff = None
+        model_name = ''
+        platform = ''
+        model_settings_failed = f'大模型未配置或不可用：{e}'
+
+    # ⚠️ 正文抽取与 prompt 组装**必须在返回 StreamingResponse 之前完成**：
+    #    app/fastapi_app.py 的 db_session_scope 中间件在 call_next 返回时（也就是流
+    #    还没开始发）就会 db_session.remove()，生成器里再用全局 session 读库会拿到
+    #    新会话 + detached 对象（写库静默失效、懒加载属性直接抛异常）。
+    #    代价只是慢一点（正文抽 0.2~2 秒），换来的是这条链路里不存在"幽灵写"。
+    if staff is None:
+        async def config_error_generator():
+            yield _ndjson({'type': 'error', 'data': model_settings_failed})
+        return StreamingResponse(config_error_generator(), media_type='application/x-ndjson')
+
+    content = await anyio.to_thread.run_sync(lambda: ai_svc.ensure_content(row))
+    messages = await anyio.to_thread.run_sync(
+        lambda: ai_svc.build_messages(row, content, history=history, question=question or None)
+    )
+
+    async def response_generator():
+        try:
+            # 1) 元信息：正文状态/字数/模型。前端据此决定要不要显示「未取到正文」提示
+            yield _ndjson({
+                'type': 'meta',
+                'cached': False,
+                'content_status': content.get('status'),
+                'content_chars': int(content.get('chars') or 0),
+                'content_reason': content.get('reason') or '',
+                'model': model_name,
+                'symbol': row.symbol,
+                'title': row.title,
+            })
+
+            # 2) 流式生成（同步 SDK，放线程池）
+            stream = await anyio.to_thread.run_sync(
+                lambda: staff.client.chat.completions.create(
+                    model=model_name, messages=messages, stream=True,
+                )
+            )
+            reply = ''
+            usage = None
+            for chunk in stream:
+                if getattr(chunk, 'usage', None) is not None:
+                    usage = chunk.usage
+                delta = chunk.choices[0].delta.content or ''
+                if delta:
+                    reply += delta
+                    yield _ndjson({'type': 'text', 'data': delta})
+
+            # 3) 首轮解读落库（追问不落库：存下来下次打开会看到一串没头没尾的问答）
+            if first_turn and reply.strip():
+                await anyio.to_thread.run_sync(
+                    lambda: ai_svc.save_summary(row.id, reply, model_name)
+                )
+
+            # 4) token 用量（失败忽略，不影响主链路）
+            try:
+                from llms.usage_recorder import record_llm_usage
+                from utils.auth import request_user_id_var
+                record_llm_usage(
+                    user_id=request_user_id_var.get() or user.get('id'),
+                    scene=getattr(staff, 'scene', 'stock_announcement_ai'),
+                    platform=platform,
+                    model=model_name,
+                    prompt_tokens=getattr(usage, 'prompt_tokens', 0) or 0,
+                    completion_tokens=getattr(usage, 'completion_tokens', 0) or 0,
+                    total_tokens=getattr(usage, 'total_tokens', 0) or 0,
+                    input_text='\n'.join(f"{m['role']}: {m['content']}" for m in messages)[:8000],
+                    output_text=reply,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f'[announcement-ai] token 记录失败（已忽略）：{e}')
+
+        except Exception as e:  # noqa: BLE001
+            logger.error(f'[announcement-ai] 解读失败 id={announcement_id}: {e}')
+            yield _ndjson({'type': 'error', 'data': f'解读失败：{str(e)}'})
+
+    return StreamingResponse(response_generator(), media_type='application/x-ndjson')
+
+
+# ==================== 原文 PDF 代理（列表页「阅读」抽屉的 iframe 数据源） ====================
+#
+# 为什么不把 iframe 直接指向巨潮直链（`static.cninfo.com.cn`）：
+#   1. 上游给的是 **http://** 直链（实测），生产页面走 https → 浏览器按「混合内容」
+#      直接拦掉，表现为抽屉里一片空白，且控制台之外看不出原因；
+#   2. 上游 CORS 只放行 `*.cninfo.com.cn`，前端 fetch 成 blob 也读不到响应体；
+#   3. 同源代理后可以复用登录鉴权（越权仍 404），页面也不必把上游域名暴露出去。
+#
+# ⚠️ 透传 Range：Chrome/Edge 内置 PDF 阅读器先发 `Range: bytes=0-`，再按需取后续片段
+#    （上游确实回了 `Accept-Ranges: bytes`）。不透传会导致「整包下完才显示」，
+#    而且阅读器每次跳页都重新拉全量。上游返 206 就原样透传 206 + Content-Range。
+
+# (连接, 读) 超时秒数：上游单份几百 KB、实测 0.1s，给 30 秒足够；
+# 别设太大 —— 上游偶发抽风时用户的抽屉会一直转圈。
+PDF_PROXY_TIMEOUT = (10, 30)
+# 只信任巨潮的静态域名。公告行里的 pdf_url 来自我们自己的抓取，但表是共享的，
+# 万一有别的写入路径，代理就成了 SSRF 跳板 —— 白名单是最便宜的防线。
+PDF_ALLOWED_HOSTS = ('static.cninfo.com.cn', 'www.cninfo.com.cn', 'static.cninfo.com')
+# 单份上限：防止异常链接把内存/带宽吃满（正常公告 PDF 多在 100~2000 KB）
+PDF_MAX_BYTES = 40 * 1024 * 1024
+
+
+def _pdf_content_disposition(row) -> str:
+    """inline + 中文文件名（ASCII 兜底 + RFC 5987 编码）。
+
+    inline 是必须的：attachment 会让浏览器直接下载，iframe 里就看不到内容了。
+    """
+    fallback = f'{row.announcement_id or row.id}.pdf'
+    pretty = f'{(row.stock_name or row.symbol or "")}-{(row.announce_date or "")}-{(row.title or "")}'.strip('-')
+    pretty = (pretty or fallback)[:120] + '.pdf'
+    # filename 里不能出现引号/换行（会破坏头部），统一清掉
+    safe_ascii = fallback.replace('"', '').replace('\r', '').replace('\n', '')
+    encoded = quote(pretty.replace('"', '').replace('\r', '').replace('\n', ''), safe='')
+    return f'inline; filename="{safe_ascii}"; filename*=UTF-8\'\'{encoded}'
+
+
+@stock_announcement_router.get('/announcements/{announcement_id}/pdf')
+def announcement_pdf(announcement_id: int, request: Request,
+                     user: dict = Depends(get_current_user)):
+    """代理巨潮公告原文 PDF（同源，供前端 iframe 阅读）。
+
+    ⚠️ 这是个**同步** def：`requests` 是阻塞的，交给 FastAPI 的线程池跑，
+       比在 async 里裸调更安全（本项目 async 路由会让并发退化为 1）。
+    ⚠️ 返回的是 StreamingResponse，`row` 只在**返回之前**被读取（url / 标题 / 日期）。
+       生成器里不能再碰 ORM 对象 —— 请求级 Session 在响应开始前就被 remove 了，
+       detached 对象上取属性会抛 DetachedInstanceError（AI 解读接口踩过同一个坑）。
+    """
+    row = _load_announcement_for_user(announcement_id, user['id'])
+
+    url = (row.pdf_url or '').strip()
+    if not url:
+        raise HTTPException(status_code=404, detail='该公告没有原文 PDF')
+    if urlparse(url).hostname not in PDF_ALLOWED_HOSTS:
+        logger.warning(f'[announcement-pdf] 拒绝非白名单域名 id={row.id} url={url[:120]}')
+        raise HTTPException(status_code=502, detail='原文地址不在允许范围内')
+
+    # 先把要用的字段读成普通值：生成器执行时 row 已经是 detached 的
+    disposition = _pdf_content_disposition(row)
+
+    upstream_headers = {
+        # 上游对无 UA 的请求偶尔返 403/空包；Referer 不是必需但更接近真实浏览行为
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
+                      '(KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+        'Referer': 'https://www.cninfo.com.cn/',
+    }
+    range_header = request.headers.get('range')
+    if range_header:
+        upstream_headers['Range'] = range_header
+
+    try:
+        upstream = requests.get(url, headers=upstream_headers, stream=True,
+                                timeout=PDF_PROXY_TIMEOUT, allow_redirects=True)
+    except requests.RequestException as e:
+        logger.warning(f'[announcement-pdf] 上游请求失败 id={announcement_id}: {e}')
+        raise HTTPException(status_code=502, detail='原文下载失败，请稍后重试')
+
+    if upstream.status_code not in (200, 206):
+        upstream.close()
+        logger.warning(f'[announcement-pdf] 上游返回 {upstream.status_code} id={announcement_id}')
+        raise HTTPException(status_code=502, detail=f'原文下载失败（上游 {upstream.status_code}）')
+
+    content_type = (upstream.headers.get('content-type') or '').lower()
+    # 上游偶尔会把错误页当 200 返回（Content-Type: text/html）—— 那不是 PDF，
+    # 塞给 iframe 只会显示一坨 HTML，直接判失败更诚实。
+    if 'pdf' not in content_type:
+        upstream.close()
+        logger.warning(f'[announcement-pdf] 上游不是 PDF id={announcement_id} type={content_type}')
+        raise HTTPException(status_code=502, detail='上游返回的不是 PDF 文件')
+
+    try:
+        length = int(upstream.headers.get('content-length') or 0)
+    except (TypeError, ValueError):
+        length = 0
+    if length > PDF_MAX_BYTES:
+        upstream.close()
+        raise HTTPException(status_code=413, detail='原文文件过大，请在新窗口打开')
+
+    out_headers = {
+        'Content-Disposition': disposition,
+        'Accept-Ranges': 'bytes',
+        # Cache-Control 不在这里写：由 app/fastapi_app.py 的 apply_cache_policy 统一决策
+        # （`/pdf` 后缀 → private, max-age=300），避免同一个口径在两处各存一份真值。
+    }
+    if length:
+        out_headers['Content-Length'] = str(length)
+    if upstream.status_code == 206 and upstream.headers.get('content-range'):
+        out_headers['Content-Range'] = upstream.headers['content-range']
+
+    def _iter_chunks():
+        try:
+            for chunk in upstream.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+        finally:
+            upstream.close()
+
+    # 同步生成器交给 StreamingResponse 后会被丢进线程池迭代，不会阻塞事件循环
+    return StreamingResponse(
+        _iter_chunks(),
+        status_code=upstream.status_code,
+        media_type='application/pdf',
+        headers=out_headers,
+    )

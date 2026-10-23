@@ -18,6 +18,8 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import axios from 'axios';
 import { useNotification } from '@/composables/useNotification';
+import AnnouncementAiDrawer from '@/components/announcement/AnnouncementAiDrawer.vue';
+import AnnouncementPdfDrawer from '@/components/announcement/AnnouncementPdfDrawer.vue';
 
 defineOptions({ name: 'CompanyAnnouncements' });
 
@@ -48,6 +50,34 @@ const emptyReason = ref('');
 const symbolOptions = ref([]);
 
 const syncing = ref(false);
+
+// ---- AI 解读抽屉 ----
+// 抽屉自己管流式请求与多轮对话，列表只负责「打开哪一条」和「打开后标记已解读」。
+const aiVisible = ref(false);
+const aiTarget = ref(null);
+
+function openAiDrawer(row) {
+    aiTarget.value = row;
+    aiVisible.value = true;
+}
+
+// 抽屉完成首轮解读后回传 id，只改这一行的标记（不整页重拉，避免打断阅读）
+function onAiInterpreted(id) {
+    const row = items.value.find((it) => it.id === id);
+    if (row) row.has_ai_summary = true;
+}
+
+// ---- 原文阅读抽屉 ----
+// 点标题或「阅读」都在抽屉里看 PDF（同源代理，不再是新开标签页去巨潮）。
+// 抽屉自己负责拉流、进度、失败态与 blob 释放，列表只传当前行。
+const pdfVisible = ref(false);
+const pdfTarget = ref(null);
+
+function openPdfDrawer(row) {
+    if (!row?.pdf_url) return;
+    pdfTarget.value = row;
+    pdfVisible.value = true;
+}
 
 const dayOptions = [
     { label: '近 7 天', value: 7 },
@@ -410,14 +440,13 @@ onMounted(() => {
                 <Column header="公告标题">
                     <template #body="{ data }">
                         <div class="ann-title-cell">
-                            <a
+                            <button
                                 v-if="data.pdf_url"
-                                :href="data.pdf_url"
-                                target="_blank"
-                                rel="noopener"
+                                type="button"
                                 class="ann-link"
-                                :title="data.title"
-                            >{{ data.title }}</a>
+                                :title="`在抽屉中阅读原文：${data.title}`"
+                                @click="openPdfDrawer(data)"
+                            >{{ data.title }}</button>
                             <span v-else class="ann-text" :title="data.title">{{ data.title }}</span>
                             <span v-if="data.column_name" class="ann-col">{{ data.column_name }}</span>
                         </div>
@@ -426,23 +455,50 @@ onMounted(() => {
 
                 <Column header="原文" style="width: 120px">
                     <template #body="{ data }">
-                        <a
+                        <button
                             v-if="data.pdf_url"
-                            :href="data.pdf_url"
-                            target="_blank"
-                            rel="noopener"
+                            type="button"
                             class="ann-pdf"
+                            title="在抽屉中阅读原文"
+                            @click="openPdfDrawer(data)"
                         >
-                            <i class="pi pi-file-pdf"></i> PDF
+                            <i class="pi pi-file-pdf"></i> 阅读
                             <span v-if="formatPdfSize(data.pdf_size_kb)" class="ann-size">
                                 {{ formatPdfSize(data.pdf_size_kb) }}
                             </span>
-                        </a>
+                        </button>
                         <span v-else class="ann-none">--</span>
+                    </template>
+                </Column>
+
+                <!-- AI 解读入口：每行一个，点开抽屉做「这条公告说明什么」的多轮追问 -->
+                <Column header="AI" style="width: 84px">
+                    <template #body="{ data }">
+                        <Button
+                            type="button"
+                            icon="pi pi-sparkles"
+                            label="解读"
+                            size="small"
+                            text
+                            severity="secondary"
+                            class="ann-ai-btn"
+                            :title="data.has_ai_summary ? '已解读过，点击查看（会直接显示上次结果）' : 'AI 解读这条公告'"
+                            @click="openAiDrawer(data)"
+                        />
                     </template>
                 </Column>
             </DataTable>
         </div>
+
+        <!-- AI 解读抽屉：传当前行，抽屉内部负责流式请求与多轮追问 -->
+        <AnnouncementAiDrawer
+            v-model:visible="aiVisible"
+            :announcement="aiTarget"
+            @interpreted="onAiInterpreted"
+        />
+
+        <!-- 原文阅读抽屉：iframe + blob，同源代理取 PDF -->
+        <AnnouncementPdfDrawer v-model:visible="pdfVisible" :announcement="pdfTarget" />
     </div>
 </template>
 
@@ -637,9 +693,18 @@ onMounted(() => {
     min-width: 0;
 }
 
+/* 标题与「阅读」都是**按钮**（点开抽屉），不是链接 —— 需要把 button 的默认外观清掉，
+   否则会出现浏览器默认的灰底和居中文本，与右侧的 PDF 大小标签对不齐。 */
 .ann-link {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
     color: var(--app-link);
-    text-decoration: none;
+    text-align: left;
+    cursor: pointer;
     overflow-wrap: anywhere;
 }
 
@@ -660,9 +725,16 @@ onMounted(() => {
 }
 
 .ann-pdf {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.15rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    font: inherit;
     color: var(--app-link);
-    text-decoration: none;
     white-space: nowrap;
+    cursor: pointer;
 }
 
 .ann-pdf:hover {
@@ -678,13 +750,10 @@ onMounted(() => {
     color: var(--app-text-muted);
 }
 
-.ann-total {
-    padding: 0.4rem 0.15rem 0.1rem;
-    color: var(--app-text-secondary);
-}
-
-.ann-hint {
-    color: var(--app-text-muted);
+/* AI 解读按钮：默认低调（每行都有，不该抢标题的注意力），已解读过的行用一点主色提示 */
+.ann-ai-btn {
+    padding: 0 0.35rem !important;
+    font-size: 0.92rem !important;
 }
 
 .ann-empty {

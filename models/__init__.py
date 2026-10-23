@@ -7,6 +7,7 @@
 from sqlalchemy import Text, DateTime, BigInteger
 from sqlalchemy import Column, Integer, String, Date, ForeignKey, Enum, Numeric, Boolean, SmallInteger
 from sqlalchemy import Float, DECIMAL, JSON, UniqueConstraint, Index
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.sql import func
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
@@ -708,6 +709,25 @@ class StockAnnouncement(Base):
     pdf_url = Column(String(500), nullable=True, comment='公告原文 PDF 直链（巨潮 static.cninfo.com.cn）')
     pdf_size_kb = Column(Integer, nullable=True, comment='PDF 大小（KB）')
 
+    # ---- 正文提取（AI 解读的地基，按需懒加载）----
+    # 上游只给标题 + PDF，没有正文。解读要「有据可依」就必须自己抽 PDF 文本，
+    # 但 300+ 条公告全量预抽是白烧流量，所以做成**首次点「AI 解读」时才抽**并落库缓存。
+    # status 取值：NULL 未尝试 / ok 抽取成功 / unsupported 抽出来是乱码(自定义 CID 字体)
+    #            / empty 无文字层(扫描件) / failed 下载或解析失败
+    content_status = Column(String(16), nullable=True,
+                            comment='正文提取状态：NULL未尝试 / ok / unsupported乱码 / empty扫描件 / failed')
+    content_text = Column(LONGTEXT, nullable=True, comment='PDF 正文纯文本（截断存储，供 AI 解读与检索）')
+    content_chars = Column(Integer, nullable=True, comment='正文原始字符数（截断前，判断是否够用）')
+    content_fetch_time = Column(DateTime, nullable=True, comment='正文提取时间')
+
+    # ---- AI 解读结果（首轮解读，追问不入库）----
+    # 只存首轮「这条公告说明什么」的完整解读：再次打开抽屉直接回放，不重复计费；
+    # 追问是跟着这条解读走的临时对话，存了反而会让下次打开看到一串没头没尾的问答。
+    ai_summary = Column(LONGTEXT, nullable=True,
+                        comment='AI 解读首轮结果（Markdown），命中则直接回放不再调用模型')
+    ai_model = Column(String(64), nullable=True, comment='生成该解读的模型')
+    ai_update_time = Column(DateTime, nullable=True, comment='AI 解读生成时间')
+
     source = Column(String(20), nullable=False, default='databull', comment='数据来源标记')
     create_time = Column(DateTime, default=datetime.now, comment='首次入库时间')
     update_time = Column(DateTime, default=datetime.now, onupdate=datetime.now, comment='最近更新时间')
@@ -722,6 +742,12 @@ class StockAnnouncement(Base):
     )
 
     def to_dict(self):
+        """列表/接口用的轻量字典。
+
+        ⚠️ **刻意不含 content_text / ai_summary**：这两个字段单条可达数万字符，
+        一页 25 条就能把列表响应从几十 KB 撑到几 MB。列表只需要「有没有」的标记，
+        正文与解读全文由 AI 解读接口按单条取。
+        """
         return {
             'id': self.id,
             'symbol': self.symbol,
@@ -736,10 +762,27 @@ class StockAnnouncement(Base):
             'column_name': self.column_name,
             'pdf_url': self.pdf_url,
             'pdf_size_kb': self.pdf_size_kb,
+            'content_status': self.content_status,
+            'content_chars': self.content_chars,
+            'has_content': bool((self.content_text or '').strip()),
+            # 前端据此在「AI 解读」按钮上打「已解读」标记 —— 只回布尔值，不回全文
+            'has_ai_summary': bool((self.ai_summary or '').strip()),
+            'ai_update_time': self.ai_update_time.strftime('%Y-%m-%d %H:%M:%S') if self.ai_update_time else None,
             'source': self.source,
             'create_time': self.create_time.strftime('%Y-%m-%d %H:%M:%S') if self.create_time else None,
             'update_time': self.update_time.strftime('%Y-%m-%d %H:%M:%S') if self.update_time else None,
         }
+
+    def to_ai_dict(self):
+        """AI 解读接口用的字典（含已缓存的首轮解读全文）。"""
+        data = self.to_dict()
+        data['content_text'] = self.content_text
+        data['content_fetch_time'] = (
+            self.content_fetch_time.strftime('%Y-%m-%d %H:%M:%S') if self.content_fetch_time else None
+        )
+        data['ai_summary'] = self.ai_summary
+        data['ai_model'] = self.ai_model
+        return data
 
 
 class StockAnnouncementSync(Base):

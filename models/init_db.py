@@ -31,6 +31,26 @@ _SCHEMA_UPGRADES = (
     ('users', 'must_change_password',
      "ADD COLUMN `must_change_password` SMALLINT NOT NULL DEFAULT 0 "
      "COMMENT '是否需强制修改密码：1-需修改, 0-已修改'"),
+    # 公司公告 AI 解读（2026-10）：正文懒加载 + 首轮解读缓存。
+    # ⚠️ content_text / ai_summary 用 LONGTEXT 而不是 TEXT：TEXT 上限 64KB，
+    #    一份年报正文抽出来轻松超过（实测 13 页季报已 18k 字符，年报可达 30 万），
+    #    超长会被 MySQL 静默截断（严格模式下直接报错），导致解读只看得到开头。
+    ('stock_announcements', 'content_status',
+     "ADD COLUMN `content_status` VARCHAR(16) NULL "
+     "COMMENT '正文提取状态：NULL未尝试 / ok / unsupported乱码 / empty扫描件 / failed'"),
+    ('stock_announcements', 'content_text',
+     "ADD COLUMN `content_text` LONGTEXT NULL COMMENT 'PDF 正文纯文本（截断存储，供 AI 解读与检索）'"),
+    ('stock_announcements', 'content_chars',
+     "ADD COLUMN `content_chars` INT NULL COMMENT '正文原始字符数（截断前，判断是否够用）'"),
+    ('stock_announcements', 'content_fetch_time',
+     "ADD COLUMN `content_fetch_time` DATETIME NULL COMMENT '正文提取时间'"),
+    ('stock_announcements', 'ai_summary',
+     "ADD COLUMN `ai_summary` LONGTEXT NULL "
+     "COMMENT 'AI 解读首轮结果（Markdown），命中则直接回放不再调用模型'"),
+    ('stock_announcements', 'ai_model',
+     "ADD COLUMN `ai_model` VARCHAR(64) NULL COMMENT '生成该解读的模型'"),
+    ('stock_announcements', 'ai_update_time',
+     "ADD COLUMN `ai_update_time` DATETIME NULL COMMENT 'AI 解读生成时间'"),
 )
 
 

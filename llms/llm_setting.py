@@ -68,6 +68,12 @@ LLM_SETTING_SCENES: List[Dict[str, Any]] = [
         'description': '个股详情页财务分析 Tab 的「AI 财务点评」Card，由系统智能体以巴菲特视角生成（/api/v1/stock/financial_review/{symbol}）',
         'in_use': True,
     },
+    {
+        'name': 'stock_announcement_ai',
+        'label': '公司公告 AI 解读',
+        'description': '公司公告列表点「AI 解读」后的抽屉：首轮解读 + 追问（/api/v1/announcements/{id}/ai/stream）',
+        'in_use': True,
+    },
 ]
 
 _SCENE_NAMES = [s['name'] for s in LLM_SETTING_SCENES]
