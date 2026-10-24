@@ -417,6 +417,43 @@ class StockAnnouncementService:
         return counts
 
     @staticmethod
+    def count_today(symbols: Sequence[str], *, keyword: Optional[str] = None,
+                    symbol: Optional[str] = None, today: Optional[date] = None) -> int:
+        """池内**今天**发布的公告条数（列表页「今日新增 N」用）。
+
+        口径与 `category_counts` 完全一致 —— 只叠加 keyword / 单只票这两个范围性筛选，
+        **忽略 category 与日期区间**：
+          - 忽略 category：否则点进「定期报告」后这个数字会跟着变，看起来像「今天只发了 2 条」；
+          - 忽略日期区间：它是「今天有没有新东西」的全局提示，用户选了「近 90 天」也不该变成别的含义。
+        数字与列表条数不必相等（列表还有分类/区间筛选），前端只当作入口提示用。
+
+        ⚠️ 「今天」按**数据库本地日期**（CURDATE）判定，不用 Python 的 date.today()：
+        部署机与 MySQL 时区不一致时，两者会差一天，导致「今晚刚同步的公告」不算今日。
+        """
+        pool = [str(s).strip() for s in (symbols or []) if s]
+        if symbol:
+            pool = [symbol] if symbol in pool else []
+        if not pool:
+            return 0
+
+        conditions = [StockAnnouncement.symbol.in_(pool)]
+        if keyword:
+            like = f'%{keyword.strip()}%'
+            conditions.append(or_(StockAnnouncement.title.like(like),
+                                  StockAnnouncement.stock_name.like(like)))
+        if today:
+            conditions.append(StockAnnouncement.announce_date == today)
+        else:
+            # 默认交给数据库算「今天」—— 见 docstring 的时区说明
+            conditions.append(StockAnnouncement.announce_date == func.curdate())
+        try:
+            return int(db_session.query(func.count(StockAnnouncement.id))
+                       .filter(and_(*conditions)).scalar() or 0)
+        except SQLAlchemyError as e:
+            logger.error(f'[announcement] count_today 失败: {e}')
+            return 0
+
+    @staticmethod
     def latest_date(symbols: Sequence[str]) -> Optional[date]:
         """池内最新的公告日期（前端「数据截至」提示用）。"""
         pool = [str(s).strip() for s in (symbols or []) if s]

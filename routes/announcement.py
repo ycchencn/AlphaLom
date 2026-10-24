@@ -95,6 +95,7 @@ def list_announcements(
             'items': [], 'total': 0, 'page': page, 'page_size': page_size,
             'pool_total': 0, 'categories': list(ANNOUNCEMENT_CATEGORIES),
             'category_counts': {c: 0 for c in ANNOUNCEMENT_CATEGORIES},
+            'today_count': 0,
             'coverage': {'pool_total': 0, 'non_a_share': 0, 'a_share_total': 0,
                          'with_data': 0, 'without_data': 0},
             'data_as_of': None,
@@ -139,6 +140,13 @@ def list_announcements(
     )
     coverage = StockAnnouncementService.coverage(pool)
     states = StockAnnouncementService.get_sync_states(pool)
+    # 「今日新增」：口径见 service.count_today（忽略 category 与日期区间，只跟随
+    # keyword/单只票这两个范围性筛选）。前端只拿它做一个提示入口，不参与分页。
+    today_count = StockAnnouncementService.count_today(
+        pool,
+        keyword=(keyword or '').strip() or None,
+        symbol=(symbol or '').strip() or None,
+    )
 
     synced_times = [s.get('last_sync_time') for s in states.values() if s.get('last_sync_time')]
     errors = [
@@ -154,6 +162,9 @@ def list_announcements(
         'pool_total': coverage['pool_total'],
         'categories': list(ANNOUNCEMENT_CATEGORIES),
         'category_counts': category_counts,
+        # 今天发布的公告条数（口径同上，忽略 category/日期区间）。0 也照回，
+        # 让前端能区分「今天确实没有」与「字段缺失」。
+        'today_count': today_count,
         'coverage': coverage,
         'data_as_of': (StockAnnouncementService.latest_date(pool) or None),
         'sync': {

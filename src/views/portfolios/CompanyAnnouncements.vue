@@ -45,6 +45,9 @@ const coverage = ref({ pool_total: 0, non_a_share: 0, a_share_total: 0, with_dat
 const dataAsOf = ref(null);
 const syncInfo = ref({ synced: 0, never_synced: 0, failed: 0, last_sync_time: null, errors: [] });
 const emptyReason = ref('');
+// 今天发布的公告条数（后端按 CURDATE 统计）。⚠️ 口径与分类标签数字一致：
+// 忽略分类与日期区间筛选，只跟随关键词/单只票，所以**不等于当前列表条数**。
+const todayCount = ref(0);
 
 // 股票池（筛选下拉）
 const symbolOptions = ref([]);
@@ -103,6 +106,20 @@ function formatPdfSize(kb) {
     return n >= 1024 ? `${(n / 1024).toFixed(1)} MB` : `${n} KB`;
 }
 
+// 「今天发布的公告」判定。announce_date 是 YYYY-MM-DD 字符串（后端 date 字段），
+// 所以直接按本地日期拼出来的当天字符串比较 —— 不能用 Date 对象比较，
+// new Date('2026-10-24') 会按 UTC 解析，在 UTC+8 下算出来是前一天。
+// ⚠️ 每次调用现算而不是缓存成常量：页面可能跨零点一直开着（盘中开着到第二天），
+//    常量会让新公告在刷新前始终不显示标记。
+function isNewToday(row) {
+    return !!row?.announce_date && row.announce_date === fmtDate(new Date());
+}
+
+// 行级高亮：给「今天」的行加左侧竖线，扫视时不用逐行读徽章
+function rowClass(row) {
+    return isNewToday(row) ? 'ann-row-new' : '';
+}
+
 // 分类 → 配色梯度。⚠️ 绝不用 --app-up/--app-down：那会把「风险提示」读成看跌。
 function catClass(category) {
     switch (category) {
@@ -155,6 +172,7 @@ async function loadAnnouncements(resetPage = false) {
         total.value = data?.total ?? 0;
         categories.value = data?.categories || [];
         categoryCounts.value = data?.category_counts || {};
+        todayCount.value = Number(data?.today_count ?? 0);
         coverage.value = data?.coverage || { pool_total: 0, non_a_share: 0, a_share_total: 0, with_data: 0, without_data: 0 };
         dataAsOf.value = data?.data_as_of || null;
         syncInfo.value = data?.sync || syncInfo.value;
@@ -164,6 +182,7 @@ async function loadAnnouncements(resetPage = false) {
         showError(e?.response?.data?.detail || '加载公司公告失败');
         items.value = [];
         total.value = 0;
+        todayCount.value = 0;
     } finally {
         loading.value = false;
     }
@@ -268,6 +287,17 @@ onMounted(() => {
                 </div>
             </div>
             <div class="ann-header-actions">
+                <!-- 今日新增：后端按 CURDATE 统计（忽略分类/日期区间）。0 条时不占位，
+                     避免每天都挂一个「0」把注意力吸走。放在头部状态区而不是分类条，
+                     是因为它属于「数据状态」而非「筛选维度」—— 混进分类行会让
+                     用户以为点它能筛出今天。 -->
+                <span
+                    v-if="todayCount > 0"
+                    class="ann-today"
+                    :title="`今天发布的公告共 ${todayCount} 条（不受分类与日期区间筛选影响）`"
+                >
+                    <i class="pi pi-bolt"></i>今日新增 {{ todayCount }}
+                </span>
                 <span v-if="syncInfo.last_sync_time" class="ann-meta">
                     最近同步 {{ syncInfo.last_sync_time }}
                 </span>
@@ -390,6 +420,7 @@ onMounted(() => {
                 lazy
                 dataKey="id"
                 :rowHover="true"
+                :rowClass="rowClass"
                 :showGridlines="false"
                 tableStyle="font-size: 12px"
                 @page="onPage"
@@ -440,6 +471,11 @@ onMounted(() => {
                 <Column header="公告标题">
                     <template #body="{ data }">
                         <div class="ann-title-cell">
+                            <span
+                                v-if="isNewToday(data)"
+                                class="ann-new"
+                                title="今天发布的公告"
+                            >NEW</span>
                             <button
                                 v-if="data.pdf_url"
                                 type="button"
@@ -593,6 +629,71 @@ onMounted(() => {
 .ann-cat-count {
     font-variant-numeric: tabular-nums;
     opacity: 0.75;
+}
+
+/* 「今日新增 N」：头部状态区的强调项，放在「最近同步 / 数据截至」这组旁边 ——
+   它是数据状态，不是筛选维度。
+   配色与行内 NEW 徽章同族（红）：两者讲的是同一件事（今天发的公告），
+   一个说「共几条」、一个标「哪几条」，颜色不一致会让人以为是两种提示。 */
+.ann-today {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.1rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid var(--app-up-soft);
+    background: var(--app-up-wash);
+    color: var(--app-up);
+    font-size: 0.92rem;
+    line-height: 1.5;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ann-today i {
+    font-size: 0.85em;
+}
+
+/* ---------------- 今日公告标记 ---------------- */
+/* 红色（用户指定）。A 股语境下红绿本属涨跌语义，这里是「时间强调」而非「价格方向」：
+   徽章只压在标题首部、尺寸小、不与任何数值并列，误读风险可控。 */
+.ann-new {
+    flex: 0 0 auto;
+    align-self: center;
+    padding: 0 3px;
+    border-radius: 2px;
+    /* ⚠️ 实心块固定 #dc2626，不用 var(--app-up)：暗色下 --app-up 是 #f87171（红-400），
+       白字压上去对比度只有 2.4:1，小字直接糊掉。
+       压在实心色块上的底色/文字都不参与明暗语义 —— 两套主题同值，
+       与全站涨红（--app-up 浅色档）同色相，观感统一。 */
+    background: #dc2626;
+    color: #fff;
+    /* 只是「有更新」的角标，不该和标题抢视线：9px / 行高 11px（块高 11px），
+       宽度靠 3px 内边距收到 ~26px。再小就压不住 #dc2626 上的白字了。 */
+    font-size: 9px;
+    font-weight: 700;
+    line-height: 11px;
+    letter-spacing: 0.02em;
+}
+
+/* 行首竖线：扫视时不用逐行找徽章就能定位「今天的那几条」。
+   ⚠️ 竖线画在第一个 td 的 ::before 上（tr 上的 box-shadow 在表格行上不可靠），
+   需要 td 自身 position:relative 作为定位参照。 */
+:deep(tr.ann-row-new > td:first-child) {
+    position: relative;
+}
+
+:deep(tr.ann-row-new > td:first-child::before) {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    /* 竖线是「细线」不是「色块」：暗色下 --app-up 的 #f87171 反而更清楚，
+       所以这里用变量、和徽章实心块不同值 —— 不是不一致，是两种载体的正确取色。 */
+    background: var(--app-up);
 }
 
 /* ---------------- 筛选行 ---------------- */
