@@ -8,7 +8,7 @@ import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import {useToast} from 'primevue/usetoast'
 
 const toast = useToast()
-const {showSuccess, showError} = useNotification();
+const {showSuccess, showInfo, showError} = useNotification();
 
 // ---------- 智能体列表（后端驱动） ----------
 
@@ -28,24 +28,40 @@ function normalizeModel(model) {
 
 const modelOptions = (platform) => modelOptionsByPlatform.value[platform] || [];
 
+// 平台中文名（下拉的 label 在 platforms 里）。直接拼 platform key 会显示成
+// 「获取 baidu 模型列表失败」—— 用户认得的是「百度云千帆」。
+const platformLabel = (platform) => platforms.value.find((p) => p.value === platform)?.label || platform;
+
+// 同平台的并发请求合并表：platform -> Promise（守卫只能看「已完成的缓存」，
+// 挡不住同一轮里连续多次调用 —— 那几次都还没拿到结果）
+const modelsInflight = {};
+
 function loadLlmModels(platform) {
-    if (!platform || modelOptionsByPlatform.value[platform]) return Promise.resolve();
+    if (!platform) return Promise.resolve();
+    if (modelOptionsByPlatform.value[platform]) return Promise.resolve();
+    if (modelsInflight[platform]) return modelsInflight[platform];
     modelsLoading[platform] = true;
-    return axios.get('/api/v1/llm/models', {params: {platform}})
+    const req = axios.get('/api/v1/llm/models', {params: {platform}})
         .then((response) => {
             const info = (response.data || {})[platform];
             modelOptionsByPlatform.value[platform] = info?.models || [];
-            if (info?.error) {
-                showError(`获取 ${platform} 模型列表失败：${info.error}`);
+            if (info?.warning) {
+                // 后端走了「旧列表兜底」：数据可用但不是最新，只提示不报错
+                showInfo(info.warning);
+            } else if (info?.error) {
+                showError(`获取 ${platformLabel(platform)} 模型列表失败：${info.error}`);
             }
         })
         .catch(() => {
             modelOptionsByPlatform.value[platform] = [];
-            showError(`获取 ${platform} 模型列表失败，可手动输入模型名称`);
+            showError(`获取 ${platformLabel(platform)} 模型列表失败，可手动输入模型名称`);
         })
         .finally(() => {
             modelsLoading[platform] = false;
+            delete modelsInflight[platform];
         });
+    modelsInflight[platform] = req;
+    return req;
 }
 
 function fetchAgents() {

@@ -58,6 +58,13 @@ STATIC_FILE_SUFFIXES = (
     '.woff', '.woff2', '.ttf', '.otf', '.eot', '.wasm',
 )
 
+# 公告原文 PDF 代理（/api/v1/announcements/{id}/pdf）：内容是已披露的静态文件，
+# 反复打开会重复回源上游（还要占代理带宽）。给个短缓存，但只进用户自己的缓存
+# （private）—— 这个接口的鉴权 token 可能出现在 URL 里，不能被共享缓存持有。
+# ⚠️ 这条必须放在下面「接口一律 no-store」的兜底之前，否则永远走不到。
+PDF_PROXY_SUFFIX = '/pdf'
+CACHE_PDF_PROXY = 'private, max-age=300'
+
 
 def resolve_cache_control(path: str) -> str:
     """按请求路径决定 Cache-Control"""
@@ -66,6 +73,8 @@ def resolve_cache_control(path: str) -> str:
         return CACHE_IMMUTABLE
     if lower_path.endswith(STATIC_FILE_SUFFIXES):
         return CACHE_REVALIDATE
+    if lower_path.endswith(PDF_PROXY_SUFFIX):
+        return CACHE_PDF_PROXY
     # 页面（HTML / SPA 路由）与接口
     return CACHE_NO_STORE
 

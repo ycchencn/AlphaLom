@@ -46,6 +46,12 @@ const model = ref([
                 enable: true,
             },
             {
+                label: '公司公告',
+                icon: 'pi pi-fw pi-megaphone',
+                to: '/quant/company_announcements',
+                enable: true,
+            },
+            {
                 label: '组合回测',
                 icon: 'pi pi-fw pi-chart-line',
                 to: '/quant/portfolio_backtest',

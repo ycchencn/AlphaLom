@@ -4,8 +4,6 @@
  * Copyright (c) 2025 yccheni@163.com. All rights reserved.
  **/
 
-import { COLORS } from '@/utils/echartsTheme';
-
 // ⚠️ 这里 import 的是 main.js 里挂过拦截器的**同一个** axios 实例（模块单例），
 // 所以令牌注入与 401 跳登录对它同样生效。见下方 fetchPortfolio* 的注释。
 import axios from 'axios';
@@ -233,13 +231,23 @@ export function getTradeSeverity(tradeString) {
 // （20/50/80 vs 25/45/55/75）。同一个 fear_greed 值在大盘页显示红色「贪婪」、
 // 在个股页显示绿色「贪婪」，用户只会以为其中一处是 bug。
 // 现在统一为 **A 股红涨绿跌口径**，档位取主流 Fear & Greed 的 25/45/55/75。
-// 色值取自 MarketOverview.vue 的原实现，保证两页观感完全一致。
+//
+// ⚠️ 配色口径（2026-10 修订）：两个绿色档必须与「成长 vs 价值」卡片用的绿**完全一致**
+//    （那边走 var(--color-down) → var(--app-down)），否则同一个绿在两处观感不同：
+//    之前 FEAR 档写死 #4a9e6b（暗灰绿、不跟主题切换），大盘卡片显示成灰绿，
+//    与成长 vs 价值的纯绿（亮色 #16a34a / 暗色 #4ade80）对不上。
+//    现在两档都改用语义变量：恐惧 = --app-down（与成长 vs 价值同色），
+//    极度恐惧 = --app-down-strong（再深一档，保留 5 档的层次感）。
+//    ⚠️ 这些值是 **CSS 变量字符串**，只能用在 DOM（style/background），
+//    不能喂给 canvas —— canvas 侧请用 COLORS（见 echartsTheme.js）。
 const FEAR_GREED_LEVELS = {
-    EXTREME_FEAR: {range: [0, 25], text: '极度恐惧', color: '#16a34a', advice: '市场过度恐慌'},
-    FEAR: {range: [25, 45], text: '恐惧', color: '#4a9e6b', advice: '市场情绪偏谨慎'},
-    NEUTRAL: {range: [45, 55], text: '中性', color: '#909399', advice: '市场情绪中性'},
+    EXTREME_FEAR: {range: [0, 25], text: '极度恐惧', color: 'var(--app-down-strong)', advice: '市场过度恐慌'},
+    FEAR: {range: [25, 45], text: '恐惧', color: 'var(--app-down)', advice: '市场情绪偏谨慎'},
+    NEUTRAL: {range: [45, 55], text: '中性', color: 'var(--app-flat)', advice: '市场情绪中性'},
+    // 贪婪档保留静态橙：它是「情绪过热」的提示色，与涨跌红绿不同族；
+    // 且作为文字色要保证亮色底下的可读性（--app-up-soft 太浅）。
     GREED: {range: [55, 75], text: '贪婪', color: '#e8874a', advice: '市场情绪偏向乐观'},
-    EXTREME_GREED: {range: [75, 100], text: '极度贪婪', color: '#dc2626', advice: '市场过度狂热，警惕风险'}
+    EXTREME_GREED: {range: [75, 100], text: '极度贪婪', color: 'var(--app-up)', advice: '市场过度狂热，警惕风险'}
 };
 
 /**
@@ -269,22 +277,24 @@ export function fearGreedLevel(value) {
 }
 
 /**
- * 取恐惧贪婪对应的情绪色（供图表、进度条等用）。
+ * 取恐惧贪婪对应的情绪色（供 DOM 内的文字 / 色块着色用）。
  * @param {number|null} value
  * @returns {string} 色值字符串
  *
- * ⚠️ 两端走 echartsTheme 的 COLORS（涨红跌绿统一色，且随暗黑模式切换），
- *    中间档保留静态同族色 —— 档位本身是语义色阶，不参与涨跌统一。
- *    直接返回 FEAR_GREED_LEVELS.color 会在暗色下仍是亮色版的红绿。
+ * ⚠️ 返回的是 **CSS 变量字符串**（如 'var(--app-down)'），直接丢给
+ *    DOM 的 style/background 即可，且暗黑模式切换会自动跟随；
+ *    **不能喂给 canvas**（canvas 不认 var()），画图请用 COLORS（echartsTheme.js）。
+ *
+ * ⚠️ 档位色与 FEAR_GREED_LEVELS 严格一致：这里的实现就是直接取档位对象的
+ *    color，不再自己判阈值 —— 之前这里写死了 'v<25 → COLORS.down'、'v<45 → 静态 hex'，
+ *    与档位表各写一份，导致「恐惧」显示成灰绿 #4a9e6b，与成长 vs 价值卡片的
+ *    纯绿（--app-down）不是一个颜色。
  */
 export function fearGreedColor(value) {
-    const v = Number(value);
-    if (value == null || Number.isNaN(v)) return COLORS.flat;
-    if (v < 25) return COLORS.down;
-    if (v < 45) return FEAR_GREED_LEVELS.FEAR.color;
-    if (v < 55) return COLORS.flat;
-    if (v < 75) return FEAR_GREED_LEVELS.GREED.color;
-    return COLORS.up;
+    // ⚠️ null/非法值给中性灰（而不是走档位的「极度恐惧」绿）——
+    //    缺数据时显示一档情绪色会被误读成"市场极度恐慌"。
+    if (value == null || Number.isNaN(Number(value))) return 'var(--app-flat)';
+    return fearGreedLevel(value).color;
 }
 
 /**

@@ -18,7 +18,7 @@ import {useNotification} from '@/composables/useNotification';
  *
  * 两处配置都**保存后立即生效、无需重启服务**（服务每次调用都实时读表）。
  */
-const {showSuccess, showError} = useNotification();
+const {showSuccess, showInfo, showError} = useNotification();
 
 const loading = ref(false);
 const scenes = ref([]);
@@ -282,24 +282,42 @@ function normalizeModel(model) {
 
 const modelOptions = (platform) => modelOptionsByPlatform.value[platform] || [];
 
+// 平台中文名：直接拼 platform key 会显示成「获取 baidu 模型列表失败」
+const platformLabel = (platform) => platforms.value.find((p) => p.value === platform)?.label || platform;
+
+// 同平台的并发请求合并表：platform -> Promise。
+// ⚠️ 守卫不能只看 modelOptionsByPlatform —— 那是 `.then` 里才填的，而 syncForms 的
+//    forEach 是**同步循环**：9 个场景连续指向同一平台时，值还没填上，9 次调用全部
+//    通过守卫 → 并发打 9 次上游。百度千帆的 /models 限流很严，一进这个页面就 429。
+const modelsInflight = {};
+
 function loadLlmModels(platform) {
-    if (!platform || modelOptionsByPlatform.value[platform]) return Promise.resolve();
+    if (!platform) return Promise.resolve();
+    if (modelOptionsByPlatform.value[platform]) return Promise.resolve();
+    // 已经在飞了 → 复用同一个 Promise，不重复发
+    if (modelsInflight[platform]) return modelsInflight[platform];
     modelsLoading[platform] = true;
-    return axios.get('/api/v1/llm/models', {params: {platform}})
+    const req = axios.get('/api/v1/llm/models', {params: {platform}})
         .then((response) => {
             const info = (response.data || {})[platform];
             modelOptionsByPlatform.value[platform] = info?.models || [];
-            if (info?.error) {
-                showError(`获取 ${platform} 模型列表失败：${info.error}`);
+            if (info?.warning) {
+                // 旧列表兜底（上游限流/挂掉）：有值可用，只提示不报错
+                showInfo(info.warning);
+            } else if (info?.error) {
+                showError(`获取 ${platformLabel(platform)} 模型列表失败：${info.error}`);
             }
         })
         .catch(() => {
             modelOptionsByPlatform.value[platform] = [];
-            showError(`获取 ${platform} 模型列表失败，可手动输入模型名称`);
+            showError(`获取 ${platformLabel(platform)} 模型列表失败，可手动输入模型名称`);
         })
         .finally(() => {
             modelsLoading[platform] = false;
+            delete modelsInflight[platform];
         });
+    modelsInflight[platform] = req;
+    return req;
 }
 
 function syncForms() {
@@ -308,8 +326,10 @@ function syncForms() {
             platform: scene.platform || '',
             model: normalizeModel(scene.model),
         };
-        if (scene.platform) loadLlmModels(scene.platform);
     });
+    // 按平台去重后再拉：9 个场景可能全指向同一个平台，只该发 1 次请求
+    const usedPlatforms = new Set(scenes.value.map((s) => s.platform).filter(Boolean));
+    usedPlatforms.forEach((p) => loadLlmModels(p));
 }
 
 function loadSettings() {

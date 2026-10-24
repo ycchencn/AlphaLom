@@ -142,6 +142,13 @@ const router = createRouter({
                     meta: { title: '组合回测', requiresAuth: true }
                 },
                 {
+                    // 投资组合 → 公司公告：股票池内公司的公告清单（本地副本，定时任务落库）
+                    path: '/quant/company_announcements',
+                    name: 'company_announcements',
+                    component: () => import('@/views/portfolios/CompanyAnnouncements.vue'),
+                    meta: { title: '公司公告', requiresAuth: true }
+                },
+                {
                     path: '/system/general_setting',
                     name: 'general_setting_view',
                     component: () => import('@/views/system/GeneralSetting.vue'),

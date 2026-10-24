@@ -258,25 +258,12 @@ function initFilters1() {
     font-weight: bold;
 }
 
-:deep(.fg-extreme-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 极度恐惧 - 柔和红 */
-}
-
-:deep(.fg-fear .p-progressbar-value) {
-    background: #bebebe !important; /* 恐惧 - 深橙 */
-}
-
-:deep(.fg-neutral .p-progressbar-value) {
-    background: #9ccc65 !important; /* 中性 - 金黄 */
-}
-
-:deep(.fg-greed .p-progressbar-value) {
-    background: var(--app-up-soft) !important; /* 贪婪 - 浅红 */
-}
-
-:deep(.fg-extreme-greed .p-progressbar-value) {
-    background: var(--app-up) !important; /* 极度贪婪 - 红 */
-}
+/* ⚠️ 这里原先有一组「恐惧贪婪进度条」分档配色（.fg-extreme-fear / .fg-fear / …），
+   但本页模板里**没有任何 ProgressBar 组件**，这些规则全是死代码；
+   而且它们的色值与行尾注释完全相反（#bebebe 标"柔和红"、#9ccc65 标"金黄"），
+   与全站 A 股口径（恐惧绿/贪婪红）也不一致。已整体删除。
+   真正用到恐惧贪婪进度条的是 StockMonitor.vue / ETFInsight.vue，
+   配色以 utils/function.js 的 FEAR_GREED_LEVELS 为唯一来源。 */
 
 :deep(.p-progressbar) {
     border-radius: 8px;

@@ -11,7 +11,7 @@ import { useNotification } from '@/composables/useNotification';
 
 const portfolios = ref([]); // 初始化为空数组，避免 v-for 报错
 const loading1 = ref(false);
-const { showSuccess, showError } = useNotification();
+const { showSuccess, showInfo, showError } = useNotification();
 
 // ---- 新增投资组合相关 ----
 const createDialogVisible = ref(false);
@@ -57,15 +57,24 @@ const platformOptions = [
 // 接口失败时退化为可手动输入，不阻塞创建流程
 const modelOptionsByPlatform = ref({});
 const modelsLoading = ref(false);
+// 同平台的并发请求合并表：platform -> Promise。守卫只能看「已完成的缓存」，
+// 挡不住同一轮里连续多次调用（那几次都还没拿到结果）—— 对上游就是多次请求。
+const modelsInflight = {};
+// 平台中文名：直接拼 platform key 会显示成「获取 baidu 模型列表失败」
+const platformLabel = (platform) => platformOptions.find((p) => p.value === platform)?.label || platform;
 const loadLlmModels = (platform) => {
     if (!platform || modelOptionsByPlatform.value[platform]) return; // 已有缓存
+    if (modelsInflight[platform]) return modelsInflight[platform];
     modelsLoading.value = true;
-    axios.get('/api/v1/llm/models', { params: { platform } })
+    const req = axios.get('/api/v1/llm/models', { params: { platform } })
         .then(response => {
             const info = (response.data || {})[platform];
             modelOptionsByPlatform.value[platform] = info?.models || [];
-            if (info?.error) {
-                showError(`获取 ${platform} 模型列表失败，可手动输入模型名称`);
+            if (info?.warning) {
+                // 旧列表兜底（上游限流/挂掉）：有值可用，只提示不报错
+                showInfo(info.warning);
+            } else if (info?.error) {
+                showError(`获取 ${platformLabel(platform)} 模型列表失败，可手动输入模型名称`);
             }
         })
         .catch(err => {
@@ -75,7 +84,10 @@ const loadLlmModels = (platform) => {
         })
         .finally(() => {
             modelsLoading.value = false;
+            delete modelsInflight[platform];
         });
+    modelsInflight[platform] = req;
+    return req;
 };
 
 // 当前平台下的可选模型
